@@ -1,0 +1,9 @@
+{
+  "apps": [
+    {
+      "name": "basic",
+      "root": "examples/basic",
+      "module": "Example.Basic"
+    }
+  ]
+}

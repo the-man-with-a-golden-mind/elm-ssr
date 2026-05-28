@@ -1,0 +1,24 @@
+{
+  "name": "elmssr",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*", "examples/*"],
+  "scripts": {
+    "build:elm": "bun run scripts/build-elm.mjs",
+    "build": "bun run build:elm",
+    "check": "bun run build && bun ./node_modules/typescript/bin/tsc --noEmit",
+    "ssr:build": "bun packages/cli/bin/elm-ssr.mjs build",
+    "ssr:new": "bun packages/cli/bin/elm-ssr.mjs new",
+    "ssr:routes": "bun packages/cli/bin/elm-ssr.mjs routes",
+    "test": "bun run build && bun test",
+    "bench": "bun run build && bun run scripts/benchmark.mjs",
+    "dev": "bun run build && ./node_modules/.bin/wrangler dev",
+    "deploy": "bun run build && ./node_modules/.bin/wrangler deploy"
+  },
+  "devDependencies": {
+    "elm": "^0.19.1-6",
+    "happy-dom": "^20.9.0",
+    "typescript": "^5.9.0",
+    "wrangler": "^4.0.0"
+  }
+}

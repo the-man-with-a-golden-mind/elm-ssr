@@ -1,0 +1,8 @@
+{
+  "name": "@elm-ssr/cli",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "elm-ssr": "./bin/elm-ssr.mjs"
+  }
+}

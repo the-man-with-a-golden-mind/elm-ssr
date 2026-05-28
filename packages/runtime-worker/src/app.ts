@@ -1,0 +1,71 @@
+import type {
+  RenderFlagsFactory,
+  RouteCatalog,
+  WorkerExecutionContext,
+  WorkerHandler
+} from "./http";
+import {
+  composeMiddleware,
+  errorMiddleware,
+  headMiddleware,
+  loggingMiddleware,
+  requestIdMiddleware,
+  timingMiddleware
+} from "./middleware";
+import { type EffectRunner } from "./effects";
+import { createRequestHandler } from "./request-handler";
+import { type CompiledElmModule } from "./render";
+
+export interface IslandAsset {
+  module: string;
+  source: string;
+}
+
+export interface WorkerAppOptions {
+  elmModule: CompiledElmModule;
+  islands?: Record<string, IslandAsset>;
+  stylesheet: string;
+  routes: RouteCatalog;
+  createFlags: RenderFlagsFactory;
+  effects?: EffectRunner;
+  log?: (entry: string) => void;
+}
+
+export const createWorkerApp = ({
+  elmModule,
+  islands,
+  stylesheet,
+  routes,
+  createFlags,
+  effects,
+  log
+}: WorkerAppOptions): WorkerHandler => {
+  const handler = createRequestHandler({
+    elmModule,
+    islands,
+    stylesheet,
+    routes,
+    createFlags,
+    effects
+  });
+
+  const appHandler = composeMiddleware(handler, [
+    errorMiddleware,
+    requestIdMiddleware,
+    timingMiddleware,
+    loggingMiddleware(log),
+    headMiddleware
+  ]);
+
+  return {
+    fetch(request: Request, _env?: unknown, executionCtx?: WorkerExecutionContext) {
+      return appHandler({
+        request,
+        url: new URL(request.url),
+        requestId: "",
+        startedAt: performance.now(),
+        executionCtx
+      });
+    }
+  };
+};
