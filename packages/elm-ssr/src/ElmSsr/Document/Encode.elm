@@ -25,32 +25,27 @@ encode document =
 
 encodeNode : List Int -> Node msg -> Encode.Value
 encodeNode path node =
-    Encode.object (nodeFields path node)
-
-
-nodeFields : List Int -> Node msg -> List ( String, Encode.Value )
-nodeFields path node =
     case node of
         Element tag attributes children ->
-            [ ( "kind", Encode.string "element" )
-            , ( "tag", Encode.string tag )
-            , ( "attrs", Encode.list identity (List.map (encodeAttribute path) attributes) )
-            , ( "children", Encode.list identity (List.indexedMap (\index child -> encodeNode (path ++ [ index ]) child) children) )
-            ]
+            Encode.object
+                [ ( "kind", Encode.string "element" )
+                , ( "tag", Encode.string tag )
+                , ( "attrs", Encode.list identity (List.map (encodeAttribute path) attributes) )
+                , ( "children", Encode.list identity (List.indexedMap (\index child -> encodeNode (path ++ [ index ]) child) children) )
+                ]
 
         VoidElement tag attributes ->
-            [ ( "kind", Encode.string "void" )
-            , ( "tag", Encode.string tag )
-            , ( "attrs", Encode.list identity (List.map (encodeAttribute path) attributes) )
-            ]
+            Encode.object
+                [ ( "kind", Encode.string "void" )
+                , ( "tag", Encode.string tag )
+                , ( "attrs", Encode.list identity (List.map (encodeAttribute path) attributes) )
+                ]
 
         Text content ->
-            [ ( "kind", Encode.string "text" )
-            , ( "text", Encode.string content )
-            ]
-
-        Keyed key keyedNode ->
-            ( "key", Encode.string key ) :: nodeFields path keyedNode
+            Encode.object
+                [ ( "kind", Encode.string "text" )
+                , ( "text", Encode.string content )
+                ]
 
 
 encodeAttribute : List Int -> Attribute msg -> Encode.Value

@@ -1,12 +1,12 @@
 module ElmSsr.Svg exposing
     ( Svg
-    , svg, a, circle, clipPath, defs, desc, ellipse, feBlend, feColorMatrix, feComponentTransfer, feComposite, feConvolveMatrix, feDiffuseLighting, feDisplacementMap, feDistantLight, feFlood, feFuncA, feFuncB, feFuncG, feFuncR, feGaussianBlur, feImage, feMerge, feMergeNode, feMorphology, feOffset, fePointLight, feSpecularLighting, feSpotLight, feTile, feTurbulence, filter, foreignObject, g, image, line, linearGradient, marker, mask, metadata, mpath, path, pattern, polygon, polyline, radialGradient, rect, stop, switch, symbol, text, textPath, title, tspan, use, view
+    , svg, a, circle, clipPath, defs, desc, ellipse, feBlend, feColorMatrix, feComponentTransfer, feComposite, feConvolveMatrix, feDiffuseLighting, feDisplacementMap, feDistantLight, feFlood, feFuncA, feFuncB, feFuncG, feFuncR, feGaussianBlur, feImage, feMerge, feMergeNode, feMorphology, feOffset, fePointLight, feSpecularLighting, feSpotLight, feTile, feTurbulence, filter, foreignObject, g, image, line, linearGradient, marker, mask, metadata, mpath, path, pattern, polygon, polyline, radialGradient, rect, stop, switch, symbol, text, text_, textPath, title, tspan, use, view
     )
 
 {-| SVG elements for ElmSsr. Mirrors `elm/svg`.
 
 @docs Svg
-@docs svg, a, circle, clipPath, defs, desc, ellipse, feBlend, feColorMatrix, feComponentTransfer, feComposite, feConvolveMatrix, feDiffuseLighting, feDisplacementMap, feDistantLight, feFlood, feFuncA, feFuncB, feFuncG, feFuncR, feGaussianBlur, feImage, feMerge, feMergeNode, feMorphology, feOffset, fePointLight, feSpecularLighting, feSpotLight, feTile, feTurbulence, filter, foreignObject, g, image, line, linearGradient, marker, mask, metadata, mpath, path, pattern, polygon, polyline, radialGradient, rect, stop, switch, symbol, text, textPath, title, tspan, use, view
+@docs svg, a, circle, clipPath, defs, desc, ellipse, feBlend, feColorMatrix, feComponentTransfer, feComposite, feConvolveMatrix, feDiffuseLighting, feDisplacementMap, feDistantLight, feFlood, feFuncA, feFuncB, feFuncG, feFuncR, feGaussianBlur, feImage, feMerge, feMergeNode, feMorphology, feOffset, fePointLight, feSpecularLighting, feSpotLight, feTile, feTurbulence, filter, foreignObject, g, image, line, linearGradient, marker, mask, metadata, mpath, path, pattern, polygon, polyline, radialGradient, rect, stop, switch, symbol, text, text_, textPath, title, tspan, use, view
 -}
 
 import ElmSsr.Html as Html exposing (Attribute, Node)
@@ -272,8 +272,15 @@ symbol =
     element "symbol"
 
 
-text : List (Attribute msg) -> List (Svg msg) -> Svg msg
+{-| A text node, e.g. the content of a `<text>` element. Mirrors `Svg.text`. -}
+text : String -> Svg msg
 text =
+    Html.text
+
+
+{-| The `<text>` element. Mirrors `Svg.text_`. -}
+text_ : List (Attribute msg) -> List (Svg msg) -> Svg msg
+text_ =
     element "text"
 
 

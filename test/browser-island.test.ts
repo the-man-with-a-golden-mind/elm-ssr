@@ -108,7 +108,7 @@ afterEach(() => {
 
 describe("Browser.element islands", () => {
   it("mounts the counter island and updates via normal Elm DOM events", async () => {
-    const runtime = await loadRuntime("../generated/examples/basic/islands/Counter.mjs");
+    const runtime = await loadRuntime("../generated/examples/basic/islands.mjs");
     const root = mountIsland(
       runtime,
       "Example.Basic.Islands.Counter",
@@ -125,7 +125,7 @@ describe("Browser.element islands", () => {
   });
 
   it("keeps Browser.element state isolated per mounted island", async () => {
-    const runtime = await loadRuntime("../generated/examples/basic/islands/Counter.mjs");
+    const runtime = await loadRuntime("../generated/examples/basic/islands.mjs");
     const alice = mountIsland(
       runtime,
       "Example.Basic.Islands.Counter",
@@ -149,7 +149,7 @@ describe("Browser.element islands", () => {
   });
 
   it("uses native Html.Keyed reconciliation in the tasks island", async () => {
-    const runtime = await loadRuntime("../generated/examples/basic/islands/Tasks.mjs");
+    const runtime = await loadRuntime("../generated/examples/basic/islands.mjs");
     const root = mountIsland(
       runtime,
       "Example.Basic.Islands.Tasks",

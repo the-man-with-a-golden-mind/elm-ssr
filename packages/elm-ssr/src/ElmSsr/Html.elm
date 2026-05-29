@@ -44,7 +44,6 @@ type Node msg
     = Element String (List (Attribute msg)) (List (Node msg))
     | VoidElement String (List (Attribute msg))
     | Text String
-    | Keyed String (Node msg)
 
 
 type Attribute msg
@@ -79,9 +78,6 @@ mapNode fn node =
         Text content ->
             Text content
 
-        Keyed key keyedNode ->
-            Keyed key (mapNode fn keyedNode)
-
 
 mapAttribute : (a -> b) -> Attribute a -> Attribute b
 mapAttribute fn attribute =
@@ -110,9 +106,6 @@ static node =
         Text content ->
             Text content
 
-        Keyed key keyedNode ->
-            Keyed key (static keyedNode)
-
 
 staticAttribute : Attribute a -> Maybe (Attribute b)
 staticAttribute attribute =
@@ -136,9 +129,6 @@ hasIsland node =
 
         Text _ ->
             False
-
-        Keyed _ keyedNode ->
-            hasIsland keyedNode
 
 
 {-| Check if any node in a list contains an island marker. -}

@@ -18,20 +18,17 @@ export interface SsrElementNode {
   tag: string;
   attrs: SsrAttribute[];
   children: SsrNode[];
-  key?: string;
 }
 
 export interface SsrVoidNode {
   kind: "void";
   tag: string;
   attrs: SsrAttribute[];
-  key?: string;
 }
 
 export interface SsrTextNode {
   kind: "text";
   text: string;
-  key?: string;
 }
 
 export type SsrNode = SsrElementNode | SsrVoidNode | SsrTextNode;
@@ -65,10 +62,6 @@ const isAttribute = (value: unknown): value is SsrAttribute => {
 
 const isNode = (value: unknown): value is SsrNode => {
   if (!isRecord(value) || typeof value.kind !== "string") {
-    return false;
-  }
-
-  if (value.key !== undefined && typeof value.key !== "string") {
     return false;
   }
 

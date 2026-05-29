@@ -1,12 +1,12 @@
 module ElmSsr.Svg.Attributes exposing
     ( attr
-    , accentHeight, accumulate, additive, alignmentBaseline, alphabetic, amplitude, arabicForm, ascent, attributeName, attributeType, azimuth, baseFrequency, baseProfile, bbox, begin, bias, by, calcMode, capHeight, class, clipPath, clipPathUnits, clipRule, colorInterpolation, colorInterpolationFilters, colorProfile, colorRendering, contentScriptType, contentStyleType, cursor, cx, cy, d, decode, diffuseConstant, direction, display, divisor, dominantBaseline, dur, dx, dy, edgeMode, elevation, enableBackground, end, exponent, externalResourcesRequired, fill, fillOpacity, fillRule, filter, filterRes, filterUnits, floodColor, floodOpacity, fontFamily, fontSize, fontSizeAdjust, fontStretch, fontStyle, fontVariant, fontWeight, format, from, fx, fy, g1, g2, glyphName, glyphOrientationHorizontal, glyphOrientationVertical, glyphRef, gradientTransform, gradientUnits, hanging, height, horizAdvX, horizOriginX, id, ideographic, imageRendering, in_, in2, intercept, k, k1, k2, k3, k4, kernelMatrix, kernelUnitLength, kerning, keyPoints, keySplines, keyTimes, lang, lengthAdjust, letterSpacing, lightingColor, limitingConeAngle, local, markerEnd, markerHeight, markerMid, markerStart, markerUnits, markerWidth, mask, maskContentUnits, maskUnits, mathematical, max, media, method, min, mode, name, numOctaves, offset, opacity, operator, order, orient, orientation, origin, overflow, overlinePosition, overlineThickness, panose1, pathLength, patternContentUnits, patternTransform, patternUnits, pointerEvents, points, pointsAtX, pointsAtY, pointsAtZ, preserveAlpha, preserveAspectRatio, primitiveUnits, r, radius, refX, refY, renderingOrder, repeatable, repeatCount, repeatDur, restart, result, rotate, rx, ry, scale, seed, shapeRendering, slope, spacing, specularConstant, specularExponent, speed, spreadMethod, startOffset, stdDeviation, stemh, stemv, stitchTiles, stopColor, stopOpacity, strikethroughPosition, strikethroughThickness, string, stroke, strokeDasharray, stop_color, stop_opacity, stroke_dasharray, strokeDashoffset, strokeLinecap, strokeLinejoin, strokeMiterlimit, strokeOpacity, strokeWidth, style, surfaceScale, systemLanguage, tableValues, target, targetX, targetY, textAnchor, textDecoration, textLength, textRendering, title, to, transform, type_, u1, u2, underlinePosition, underlineThickness, unicode, unicodeBidi, unicodeRange, unitsPerEm, vAlphabetic, vHanging, vIdeographic, vMathematical, values, version, vertAdvY, vertOriginX, vertOriginY, viewBox, viewTarget, visibility, width, widths, wordSpacing, writingMode, x, x1, x2, xChannelSelector, xHeight, xlinkActuate, xlinkArcrole, xlinkHref, xlinkRole, xlinkShow, xlinkTitle, xlinkType, xmlBase, xmlLang, xmlSpace, y, y1, y2, yChannelSelector, z, zoomAndPan
+    , accentHeight, accumulate, additive, alignmentBaseline, alphabetic, amplitude, arabicForm, ascent, attributeName, attributeType, azimuth, baseFrequency, baseProfile, bbox, begin, bias, by, calcMode, capHeight, class, clipPath, clipPathUnits, clipRule, colorInterpolation, colorInterpolationFilters, colorProfile, colorRendering, contentScriptType, contentStyleType, cursor, cx, cy, d, diffuseConstant, direction, display, divisor, dominantBaseline, dur, dx, dy, edgeMode, elevation, enableBackground, end, exponent, externalResourcesRequired, fill, fillOpacity, fillRule, filter, filterRes, filterUnits, floodColor, floodOpacity, fontFamily, fontSize, fontSizeAdjust, fontStretch, fontStyle, fontVariant, fontWeight, format, from, fx, fy, g1, g2, glyphName, glyphOrientationHorizontal, glyphOrientationVertical, glyphRef, gradientTransform, gradientUnits, hanging, height, horizAdvX, horizOriginX, id, ideographic, imageRendering, in_, in2, intercept, k, k1, k2, k3, k4, kernelMatrix, kernelUnitLength, kerning, keyPoints, keySplines, keyTimes, lang, lengthAdjust, letterSpacing, lightingColor, limitingConeAngle, local, markerEnd, markerHeight, markerMid, markerStart, markerUnits, markerWidth, mask, maskContentUnits, maskUnits, mathematical, max, media, method, min, mode, name, numOctaves, offset, opacity, operator, order, orient, orientation, origin, overflow, overlinePosition, overlineThickness, panose1, pathLength, patternContentUnits, patternTransform, patternUnits, pointerEvents, points, pointsAtX, pointsAtY, pointsAtZ, preserveAlpha, preserveAspectRatio, primitiveUnits, r, radius, refX, refY, repeatCount, repeatDur, restart, result, rotate, rx, ry, scale, seed, shapeRendering, slope, spacing, specularConstant, specularExponent, speed, spreadMethod, startOffset, stdDeviation, stemh, stemv, stitchTiles, stopColor, stopOpacity, strikethroughPosition, strikethroughThickness, stroke, strokeDasharray, strokeDashoffset, strokeLinecap, strokeLinejoin, strokeMiterlimit, strokeOpacity, strokeWidth, style, surfaceScale, systemLanguage, tableValues, target, targetX, targetY, textAnchor, textDecoration, textLength, textRendering, title, to, transform, type_, u1, u2, underlinePosition, underlineThickness, unicode, unicodeBidi, unicodeRange, unitsPerEm, vAlphabetic, vHanging, vIdeographic, vMathematical, values, version, vertAdvY, vertOriginX, vertOriginY, viewBox, viewTarget, visibility, width, widths, wordSpacing, writingMode, x, x1, x2, xChannelSelector, xHeight, xlinkActuate, xlinkArcrole, xlinkHref, xlinkRole, xlinkShow, xlinkTitle, xlinkType, xmlBase, xmlLang, xmlSpace, y, y1, y2, yChannelSelector, z, zoomAndPan
     )
 
 {-| SVG attributes for ElmSsr. Mirrors `elm/svg`.
 
 @docs attr
-@docs accentHeight, accumulate, additive, alignmentBaseline, alphabetic, amplitude, arabicForm, ascent, attributeName, attributeType, azimuth, baseFrequency, baseProfile, bbox, begin, bias, by, calcMode, capHeight, class, clipPath, clipPathUnits, clipRule, colorInterpolation, colorInterpolationFilters, colorProfile, colorRendering, contentScriptType, contentStyleType, cursor, cx, cy, d, decode, diffuseConstant, direction, display, divisor, dominantBaseline, dur, dx, dy, edgeMode, elevation, enableBackground, end, exponent, externalResourcesRequired, fill, fillOpacity, fillRule, filter, filterRes, filterUnits, floodColor, floodOpacity, fontFamily, fontSize, fontSizeAdjust, fontStretch, fontStyle, fontVariant, fontWeight, format, from, fx, fy, g1, g2, glyphName, glyphOrientationHorizontal, glyphOrientationVertical, glyphRef, gradientTransform, gradientUnits, hanging, height, horizAdvX, horizOriginX, id, ideographic, imageRendering, in_, in2, intercept, k, k1, k2, k3, k4, kernelMatrix, kernelUnitLength, kerning, keyPoints, keySplines, keyTimes, lang, lengthAdjust, letterSpacing, lightingColor, limitingConeAngle, local, markerEnd, markerHeight, markerMid, markerStart, markerUnits, markerWidth, mask, maskContentUnits, maskUnits, mathematical, max, media, method, min, mode, name, numOctaves, offset, opacity, operator, order, orient, orientation, origin, overflow, overlinePosition, overlineThickness, panose1, pathLength, patternContentUnits, patternTransform, patternUnits, pointerEvents, points, pointsAtX, pointsAtY, pointsAtZ, preserveAlpha, preserveAspectRatio, primitiveUnits, r, radius, refX, refY, renderingOrder, repeatable, repeatCount, repeatDur, restart, result, rotate, rx, ry, scale, seed, shapeRendering, slope, spacing, specularConstant, specularExponent, speed, spreadMethod, startOffset, stdDeviation, stemh, stemv, stitchTiles, stopColor, stopOpacity, strikethroughPosition, strikethroughThickness, string, stroke, strokeDasharray, stop_color, stop_opacity, stroke_dasharray, strokeDashoffset, strokeLinecap, strokeLinejoin, strokeMiterlimit, strokeOpacity, strokeWidth, style, surfaceScale, systemLanguage, tableValues, target, targetX, targetY, textAnchor, textDecoration, textLength, textRendering, title, to, transform, type_, u1, u2, underlinePosition, underlineThickness, unicode, unicodeBidi, unicodeRange, unitsPerEm, vAlphabetic, vHanging, vIdeographic, vMathematical, values, version, vertAdvY, vertOriginX, vertOriginY, viewBox, viewTarget, visibility, width, widths, wordSpacing, writingMode, x, x1, x2, xChannelSelector, xHeight, xlinkActuate, xlinkArcrole, xlinkHref, xlinkRole, xlinkShow, xlinkTitle, xlinkType, xmlBase, xmlLang, xmlSpace, y, y1, y2, yChannelSelector, z, zoomAndPan
+@docs accentHeight, accumulate, additive, alignmentBaseline, alphabetic, amplitude, arabicForm, ascent, attributeName, attributeType, azimuth, baseFrequency, baseProfile, bbox, begin, bias, by, calcMode, capHeight, class, clipPath, clipPathUnits, clipRule, colorInterpolation, colorInterpolationFilters, colorProfile, colorRendering, contentScriptType, contentStyleType, cursor, cx, cy, d, diffuseConstant, direction, display, divisor, dominantBaseline, dur, dx, dy, edgeMode, elevation, enableBackground, end, exponent, externalResourcesRequired, fill, fillOpacity, fillRule, filter, filterRes, filterUnits, floodColor, floodOpacity, fontFamily, fontSize, fontSizeAdjust, fontStretch, fontStyle, fontVariant, fontWeight, format, from, fx, fy, g1, g2, glyphName, glyphOrientationHorizontal, glyphOrientationVertical, glyphRef, gradientTransform, gradientUnits, hanging, height, horizAdvX, horizOriginX, id, ideographic, imageRendering, in_, in2, intercept, k, k1, k2, k3, k4, kernelMatrix, kernelUnitLength, kerning, keyPoints, keySplines, keyTimes, lang, lengthAdjust, letterSpacing, lightingColor, limitingConeAngle, local, markerEnd, markerHeight, markerMid, markerStart, markerUnits, markerWidth, mask, maskContentUnits, maskUnits, mathematical, max, media, method, min, mode, name, numOctaves, offset, opacity, operator, order, orient, orientation, origin, overflow, overlinePosition, overlineThickness, panose1, pathLength, patternContentUnits, patternTransform, patternUnits, pointerEvents, points, pointsAtX, pointsAtY, pointsAtZ, preserveAlpha, preserveAspectRatio, primitiveUnits, r, radius, refX, refY, repeatCount, repeatDur, restart, result, rotate, rx, ry, scale, seed, shapeRendering, slope, spacing, specularConstant, specularExponent, speed, spreadMethod, startOffset, stdDeviation, stemh, stemv, stitchTiles, stopColor, stopOpacity, strikethroughPosition, strikethroughThickness, stroke, strokeDasharray, strokeDashoffset, strokeLinecap, strokeLinejoin, strokeMiterlimit, strokeOpacity, strokeWidth, style, surfaceScale, systemLanguage, tableValues, target, targetX, targetY, textAnchor, textDecoration, textLength, textRendering, title, to, transform, type_, u1, u2, underlinePosition, underlineThickness, unicode, unicodeBidi, unicodeRange, unitsPerEm, vAlphabetic, vHanging, vIdeographic, vMathematical, values, version, vertAdvY, vertOriginX, vertOriginY, viewBox, viewTarget, visibility, width, widths, wordSpacing, writingMode, x, x1, x2, xChannelSelector, xHeight, xlinkActuate, xlinkArcrole, xlinkHref, xlinkRole, xlinkShow, xlinkTitle, xlinkType, xmlBase, xmlLang, xmlSpace, y, y1, y2, yChannelSelector, z, zoomAndPan
 -}
 
 import ElmSsr.Html exposing (Attribute(..))
@@ -181,11 +181,6 @@ cy =
 d : String -> Attribute msg
 d =
     attr "d"
-
-
-decode : String -> Attribute msg
-decode =
-    attr "decode"
 
 
 diffuseConstant : String -> Attribute msg
@@ -748,16 +743,6 @@ refY =
     attr "refY"
 
 
-renderingOrder : String -> Attribute msg
-renderingOrder =
-    attr "rendering-order"
-
-
-repeatable : String -> Attribute msg
-repeatable =
-    attr "repeatable"
-
-
 repeatCount : String -> Attribute msg
 repeatCount =
     attr "repeatCount"
@@ -883,11 +868,6 @@ strikethroughThickness =
     attr "strikethrough-thickness"
 
 
-string : String -> Attribute msg
-string =
-    attr "string"
-
-
 stroke : String -> Attribute msg
 stroke =
     attr "stroke"
@@ -895,21 +875,6 @@ stroke =
 
 strokeDasharray : String -> Attribute msg
 strokeDasharray =
-    attr "stroke-dasharray"
-
-
-stop_color : String -> Attribute msg
-stop_color =
-    attr "stop-color"
-
-
-stop_opacity : String -> Attribute msg
-stop_opacity =
-    attr "stop-opacity"
-
-
-stroke_dasharray : String -> Attribute msg
-stroke_dasharray =
     attr "stroke-dasharray"
 
 

@@ -63,7 +63,7 @@ getNode path nodes =
             Nothing
 
         index :: rest ->
-            case List.drop index nodes |> List.head |> Maybe.map unwrapKeyed of
+            case List.drop index nodes |> List.head of
                 Just node ->
                     if List.isEmpty rest then
                         Just node
@@ -79,21 +79,8 @@ getNode path nodes =
                             Text _ ->
                                 Nothing
 
-                            Keyed _ _ ->
-                                Nothing
-
                 Nothing ->
                     Nothing
-
-
-unwrapKeyed : Node msg -> Node msg
-unwrapKeyed node =
-    case node of
-        Keyed _ inner ->
-            unwrapKeyed inner
-
-        _ ->
-            node
 
 
 findMessageOnNode : EventRef -> Node msg -> Maybe msg
@@ -107,9 +94,6 @@ findMessageOnNode eventRef node =
 
         Text _ ->
             Nothing
-
-        Keyed _ inner ->
-            findMessageOnNode eventRef inner
 
 
 findMessageOnAttributes : EventRef -> List (Attribute msg) -> Maybe msg

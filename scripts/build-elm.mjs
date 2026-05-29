@@ -211,7 +211,7 @@ main =
 `;
 };
 
-const generateIslandsManifestModule = (islands, bundleSource) => {
+const generateIslandsManifestModule = (islands) => {
   if (islands.length === 0) {
     return "export const islands = {};\nexport const bundleSource = \"\";\n";
   }
@@ -294,6 +294,8 @@ for (const appConfig of config.apps) {
 
   await rm(resolve(wrapperDir, "Generated"), { recursive: true, force: true });
   await rm(resolve(wrapperDir, "Islands.elm"), { force: true });
+  // Legacy per-island bundles are no longer emitted (one combined bundle now).
+  await rm(resolve(outputDir, "islands"), { recursive: true, force: true });
 
   await writeFile(resolve(wrapperDir, "Main.elm"), generateMain(routes), "utf8");
 
