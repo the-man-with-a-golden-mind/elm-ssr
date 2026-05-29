@@ -2,6 +2,7 @@ module ElmSsr.Route exposing
     ( Request
     , segments, method, query
     , param, params
+    , formValue
     , decoder
     )
 

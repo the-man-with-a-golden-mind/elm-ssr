@@ -13,7 +13,10 @@ import ElmSsr.Island.Shared as SharedBus
 import Html exposing (Html, div, h3, p, span, text)
 import Html.Attributes as HtmlAttr exposing (class)
 import Html.Events exposing (onClick)
+import Http
+import Json.Decode as Decode
 import Json.Encode as Encode
+import Time
 
 
 type alias Coin =
@@ -37,6 +40,8 @@ type alias Model =
 
 type Msg
     = SelectCoin String
+    | Refresh
+    | GotCoins (Result Http.Error (List Coin))
 
 
 embed : Flags -> SsrHtml.Node msg
@@ -92,7 +97,8 @@ main =
 
 init : Flags -> ( Model, Cmd Msg )
 init flags =
-    ( { coins = flags.coins, selectedId = "bitcoin" }, Cmd.none )
+    -- Flags carry the server-rendered snapshot; refresh live from the client.
+    ( { coins = flags.coins, selectedId = "bitcoin" }, fetchMarkets )
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -103,10 +109,44 @@ update msg model =
             , SharedBus.broadcast "coin-selected" (Encode.string id)
             )
 
+        Refresh ->
+            ( model, fetchMarkets )
+
+        GotCoins (Ok coins) ->
+            ( { model | coins = coins }, Cmd.none )
+
+        GotCoins (Err _) ->
+            ( model, Cmd.none )
+
 
 subscriptions : Model -> Sub Msg
 subscriptions _ =
-    Sub.none
+    Time.every 15000 (\_ -> Refresh)
+
+
+fetchMarkets : Cmd Msg
+fetchMarkets =
+    Http.get
+        { url = marketsUrl
+        , expect = Http.expectJson GotCoins marketDecoder
+        }
+
+
+marketsUrl : String
+marketsUrl =
+    "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=bitcoin,ethereum,cardano,solana&order=market_cap_desc"
+
+
+marketDecoder : Decode.Decoder (List Coin)
+marketDecoder =
+    Decode.list
+        (Decode.map5 Coin
+            (Decode.field "id" Decode.string)
+            (Decode.field "symbol" Decode.string)
+            (Decode.field "name" Decode.string)
+            (Decode.field "current_price" Decode.float)
+            (Decode.field "price_change_percentage_24h" Decode.float)
+        )
 
 
 view : Model -> Html Msg

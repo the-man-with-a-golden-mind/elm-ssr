@@ -1,4 +1,4 @@
-import { defaultEffectRunner, normalizeEffect, type EffectRunner } from "./effects";
+import { defaultEffectRunner, normalizeEffect, type EffectContext, type EffectRunner } from "./effects";
 import { assertDocument, type SsrDocument } from "./protocol";
 
 export interface ElmPorts {
@@ -35,6 +35,7 @@ export interface RenderedDocument {
 
 export interface RenderOptions {
   effects?: EffectRunner;
+  effectContext?: EffectContext;
   timeoutMs?: number;
 }
 
@@ -52,6 +53,7 @@ export const renderApp = async (
   options: RenderOptions = {}
 ): Promise<RenderedDocument> => {
   const runEffect = options.effects ?? defaultEffectRunner;
+  const effectContext = options.effectContext ?? {};
   const timeoutMs = options.timeoutMs ?? 5000;
 
   const payload = await new Promise<unknown>((resolve, reject) => {
@@ -65,7 +67,7 @@ export const renderApp = async (
 
     app.ports.effectRequest.subscribe((request: unknown) => {
       void Promise.resolve()
-        .then(() => runEffect(normalizeEffect(request)))
+        .then(() => runEffect(normalizeEffect(request), effectContext))
         .then((result) => app.ports.effectResult.send(result))
         .catch((error: unknown) => app.ports.effectResult.send({ ok: false, error: String(error) }));
     });

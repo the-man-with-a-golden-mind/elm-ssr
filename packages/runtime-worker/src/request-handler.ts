@@ -155,7 +155,14 @@ export const createRequestHandler = ({
       }
 
       const flags = await createFlagsFromContext(context, targetPath, createFlags);
-      const rendered = await renderApp(elmModule, flags, { effects });
+      const rendered = await renderApp(elmModule, flags, {
+        effects,
+        effectContext: {
+          env: context.env,
+          request: context.request,
+          waitUntil: context.executionCtx ? (promise) => context.executionCtx?.waitUntil(promise) : undefined
+        }
+      });
 
       if (rendered.redirect) {
         return json({ redirect: rendered.redirect }, { status: 200, headers: jsonHeaders });
@@ -176,7 +183,10 @@ export const createRequestHandler = ({
     }
 
     const flags = await createFlagsFromContext(context, context.url.pathname + context.url.search, createFlags);
-    const rendered = await renderApp(elmModule, flags, { effects });
+    const rendered = await renderApp(elmModule, flags, {
+      effects,
+      effectContext: { env: context.env, request: context.request }
+    });
 
     if (rendered.redirect) {
       return new Response(null, {

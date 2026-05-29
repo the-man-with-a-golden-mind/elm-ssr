@@ -3,6 +3,10 @@ module ElmSsr.Loader exposing
     , succeed, fail
     , map, map2, andThen
     , fetchJson
+    , cacheGet, cachePut
+    , query, queryOne, execute
+    , env
+    , enqueue
     , Effect, Step(..), step, encodeEffect
     )
 
@@ -22,7 +26,11 @@ fully typed end to end.
 @docs Loader
 @docs succeed, fail
 @docs map, map2, andThen
-@docs fetchJson, kvGet, kvPut, getCookie, d1Query, d1First, d1Exec
+@docs fetchJson
+@docs cacheGet, cachePut
+@docs query, queryOne, execute
+@docs env
+@docs enqueue
 
 
 # Runtime interpretation
@@ -127,112 +135,97 @@ fetchJson config =
         (\result -> resumeFetchJson config.decoder result)
 
 
-{-| Read a value from Cloudflare KV. -}
-kvGet : { namespace : String, key : String, decoder : Decoder a } -> Loader a
-kvGet config =
+{-| Read a value from the cache, or `Nothing` on a miss. Backend-neutral: the
+runner maps it to Cloudflare KV, Redis locally, etc. -}
+cacheGet : { key : String, decoder : Decoder a } -> Loader (Maybe a)
+cacheGet config =
     Pending
-        { kind = "kvGet"
-        , payload =
-            Encode.object
-                [ ( "namespace", Encode.string config.namespace )
-                , ( "key", Encode.string config.key )
-                ]
-        }
-        (\result -> resumeFetchJson config.decoder result)
-
-
-{-| Write a value to Cloudflare KV. -}
-kvPut : { namespace : String, key : String, value : Encode.Value } -> Loader ()
-kvPut config =
-    Pending
-        { kind = "kvPut"
-        , payload =
-            Encode.object
-                [ ( "namespace", Encode.string config.namespace )
-                , ( "key", Encode.string config.key )
-                , ( "value", config.value )
-                ]
-        }
-        (\_ -> Done ())
-
-
-{-| Read a cookie by name. -}
-getCookie : String -> Loader (Maybe String)
-getCookie name =
-    Pending
-        { kind = "getCookie"
-        , payload = Encode.object [ ( "name", Encode.string name ) ]
-        }
-        (\result ->
-            case Decode.decodeValue (Decode.field "value" (Decode.nullable Decode.string)) result of
-                Ok val ->
-                    Done val
-
-                Err _ ->
-                    Failed 500 "Failed to decode cookie result"
-        )
-
-
-{-| Query modes for D1. -}
-type D1Mode
-    = D1All
-    | D1First
-    | D1Run
-
-
-{-| Query a Cloudflare D1 database. -}
-d1Query : { database : String, sql : String, params : List Encode.Value, decoder : Decoder a } -> Loader (List a)
-d1Query config =
-    Pending
-        { kind = "d1Query"
-        , payload =
-            Encode.object
-                [ ( "database", Encode.string config.database )
-                , ( "sql", Encode.string config.sql )
-                , ( "params", Encode.list identity config.params )
-                , ( "mode", Encode.string "all" )
-                ]
-        }
-        (\result -> resumeFetchJson (Decode.list config.decoder) result)
-
-
-{-| Query a Cloudflare D1 database and return only the first row. -}
-d1First : { database : String, sql : String, params : List Encode.Value, decoder : Decoder a } -> Loader (Maybe a)
-d1First config =
-    Pending
-        { kind = "d1Query"
-        , payload =
-            Encode.object
-                [ ( "database", Encode.string config.database )
-                , ( "sql", Encode.string config.sql )
-                , ( "params", Encode.list identity config.params )
-                , ( "mode", Encode.string "first" )
-                ]
+        { kind = "cacheGet"
+        , payload = Encode.object [ ( "key", Encode.string config.key ) ]
         }
         (\result -> resumeFetchJson (Decode.nullable config.decoder) result)
 
 
-{-| Execute a statement on D1 (e.g. INSERT, UPDATE) and return the result metadata. -}
-d1Exec : { database : String, sql : String, params : List Encode.Value } -> Loader { success : Bool, changes : Int }
-d1Exec config =
+{-| Write a value to the cache, with an optional TTL in seconds. -}
+cachePut : { key : String, value : Encode.Value, ttlSeconds : Maybe Int } -> Loader ()
+cachePut config =
+    let
+        fields =
+            [ ( "key", Encode.string config.key ), ( "value", config.value ) ]
+                ++ (case config.ttlSeconds of
+                        Just ttl ->
+                            [ ( "ttlSeconds", Encode.int ttl ) ]
+
+                        Nothing ->
+                            []
+                   )
+    in
     Pending
-        { kind = "d1Query"
-        , payload =
-            Encode.object
-                [ ( "database", Encode.string config.database )
-                , ( "sql", Encode.string config.sql )
-                , ( "params", Encode.list identity config.params )
-                , ( "mode", Encode.string "run" )
-                ]
-        }
+        { kind = "cachePut", payload = Encode.object fields }
+        (\_ -> Done ())
+
+
+{-| Run a SQL query and decode every row. Backend-neutral: the runner maps it to
+Cloudflare D1, Postgres/SQLite locally, etc. Use `?` placeholders with `params`. -}
+query : { sql : String, params : List Encode.Value, decoder : Decoder a } -> Loader (List a)
+query config =
+    Pending
+        { kind = "query", payload = sqlPayload config.sql config.params }
+        (\result -> resumeFetchJson (Decode.list config.decoder) result)
+
+
+{-| Run a SQL query and decode only the first row, if any. -}
+queryOne : { sql : String, params : List Encode.Value, decoder : Decoder a } -> Loader (Maybe a)
+queryOne config =
+    Pending
+        { kind = "queryOne", payload = sqlPayload config.sql config.params }
+        (\result -> resumeFetchJson (Decode.nullable config.decoder) result)
+
+
+{-| Execute a statement (INSERT/UPDATE/DELETE) and return the number of rows
+affected. Typically used by an `Action` via `Action.fromLoader`. -}
+execute : { sql : String, params : List Encode.Value } -> Loader { rowsAffected : Int }
+execute config =
+    Pending
+        { kind = "execute", payload = sqlPayload config.sql config.params }
         (\result ->
             resumeFetchJson
-                (Decode.map2 (\s c -> { success = s, changes = c })
-                    (Decode.field "success" Decode.bool)
-                    (Decode.field "changes" Decode.int)
-                )
+                (Decode.map (\rows -> { rowsAffected = rows }) (Decode.field "rowsAffected" Decode.int))
                 result
         )
+
+
+{-| Read an environment variable / secret / binding name. -}
+env : String -> Loader (Maybe String)
+env name =
+    Pending
+        { kind = "env", payload = Encode.object [ ( "name", Encode.string name ) ]
+        }
+        (\result -> resumeFetchJson (Decode.nullable Decode.string) result)
+
+
+{-| Enqueue a background task to run after the response (fire-and-forget). The
+named handler lives in the Worker's task adapter; the request does not wait for
+it. Typically used from an `Action` via `Action.fromLoader`. -}
+enqueue : { task : String, payload : Encode.Value } -> Loader ()
+enqueue config =
+    Pending
+        { kind = "enqueue"
+        , payload =
+            Encode.object
+                [ ( "task", Encode.string config.task )
+                , ( "payload", config.payload )
+                ]
+        }
+        (\result -> resumeFetchJson (Decode.succeed ()) result)
+
+
+sqlPayload : String -> List Encode.Value -> Encode.Value
+sqlPayload sql params =
+    Encode.object
+        [ ( "sql", Encode.string sql )
+        , ( "params", Encode.list identity params )
+        ]
 
 
 resumeFetchJson : Decoder a -> Decode.Value -> Loader a

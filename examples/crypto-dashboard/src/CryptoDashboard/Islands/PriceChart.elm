@@ -17,6 +17,7 @@ import Json.Decode as Decode
 import Json.Encode as Encode
 import Svg exposing (Svg, svg)
 import Svg.Attributes as SvgAttr
+import Time
 
 
 embed : Flags -> SsrHtml.Node msg
@@ -47,6 +48,7 @@ type Model
 type Msg
     = GotData String (Result Http.Error (List DataPoint))
     | OnGlobalEvent SharedBus.GlobalEvent
+    | Refresh
 
 
 encodeFlags : Flags -> Encode.Value
@@ -116,10 +118,30 @@ update msg model =
             else
                 ( model, Cmd.none )
 
+        Refresh ->
+            -- Silently refetch the current coin (keep showing the last chart).
+            ( model, fetchData (currentCoin model) )
+
+
+currentCoin : Model -> String
+currentCoin model =
+    case model of
+        Loading coinId ->
+            coinId
+
+        Loaded coinId _ ->
+            coinId
+
+        Error coinId _ ->
+            coinId
+
 
 subscriptions : Model -> Sub Msg
 subscriptions _ =
-    SharedBus.listen OnGlobalEvent
+    Sub.batch
+        [ SharedBus.listen OnGlobalEvent
+        , Time.every 15000 (\_ -> Refresh)
+        ]
 
 
 view : Model -> Html Msg

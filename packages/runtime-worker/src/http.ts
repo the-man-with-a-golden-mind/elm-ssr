@@ -19,6 +19,7 @@ export interface AppContext {
   requestId: string;
   startedAt: number;
   executionCtx?: WorkerExecutionContext;
+  env?: Record<string, unknown>;
 }
 
 export interface RouteDefinition {

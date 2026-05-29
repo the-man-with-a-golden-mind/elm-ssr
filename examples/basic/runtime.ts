@@ -1,5 +1,5 @@
 import { createWorkerApp } from "../../packages/runtime-worker/src/app";
-import { defaultEffectRunner, type EffectRunner } from "../../packages/runtime-worker/src/effects";
+import { inMemoryEffects, type EffectRunner } from "../../packages/runtime-worker/src/effects";
 import { renderApp, type CompiledElmModule } from "../../packages/runtime-worker/src/render";
 import type { RouteCatalog } from "../../packages/runtime-worker/src/http";
 import { islands, bundleSource } from "../../generated/examples/basic/islands-manifest";
@@ -86,24 +86,27 @@ export const createFlags = ({ request, path, formData }: { request?: Request; ur
   };
 };
 
-// The Worker owns effect execution. Here the example serves an in-memory
-// dataset for the `app://status` URL its loader requests, and falls back to a
-// real fetch for everything else.
-export const exampleEffects: EffectRunner = async (effect) => {
-  if (effect.kind === "fetchJson" && effect.payload.url === "app://status") {
-    return {
-      ok: true,
-      value: { uptime: "99.98%", region: "edge", builds: 128 }
-    };
-  }
+export const statusFixture = { uptime: "99.98%", region: "edge", builds: 128 };
 
-  return defaultEffectRunner(effect);
-};
+// The Worker owns effect execution. Locally we use the in-memory adapter: a Map
+// cache, env values, and a fixture for the `app://status` fetch its loader uses.
+// On Cloudflare you'd swap in `cloudflareEffects()` (KV/D1/env) without touching
+// any Elm.
+export const exampleEffects: EffectRunner = inMemoryEffects({
+  env: { GREETING: "hello from the server env" },
+  fetchJson: (url) => {
+    if (url === "app://status") {
+      return statusFixture;
+    }
+
+    throw new Error(`Unexpected fetchJson url in example: ${url}`);
+  }
+});
 
 export const renderPath = async (path: string) =>
   renderApp(elmModule, createFlags({ path }), { effects: exampleEffects });
 
-export const createExampleWorker = (log?: (entry: string) => void) =>
+export const createExampleWorker = (options: { effects?: EffectRunner; log?: (entry: string) => void } = {}) =>
   createWorkerApp({
     elmModule,
     islands,
@@ -111,8 +114,8 @@ export const createExampleWorker = (log?: (entry: string) => void) =>
     stylesheet,
     routes,
     createFlags,
-    effects: exampleEffects,
-    log
+    effects: options.effects ?? exampleEffects,
+    log: options.log
   });
 
 export const worker = createExampleWorker();

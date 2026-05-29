@@ -1,4 +1,4 @@
-module Example.Basic.Routes.Status exposing (page, action)
+module Example.Basic.Routes.Status exposing (action, page)
 
 import ElmSsr.Action as Action exposing (Action)
 import ElmSsr.Document exposing (Document)
@@ -8,6 +8,7 @@ import ElmSsr.Loader as Loader exposing (Loader)
 import ElmSsr.Route exposing (Request)
 import Example.Basic.View.Shared as Shared
 import Json.Decode as Decode
+import Json.Encode as Encode
 
 
 type alias Status =
@@ -19,8 +20,29 @@ type alias Status =
 
 page : Request -> Loader (Document Never)
 page _ =
-    Loader.fetchJson { url = "app://status", decoder = decoder }
-        |> Loader.map view
+    Loader.map2 view cachedStatus (Loader.env "GREETING")
+
+
+{-| Read the status from the cache; on a miss, fetch it and populate the cache
+(with a 60s TTL). Backend-neutral: cache is KV on Cloudflare, Redis/Map locally.
+-}
+cachedStatus : Loader Status
+cachedStatus =
+    Loader.cacheGet { key = "status", decoder = decoder }
+        |> Loader.andThen
+            (\cached ->
+                case cached of
+                    Just status ->
+                        Loader.succeed status
+
+                    Nothing ->
+                        Loader.fetchJson { url = "app://status", decoder = decoder }
+                            |> Loader.andThen
+                                (\status ->
+                                    Loader.cachePut { key = "status", value = encode status, ttlSeconds = Just 60 }
+                                        |> Loader.map (\_ -> status)
+                                )
+            )
 
 
 action : Request -> Action (Document Never)
@@ -36,23 +58,33 @@ decoder =
         (Decode.field "builds" Decode.int)
 
 
-view : Status -> Document Never
-view data =
+encode : Status -> Encode.Value
+encode status =
+    Encode.object
+        [ ( "uptime", Encode.string status.uptime )
+        , ( "region", Encode.string status.region )
+        , ( "builds", Encode.int status.builds )
+        ]
+
+
+view : Status -> Maybe String -> Document Never
+view data greeting =
     Shared.pageDocument "Edge Status"
-        [ statusSection data
+        [ statusSection data greeting
         , Shared.featureSection
         ]
 
 
-statusSection : Status -> Node msg
-statusSection data =
+statusSection : Status -> Maybe String -> Node msg
+statusSection data greeting =
     section [ class "panel" ]
         [ span [ class "eyebrow" ] [ text "Loader page (server only)" ]
         , h1 [] [ text "Edge status" ]
-        , p [] [ text "This page has no Model and no Msg. A Loader fetched the data on the server, the page rendered once, and no client runtime was shipped." ]
+        , p [] [ text "This page has no Model and no Msg. A Loader read the cache (filling it from a fetch on a miss) and read an env value on the server, then rendered once with no client runtime." ]
         , ul [ class "list" ]
             [ li [] [ text ("Uptime: " ++ data.uptime) ]
             , li [] [ text ("Region: " ++ data.region) ]
             , li [] [ text ("Builds: " ++ String.fromInt data.builds) ]
+            , li [] [ text ("Env GREETING: " ++ Maybe.withDefault "—" greeting) ]
             ]
         ]

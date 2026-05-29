@@ -60,13 +60,14 @@ export const createWorkerApp = ({
   ]);
 
   return {
-    fetch(request: Request, _env?: unknown, executionCtx?: WorkerExecutionContext) {
+    fetch(request: Request, env?: unknown, executionCtx?: WorkerExecutionContext) {
       return appHandler({
         request,
         url: new URL(request.url),
         requestId: "",
         startedAt: performance.now(),
-        executionCtx
+        executionCtx,
+        env: (env ?? undefined) as Record<string, unknown> | undefined
       });
     }
   };

@@ -67,7 +67,7 @@ export const createFlags = ({ request, path, formData }: { request?: Request; ur
 };
 
 // Mock CoinGecko API for stable testing and fast builds
-export const cryptoEffects: EffectRunner = async (effect) => {
+export const cryptoEffects: EffectRunner = async (effect, context) => {
   if (effect.kind === "fetchJson" && typeof effect.payload.url === "string" && effect.payload.url.includes("api.coingecko.com")) {
     return {
       ok: true,
@@ -80,7 +80,7 @@ export const cryptoEffects: EffectRunner = async (effect) => {
     };
   }
 
-  return defaultEffectRunner(effect);
+  return defaultEffectRunner(effect, context);
 };
 
 export const renderPath = async (path: string) =>

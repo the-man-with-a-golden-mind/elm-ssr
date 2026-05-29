@@ -52,7 +52,7 @@ type alias Config =
 type State
     = AwaitingStart Request
     | LoadingPage (Decode.Value -> Loader (Document Never))
-    | PerformingAction Request
+    | PerformingAction (Decode.Value -> Action (Document Never))
     | Rendered
     | Aborted Int String
 
@@ -93,22 +93,7 @@ update config msg state =
                         advance config (config.router request)
 
                     else
-                        let
-                            actionStep =
-                                Action.step (config.action request)
-                        in
-                        case actionStep of
-                            Action.Resolved doc ->
-                                ( Rendered, render config doc )
-
-                            Action.Errored status message ->
-                                ( Aborted status message, renderError config status message )
-
-                            Action.Moved url ->
-                                ( Rendered, config.ports.rendered (Action.encodeStep (always Json.null) (Action.Moved url)) )
-
-                            Action.SentJson val ->
-                                ( Rendered, config.ports.rendered (Action.encodeStep (always Json.null) (Action.SentJson val)) )
+                        advanceAction config (config.action request)
 
                 Aborted status message ->
                     ( state, renderError config status message )
@@ -120,6 +105,9 @@ update config msg state =
             case state of
                 LoadingPage continue ->
                     advance config (continue value)
+
+                PerformingAction continue ->
+                    advanceAction config (continue value)
 
                 _ ->
                     ( state, Cmd.none )
@@ -136,6 +124,25 @@ advance config loader =
 
         Loader.Await effect continue ->
             ( LoadingPage continue, config.ports.effectRequest (Loader.encodeEffect effect) )
+
+
+advanceAction : Config -> Action (Document Never) -> ( State, Cmd Msg )
+advanceAction config action =
+    case Action.step action of
+        Action.Resolved document ->
+            ( Rendered, render config document )
+
+        Action.Errored status message ->
+            ( Aborted status message, renderError config status message )
+
+        Action.Moved url ->
+            ( Rendered, config.ports.rendered (Action.encodeStep (always Json.null) (Action.Moved url)) )
+
+        Action.SentJson value ->
+            ( Rendered, config.ports.rendered (Action.encodeStep (always Json.null) (Action.SentJson value)) )
+
+        Action.Await effect continue ->
+            ( PerformingAction continue, config.ports.effectRequest (Loader.encodeEffect effect) )
 
 
 render : Config -> Document Never -> Cmd Msg
