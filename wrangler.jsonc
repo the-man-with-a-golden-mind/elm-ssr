@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "elmssr",
-  "main": "examples/basic/worker.ts",
+  "main": "examples/crypto-dashboard/worker.ts",
   "compatibility_date": "2026-05-28",
   "compatibility_flags": ["nodejs_compat"],
   "observability": {

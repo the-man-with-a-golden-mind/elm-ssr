@@ -23,6 +23,11 @@ segments captured from a file name (e.g. `Routes/Posts/Slug_.elm` →
 @docs param, params
 
 
+# Form data
+
+@docs formValue
+
+
 # Decoding
 
 @docs decoder
@@ -42,6 +47,7 @@ type alias Request =
     , path : String
     , query : List ( String, String )
     , params : List ( String, String )
+    , formData : List ( String, String )
     }
 
 
@@ -92,6 +98,12 @@ params request =
     request.params
 
 
+{-| Look up a form value by name. -}
+formValue : String -> Request -> Maybe String
+formValue key request =
+    lookup key request.formData
+
+
 lookup : String -> List ( String, String ) -> Maybe String
 lookup key pairs =
     pairs
@@ -105,14 +117,19 @@ in by the generated router, not by the Worker, so they start empty.
 -}
 decoder : Decoder Request
 decoder =
-    Decode.map3
-        (\requestMethod path queryPairs ->
-            { method = requestMethod, path = path, query = queryPairs, params = [] }
+    Decode.map4
+        (\requestMethod path queryPairs formDataPairs ->
+            { method = requestMethod, path = path, query = queryPairs, params = [], formData = formDataPairs }
         )
         (Decode.oneOf [ Decode.field "method" Decode.string, Decode.succeed "GET" ])
         (Decode.field "path" Decode.string)
         (Decode.oneOf
             [ Decode.field "query" (Decode.keyValuePairs Decode.string)
+            , Decode.succeed []
+            ]
+        )
+        (Decode.oneOf
+            [ Decode.field "formData" (Decode.keyValuePairs Decode.string)
             , Decode.succeed []
             ]
         )

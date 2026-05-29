@@ -9,6 +9,7 @@ import Browser
 import ElmSsr.Html as SsrHtml exposing (Node)
 import ElmSsr.Html.Attributes as SsrAttributes
 import ElmSsr.Island as Island
+import ElmSsr.Island.Shared as Shared
 import Html exposing (Html, button, code, div, span, text)
 import Html.Attributes exposing (class, type_)
 import Html.Events exposing (onClick)
@@ -36,6 +37,7 @@ embed =
     Island.embed "Counter"
         { encodeFlags = encodeFlags
         , fallback = fallback
+        , id = Just "global-counter"
         }
 
 
@@ -73,13 +75,21 @@ update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         Increment ->
-            ( { model | count = model.count + 1 }, Cmd.none )
+            let
+                newCount =
+                    model.count + 1
+            in
+            ( { model | count = newCount }, Shared.broadcast "count-changed" (Encode.int newCount) )
 
         Decrement ->
-            ( { model | count = model.count - 1 }, Cmd.none )
+            let
+                newCount =
+                    model.count - 1
+            in
+            ( { model | count = newCount }, Shared.broadcast "count-changed" (Encode.int newCount) )
 
         Reset ->
-            ( { model | count = 0 }, Cmd.none )
+            ( { model | count = 0 }, Shared.broadcast "count-changed" (Encode.int 0) )
 
 
 subscriptions : Model -> Sub Msg

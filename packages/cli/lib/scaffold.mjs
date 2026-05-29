@@ -67,11 +67,12 @@ shell heading body =
     div [ class "shell" ] (h1 [] [ text heading ] :: body)
 `;
 
-const indexRouteTemplate = (namespace) => `module ${namespace}.Routes.Index exposing (page)
+const indexRouteTemplate = (namespace) => `module ${namespace}.Routes.Index exposing (page, action)
 
 -- File-based routing: this module maps to GET /.
 -- A page is stateless (no Model/Msg) and ships no client JavaScript.
 
+import ElmSsr.Action as Action exposing (Action)
 import ElmSsr.Document exposing (Document)
 import ElmSsr.Html exposing (a, p, text)
 import ElmSsr.Html.Attributes exposing (class, href)
@@ -84,6 +85,11 @@ import ${namespace}.View.Shared as Shared
 page : Request -> Loader (Document Never)
 page _ =
     Loader.succeed view
+
+
+action : Request -> Action (Document Never)
+action _ =
+    Action.fail 405 "Method not allowed"
 
 
 view : Document Never
@@ -100,12 +106,13 @@ view =
         }
 `;
 
-const counterRouteTemplate = (namespace) => `module ${namespace}.Routes.Counter exposing (page)
+const counterRouteTemplate = (namespace) => `module ${namespace}.Routes.Counter exposing (page, action)
 
 -- File-based routing: GET /counter. A static page that embeds an interactive
 -- island. The page ships no client runtime; the browser mounts the island
 -- separately, and only that root updates.
 
+import ElmSsr.Action as Action exposing (Action)
 import ElmSsr.Document exposing (Document)
 import ElmSsr.Html exposing (p, text)
 import ElmSsr.Loader as Loader exposing (Loader)
@@ -118,6 +125,11 @@ import ${namespace}.View.Shared as Shared
 page : Request -> Loader (Document Never)
 page _ =
     Loader.succeed view
+
+
+action : Request -> Action (Document Never)
+action _ =
+    Action.fail 405 "Method not allowed"
 
 
 view : Document Never
@@ -159,6 +171,7 @@ embed =
     Island.embed "Counter"
         { encodeFlags = encodeFlags
         , fallback = fallback
+        , id = Nothing
         }
 
 
@@ -226,10 +239,11 @@ view model =
         ]
 `;
 
-const notFoundRouteTemplate = (namespace) => `module ${namespace}.Routes.NotFound exposing (page)
+const notFoundRouteTemplate = (namespace) => `module ${namespace}.Routes.NotFound exposing (page, action)
 
 -- File-based routing: NotFound is the fallback when no other route matches.
 
+import ElmSsr.Action as Action exposing (Action)
 import ElmSsr.Document exposing (Document)
 import ElmSsr.Html exposing (p, text)
 import ElmSsr.Loader as Loader exposing (Loader)
@@ -241,6 +255,11 @@ import ${namespace}.View.Shared as Shared
 page : Request -> Loader (Document Never)
 page _ =
     Loader.succeed view
+
+
+action : Request -> Action (Document Never)
+action _ =
+    Action.fail 405 "Method not allowed"
 
 
 view : Document Never
@@ -255,7 +274,7 @@ view =
 const runtimeTemplate = (name) => `import { createWorkerApp } from "../../packages/runtime-worker/src/app";
 import { renderApp, type CompiledElmModule } from "../../packages/runtime-worker/src/render";
 import type { RouteCatalog } from "../../packages/runtime-worker/src/http";
-import islands from "../../generated/examples/${name}/islands-manifest";
+import { islands, bundleSource } from "../../generated/examples/${name}/islands-manifest";
 import { stylesheet } from "./styles";
 // @ts-expect-error Generated at build time.
 import ElmRuntime from "../../generated/examples/${name}/app.mjs";
@@ -287,9 +306,9 @@ export const routes: RouteCatalog = {
       description: "Island loader runtime."
     },
     {
-      path: "/__elm-ssr/islands/Counter.js",
+      path: "/__elm-ssr/islands-bundle.js",
       methods: ["GET", "HEAD"],
-      description: "Counter Browser.element island bundle."
+      description: "Shared Browser.element island bundle."
     }
   ],
   utility: [
@@ -318,13 +337,14 @@ export const routes: RouteCatalog = {
   ]
 };
 
-export const createFlags = ({ request, path }: { request?: Request; url?: URL; path: string }) => {
+export const createFlags = ({ request, path, formData }: { request?: Request; url?: URL; path: string; formData?: Record<string, string> }) => {
   const [pathname, search = ""] = path.split("?");
 
   return {
     method: request?.method ?? "GET",
     path: pathname,
-    query: Object.fromEntries(new URLSearchParams(search))
+    query: Object.fromEntries(new URLSearchParams(search)),
+    formData: formData ?? {}
   };
 };
 
@@ -334,6 +354,7 @@ export const renderPath = async (path: string) =>
 export const worker = createWorkerApp({
   elmModule,
   islands,
+  islandsBundle: bundleSource,
   stylesheet,
   routes,
   createFlags

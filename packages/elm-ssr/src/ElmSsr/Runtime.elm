@@ -20,6 +20,7 @@ ports and the file-based router to [`program`](#program).
 
 -}
 
+import ElmSsr.Action as Action exposing (Action)
 import ElmSsr.Document as Document exposing (Document)
 import ElmSsr.Document.Encode as Encode
 import ElmSsr.Loader as Loader exposing (Loader)
@@ -42,6 +43,7 @@ type alias Ports =
 {-| The file-based router plus the ports. -}
 type alias Config =
     { router : Request -> Loader (Document Never)
+    , action : Request -> Action (Document Never)
     , ports : Ports
     }
 
@@ -50,6 +52,7 @@ type alias Config =
 type State
     = AwaitingStart Request
     | LoadingPage (Decode.Value -> Loader (Document Never))
+    | PerformingAction Request
     | Rendered
     | Aborted Int String
 
@@ -86,7 +89,26 @@ update config msg state =
         StartRequested ->
             case state of
                 AwaitingStart request ->
-                    advance config (config.router request)
+                    if Route.method request == "GET" || Route.method request == "HEAD" then
+                        advance config (config.router request)
+
+                    else
+                        let
+                            actionStep =
+                                Action.step (config.action request)
+                        in
+                        case actionStep of
+                            Action.Resolved doc ->
+                                ( Rendered, render config doc )
+
+                            Action.Errored status message ->
+                                ( Aborted status message, renderError config status message )
+
+                            Action.Moved url ->
+                                ( Rendered, config.ports.rendered (Action.encodeStep (always Json.null) (Action.Moved url)) )
+
+                            Action.SentJson val ->
+                                ( Rendered, config.ports.rendered (Action.encodeStep (always Json.null) (Action.SentJson val)) )
 
                 Aborted status message ->
                     ( state, renderError config status message )
@@ -118,12 +140,19 @@ advance config loader =
 
 render : Config -> Document Never -> Cmd Msg
 render config document =
-    config.ports.rendered (Encode.encode (Document.map never document))
+    config.ports.rendered (Action.encodeStep Encode.encode (Action.Resolved (Document.map never document)))
 
 
 renderError : Config -> Int -> String -> Cmd Msg
 renderError config status message =
-    render config (Page.error status message)
+    config.ports.rendered
+        (Json.object
+            [ ( "kind", Json.string "errored" )
+            , ( "status", Json.int status )
+            , ( "message", Json.string message )
+            , ( "value", Encode.encode (Document.map never (Page.error status message)) )
+            ]
+        )
 
 
 subscriptions : Config -> State -> Sub Msg

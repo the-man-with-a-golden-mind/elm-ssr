@@ -1,5 +1,6 @@
-module Example.Basic.Routes.Index exposing (page)
+module Example.Basic.Routes.Index exposing (page, action)
 
+import ElmSsr.Action as Action exposing (Action)
 import ElmSsr.Document exposing (Document)
 import ElmSsr.Html exposing (Node, a, div, h1, p, section, span, text)
 import ElmSsr.Html.Attributes exposing (class, href)
@@ -11,6 +12,11 @@ import Example.Basic.View.Shared as Shared
 page : Request -> Loader (Document Never)
 page _ =
     Loader.succeed view
+
+
+action : Request -> Action (Document Never)
+action _ =
+    Action.fail 405 "Method not allowed"
 
 
 view : Document Never

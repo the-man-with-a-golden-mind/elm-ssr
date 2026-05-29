@@ -4,6 +4,11 @@
       "name": "basic",
       "root": "examples/basic",
       "module": "Example.Basic"
+    },
+    {
+      "name": "crypto-dashboard",
+      "root": "examples/crypto-dashboard",
+      "module": "CryptoDashboard"
     }
   ]
 }

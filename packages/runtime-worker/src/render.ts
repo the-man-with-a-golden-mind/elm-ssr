@@ -29,11 +29,21 @@ export interface CompiledElmModule {
 export interface RenderedDocument {
   document: SsrDocument;
   status: number;
+  redirect?: string;
+  json?: unknown;
 }
 
 export interface RenderOptions {
   effects?: EffectRunner;
   timeoutMs?: number;
+}
+
+interface ActionStep {
+  kind: "resolved" | "errored" | "redirect" | "json";
+  status?: number;
+  message?: string;
+  url?: string;
+  value?: unknown;
 }
 
 export const renderApp = async (
@@ -63,7 +73,34 @@ export const renderApp = async (
     app.ports.start.send(true);
   });
 
-  const document = assertDocument(payload);
+  const step = payload as ActionStep;
+
+  if (step.kind === "redirect") {
+    return {
+      status: 302,
+      redirect: step.url,
+      document: { status: 302, lang: "en", hasIslands: false, head: [], body: [] }
+    };
+  }
+
+  if (step.kind === "json") {
+    return {
+      status: 200,
+      json: step.value,
+      document: { status: 200, lang: "en", hasIslands: false, head: [], body: [] }
+    };
+  }
+
+  if (step.kind === "errored") {
+    const status = step.status ?? 500;
+    const document = step.value ? assertDocument(step.value) : { status, lang: "en", hasIslands: false, head: [], body: [] };
+    return {
+      status,
+      document
+    };
+  }
+
+  const document = assertDocument(step.value);
 
   return {
     document,

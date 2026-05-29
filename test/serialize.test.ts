@@ -7,6 +7,7 @@ describe("renderHtmlDocument", () => {
     const document: SsrDocument = {
       status: 200,
       lang: "en",
+      hasIslands: false,
       head: [
         {
           kind: "void",
@@ -46,6 +47,7 @@ describe("renderHtmlDocument", () => {
     const document: SsrDocument = {
       status: 200,
       lang: "en",
+      hasIslands: false,
       head: [],
       body: [
         {
@@ -67,6 +69,7 @@ describe("renderHtmlDocument", () => {
     const document: SsrDocument = {
       status: 200,
       lang: "en",
+      hasIslands: true,
       head: [],
       body: [
         {

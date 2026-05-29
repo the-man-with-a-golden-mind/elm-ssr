@@ -39,14 +39,9 @@ const renderNode = (node: SsrNode): string => {
 export const renderNodes = (nodes: SsrNode[]): string =>
   nodes.map(renderNode).join("");
 
-const hasIslandMarker = (nodes: SsrNode[]): boolean =>
-  nodes.some((node) =>
-    node.kind === "element" && (node.tag === "elm-ssr-island" || hasIslandMarker(node.children))
-  );
-
 // A page ships no JS unless it embeds an island; islands pull their own bootstrap.
 const renderIslandShell = (document: SsrDocument): string =>
-  hasIslandMarker(document.body) ? `<script type="module" src="/__elm-ssr/islands.js"></script>` : "";
+  document.hasIslands ? `<script type="module" src="/__elm-ssr/islands.js"></script>` : "";
 
 export const renderHtmlDocument = (document: SsrDocument): string =>
   `<!doctype html><html lang="${escapeHtml(document.lang)}"><head>${renderNodes(document.head)}</head><body><div id="elm-ssr-root">${renderNodes(document.body)}</div>${renderIslandShell(document)}</body></html>`;

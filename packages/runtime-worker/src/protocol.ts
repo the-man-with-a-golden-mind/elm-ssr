@@ -39,6 +39,7 @@ export type SsrNode = SsrElementNode | SsrVoidNode | SsrTextNode;
 export interface SsrDocument {
   status: number;
   lang: string;
+  hasIslands: boolean;
   head: SsrNode[];
   body: SsrNode[];
 }
@@ -95,6 +96,7 @@ export const assertDocument = (value: unknown): SsrDocument => {
     !isRecord(value)
     || typeof value.status !== "number"
     || typeof value.lang !== "string"
+    || typeof value.hasIslands !== "boolean"
     || !Array.isArray(value.head)
     || !Array.isArray(value.body)
     || !value.head.every(isNode)

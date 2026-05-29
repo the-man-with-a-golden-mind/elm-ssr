@@ -1,5 +1,6 @@
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
+import { gzipSync } from "node:zlib";
 
 const projectRoot = new URL("../", import.meta.url);
 const rootPath = projectRoot.pathname;
@@ -124,6 +125,7 @@ const generateMain = (routes) => {
     .sort((left, right) => dynamicCount(left.segments) - dynamicCount(right.segments));
 
   const imports = [
+    "import ElmSsr.Action as Action exposing (Action)",
     "import ElmSsr.Document exposing (Document)",
     "import ElmSsr.Loader as Loader exposing (Loader)",
     "import ElmSsr.Route as Route exposing (Request)",
@@ -143,13 +145,29 @@ const generateMain = (routes) => {
     return `        ${pattern} ->\n            ${route.alias}.page ${argument}`;
   };
 
+  const actionArm = (route) => {
+    const pattern = segmentPattern(route.segments);
+    const request = requestExpression(route.segments);
+    const argument = request === "request" ? "request" : `(${request})`;
+
+    return `        ${pattern} ->\n            ${route.alias}.action ${argument}`;
+  };
+
   const fallbackArm = fallback
     ? `        _ ->\n            ${fallback.alias}.page request`
     : `        _ ->\n            Loader.fail 404 "Not found"`;
 
+  const actionFallbackArm = fallback
+    ? `        _ ->\n            ${fallback.alias}.action request`
+    : `        _ ->\n            Action.fail 404 "Not found"`;
+
   const router =
     "router : Request -> Loader (Document Never)\nrouter request =\n    case Route.segments request of\n"
     + [...matched.map(routerArm), fallbackArm].join("\n\n");
+
+  const actionRouter =
+    "action : Request -> Action (Document Never)\naction request =\n    case Route.segments request of\n"
+    + [...matched.map(actionArm), actionFallbackArm].join("\n\n");
 
   return `port module Main exposing (main)
 
@@ -175,10 +193,14 @@ port start : (Decode.Value -> msg) -> Sub msg
 ${router}
 
 
+${actionRouter}
+
+
 main : Program Decode.Value Runtime.State Runtime.Msg
 main =
     Runtime.program
         { router = router
+        , action = action
         , ports =
             { effectRequest = effectRequest
             , effectResult = effectResult
@@ -189,29 +211,25 @@ main =
 `;
 };
 
-const generateIslandsManifestModule = (islands) => {
+const generateIslandsManifestModule = (islands, bundleSource) => {
   if (islands.length === 0) {
-    return "const islands = {};\nexport default islands;\n";
+    return "export const islands = {};\nexport const bundleSource = \"\";\n";
   }
-
-  const imports = islands
-    .map((island) => `import ${island.alias}Source from "./islands/${island.key}-source";`)
-    .join("\n");
 
   const entries = islands
     .map(
       (island) =>
-        `  "${island.key}": { module: "${island.moduleName}", source: ${island.alias}Source }`
+        `  "${island.key}": { module: "${island.moduleName}" }`
     )
     .join(",\n");
 
-  return `${imports}
+  return `import bundleSource from "./islands-source";
 
-const islands = {
+export const islands = {
 ${entries}
 };
 
-export default islands;
+export { bundleSource };
 `;
 };
 
@@ -220,10 +238,12 @@ const compileEntrypoint = async ({ cwd, entrypoint, outputDir, outputName }) => 
   const finalOutputPath = resolve(outputDir, `${outputName}.mjs`);
   const sourceModulePath = resolve(outputDir, `${outputName}-source.ts`);
 
+  const entrypoints = Array.isArray(entrypoint) ? entrypoint : [entrypoint];
+
   await mkdir(dirname(rawOutputPath), { recursive: true });
 
   const build = Bun.spawn(
-    [elmBinary, "make", entrypoint, "--optimize", "--output", rawOutputPath],
+    [elmBinary, "make", ...entrypoints, "--optimize", "--output", rawOutputPath],
     {
       cwd,
       env: { ...process.env, ELM_HOME: elmHome },
@@ -244,6 +264,11 @@ const compileEntrypoint = async ({ cwd, entrypoint, outputDir, outputName }) => 
 
   await writeFile(finalOutputPath, esmSource, "utf8");
   await writeFile(sourceModulePath, `const source = ${JSON.stringify(esmSource)};\nexport default source;\n`, "utf8");
+
+  // PRE-COMPRESSION
+  const compressed = gzipSync(Buffer.from(esmSource, "utf8"));
+  await writeFile(`${finalOutputPath}.gz`, compressed);
+
   await rm(rawOutputPath, { force: true });
 };
 
@@ -271,7 +296,6 @@ for (const appConfig of config.apps) {
   await rm(resolve(wrapperDir, "Islands.elm"), { force: true });
 
   await writeFile(resolve(wrapperDir, "Main.elm"), generateMain(routes), "utf8");
-  await writeFile(resolve(outputDir, "islands-manifest.ts"), generateIslandsManifestModule(islands), "utf8");
 
   await compileEntrypoint({
     cwd: exampleRoot,
@@ -280,12 +304,14 @@ for (const appConfig of config.apps) {
     outputName: "app"
   });
 
-  for (const island of islands) {
+  if (islands.length > 0) {
     await compileEntrypoint({
       cwd: exampleRoot,
-      entrypoint: island.file,
+      entrypoint: islands.map((island) => island.file),
       outputDir,
-      outputName: `islands/${island.key}`
+      outputName: "islands"
     });
   }
+
+  await writeFile(resolve(outputDir, "islands-manifest.ts"), generateIslandsManifestModule(islands), "utf8");
 }

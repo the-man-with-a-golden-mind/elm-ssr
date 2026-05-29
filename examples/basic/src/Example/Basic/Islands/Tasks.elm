@@ -44,6 +44,7 @@ embed =
     Island.embed "Tasks"
         { encodeFlags = encodeFlags
         , fallback = fallback
+        , id = Nothing
         }
 
 

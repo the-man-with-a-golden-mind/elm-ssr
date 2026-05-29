@@ -1,5 +1,6 @@
-module Example.Basic.Routes.Status exposing (page)
+module Example.Basic.Routes.Status exposing (page, action)
 
+import ElmSsr.Action as Action exposing (Action)
 import ElmSsr.Document exposing (Document)
 import ElmSsr.Html exposing (Node, h1, li, p, section, span, text, ul)
 import ElmSsr.Html.Attributes exposing (class)
@@ -20,6 +21,11 @@ page : Request -> Loader (Document Never)
 page _ =
     Loader.fetchJson { url = "app://status", decoder = decoder }
         |> Loader.map view
+
+
+action : Request -> Action (Document Never)
+action _ =
+    Action.fail 405 "Method not allowed"
 
 
 decoder : Decode.Decoder Status

@@ -17,6 +17,7 @@ encode document =
     Encode.object
         [ ( "status", Encode.int document.status )
         , ( "lang", Encode.string document.lang )
+        , ( "hasIslands", Encode.bool document.hasIslands )
         , ( "head", Encode.list identity (List.indexedMap (\index node -> encodeNode [ index ] node) document.head) )
         , ( "body", Encode.list identity (List.indexedMap (\index node -> encodeNode [ index ] node) document.body) )
         ]

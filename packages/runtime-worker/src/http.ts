@@ -2,6 +2,7 @@ export interface RenderFlagsContext {
   request: Request;
   url: URL;
   path: string;
+  formData?: Record<string, string>;
 }
 
 export interface WorkerExecutionContext {

@@ -3,7 +3,7 @@ import { createWorkerApp } from "../packages/runtime-worker/src/app";
 import { renderHtmlDocument } from "../packages/runtime-worker/src/serialize";
 import { renderApp, type CompiledElmModule } from "../packages/runtime-worker/src/render";
 import { createFlags, routes, worker, renderPath } from "../examples/basic/runtime";
-import islands from "../generated/examples/basic/islands-manifest";
+import { islands, bundleSource } from "../generated/examples/basic/islands-manifest";
 import { stylesheet } from "../examples/basic/styles";
 // @ts-expect-error Generated at build time.
 import ElmRuntime from "../generated/examples/basic/app.mjs";
@@ -29,21 +29,20 @@ describe("example worker", () => {
 
     expect(response.status).toBe(200);
     expect(body.pages).toBeArray();
-    expect(body.assets.some((route) => route.path === "/__elm-ssr/islands/Counter.js")).toBe(true);
-    expect(body.assets.some((route) => route.path === "/__elm-ssr/islands/Tasks.js")).toBe(true);
+    expect(body.assets.some((route) => route.path === "/__elm-ssr/islands-bundle.js")).toBe(true);
   });
 
   it("serves the island loader runtime and compiled Browser.element bundles", async () => {
     const runtimeResponse = await worker.fetch(new Request("https://example.com/__elm-ssr/islands.js"));
-    const counterResponse = await worker.fetch(new Request("https://example.com/__elm-ssr/islands/Counter.js"));
+    const bundleResponse = await worker.fetch(new Request("https://example.com/__elm-ssr/islands-bundle.js"));
     const runtimeSource = await runtimeResponse.text();
 
     expect(runtimeResponse.status).toBe(200);
     expect(runtimeSource).toContain("data-elmssr-island");
-    expect(runtimeSource).toContain("node: root");
-    expect(runtimeSource).toContain("/__elm-ssr/islands/Counter.js");
-    expect(counterResponse.status).toBe(200);
-    expect(await counterResponse.text()).toContain("Browser");
+    expect(runtimeSource).toContain("bootIslands");
+    expect(runtimeSource).toContain("/__elm-ssr/islands-bundle.js");
+    expect(bundleResponse.status).toBe(200);
+    expect(await bundleResponse.text()).toContain("Browser");
   });
 
   it("renders HTML through the preview API", async () => {
@@ -65,7 +64,7 @@ describe("example worker", () => {
   });
 
   it("returns method not allowed for unsupported verbs", async () => {
-    const response = await worker.fetch(new Request("https://example.com/api/routes", { method: "POST" }));
+    const response = await worker.fetch(new Request("https://example.com/api/routes", { method: "PUT" }));
     const body = await response.json() as { error: string };
 
     expect(response.status).toBe(405);
@@ -93,6 +92,7 @@ describe("example worker", () => {
     const app = createWorkerApp({
       elmModule: brokenModule,
       islands,
+      islandsBundle: bundleSource,
       stylesheet,
       routes,
       createFlags: ({ path }) => ({ path })
@@ -118,6 +118,7 @@ describe("example worker", () => {
     const app = createWorkerApp({
       elmModule: brokenModule,
       islands,
+      islandsBundle: bundleSource,
       stylesheet,
       routes,
       createFlags: ({ path }) => ({ path })

@@ -46,5 +46,28 @@ export const defaultEffectRunner: EffectRunner = async (effect) => {
     }
   }
 
+  if (effect.kind === "kvGet") {
+    return { ok: false, error: "kvGet not implemented in default runner" };
+  }
+
+  if (effect.kind === "kvPut") {
+    return { ok: false, error: "kvPut not implemented in default runner" };
+  }
+
+  if (effect.kind === "getCookie") {
+    return { ok: false, error: "getCookie not implemented in default runner" };
+  }
+
+  if (effect.kind === "d1Query") {
+    const { mode } = effect.payload as { mode: string };
+    if (mode === "run") {
+      return { ok: true, value: { success: true, changes: 0 } };
+    }
+    if (mode === "first") {
+      return { ok: true, value: null };
+    }
+    return { ok: true, value: [] };
+  }
+
   return { ok: false, error: `Unknown loader effect: ${effect.kind}` };
 };

@@ -39,6 +39,7 @@ const printHelp = () => {
   console.log(`elm-ssr commands
 
   build         Generate wrapper modules and compile configured Elm SSR apps
+  compress      Pre-compress island and app bundles using Gzip for faster edge delivery
   dev           Build and start wrangler dev using the current workspace config
   new <name>    Create a new example app and register it in elm-ssr.config.json
   routes        Print configured apps and their public modules
@@ -50,6 +51,7 @@ const config = await readWorkspaceConfig(rootPath);
 
 switch (command) {
   case "build":
+  case "compress":
     await run("/Users/michalmajchrzak/.bun/bin/bun", ["run", "scripts/build-elm.mjs"], rootPath);
     break;
 

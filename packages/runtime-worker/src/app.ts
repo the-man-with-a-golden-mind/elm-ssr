@@ -16,14 +16,14 @@ import { type EffectRunner } from "./effects";
 import { createRequestHandler } from "./request-handler";
 import { type CompiledElmModule } from "./render";
 
-export interface IslandAsset {
+export interface IslandMetadata {
   module: string;
-  source: string;
 }
 
 export interface WorkerAppOptions {
   elmModule: CompiledElmModule;
-  islands?: Record<string, IslandAsset>;
+  islands?: Record<string, IslandMetadata>;
+  islandsBundle?: string;
   stylesheet: string;
   routes: RouteCatalog;
   createFlags: RenderFlagsFactory;
@@ -34,6 +34,7 @@ export interface WorkerAppOptions {
 export const createWorkerApp = ({
   elmModule,
   islands,
+  islandsBundle,
   stylesheet,
   routes,
   createFlags,
@@ -43,6 +44,7 @@ export const createWorkerApp = ({
   const handler = createRequestHandler({
     elmModule,
     islands,
+    islandsBundle,
     stylesheet,
     routes,
     createFlags,

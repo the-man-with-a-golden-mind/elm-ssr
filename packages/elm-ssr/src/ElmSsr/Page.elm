@@ -25,6 +25,7 @@ document :
 document config =
     { status = config.status
     , lang = config.lang
+    , hasIslands = Html.anyIsland config.body
     , head = config.head
     , body = config.body
     }
@@ -69,6 +70,7 @@ error : Int -> String -> Document Never
 error status message =
     { status = status
     , lang = "en"
+    , hasIslands = False
     , head = [ title ("Error " ++ String.fromInt status) ]
     , body =
         [ Html.Element "main"

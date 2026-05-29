@@ -28,6 +28,7 @@ import Json.Encode as Encode
 type alias Config flags pageMsg =
     { encodeFlags : flags -> Encode.Value
     , fallback : flags -> List (Node pageMsg)
+    , id : Maybe String
     }
 
 
@@ -39,7 +40,10 @@ The `name` must match the generated browser bundle key for the island module.
 embed : String -> Config flags pageMsg -> flags -> Node pageMsg
 embed name config flags =
     Html.element "elm-ssr-island"
-        [ Html.Property "data-elmssr-island" name
-        , Html.Property "data-elmssr-props" (Encode.encode 0 (config.encodeFlags flags))
-        ]
+        (List.filterMap identity
+            [ Just (Html.Property "data-elmssr-island" name)
+            , Just (Html.Property "data-elmssr-props" (Encode.encode 0 (config.encodeFlags flags)))
+            , config.id |> Maybe.map (Html.Property "data-elmssr-id")
+            ]
+        )
         (config.fallback flags)

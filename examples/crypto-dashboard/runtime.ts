@@ -2,10 +2,10 @@ import { createWorkerApp } from "../../packages/runtime-worker/src/app";
 import { defaultEffectRunner, type EffectRunner } from "../../packages/runtime-worker/src/effects";
 import { renderApp, type CompiledElmModule } from "../../packages/runtime-worker/src/render";
 import type { RouteCatalog } from "../../packages/runtime-worker/src/http";
-import { islands, bundleSource } from "../../generated/examples/basic/islands-manifest";
+import { islands, bundleSource } from "../../generated/examples/crypto-dashboard/islands-manifest";
 import { stylesheet } from "./styles";
 // @ts-expect-error Generated at build time.
-import ElmRuntime from "../../generated/examples/basic/app.mjs";
+import ElmRuntime from "../../generated/examples/crypto-dashboard/app.mjs";
 
 const elmModule = ElmRuntime as CompiledElmModule;
 
@@ -14,29 +14,14 @@ export const routes: RouteCatalog = {
     {
       path: "/",
       methods: ["GET", "HEAD"],
-      description: "Stateless landing page rendered from Elm (no client runtime)."
-    },
-    {
-      path: "/status",
-      methods: ["GET", "HEAD"],
-      description: "Stateless page whose Loader fetches data on the server."
-    },
-    {
-      path: "/counter",
-      methods: ["GET", "HEAD"],
-      description: "SSR page that embeds Browser.element islands."
-    },
-    {
-      path: "/greet/:name",
-      methods: ["GET", "HEAD"],
-      description: "Dynamic route; the name segment is captured from the URL."
+      description: "Crypto Dashboard landing page."
     }
   ],
   assets: [
     {
       path: "/styles.css",
       methods: ["GET", "HEAD"],
-      description: "Example stylesheet."
+      description: "Tailwind base styles."
     },
     {
       path: "/__elm-ssr/islands.js",
@@ -46,14 +31,14 @@ export const routes: RouteCatalog = {
     {
       path: "/__elm-ssr/islands-bundle.js",
       methods: ["GET", "HEAD"],
-      description: "Shared Browser.element island bundle."
+      description: "Shared island bundle (Charts, etc)."
     }
   ],
   utility: [
     {
       path: "/health",
       methods: ["GET", "HEAD"],
-      description: "Plain text liveness endpoint."
+      description: "Liveness endpoint."
     }
   ],
   api: [
@@ -61,11 +46,6 @@ export const routes: RouteCatalog = {
       path: "/api/health",
       methods: ["GET", "HEAD"],
       description: "JSON health payload."
-    },
-    {
-      path: "/api/routes",
-      methods: ["GET", "HEAD"],
-      description: "Route registry for the example app."
     },
     {
       path: "/api/render",
@@ -86,14 +66,17 @@ export const createFlags = ({ request, path, formData }: { request?: Request; ur
   };
 };
 
-// The Worker owns effect execution. Here the example serves an in-memory
-// dataset for the `app://status` URL its loader requests, and falls back to a
-// real fetch for everything else.
-export const exampleEffects: EffectRunner = async (effect) => {
-  if (effect.kind === "fetchJson" && effect.payload.url === "app://status") {
+// Mock CoinGecko API for stable testing and fast builds
+export const cryptoEffects: EffectRunner = async (effect) => {
+  if (effect.kind === "fetchJson" && typeof effect.payload.url === "string" && effect.payload.url.includes("api.coingecko.com")) {
     return {
       ok: true,
-      value: { uptime: "99.98%", region: "edge", builds: 128 }
+      value: [
+        { id: "bitcoin", symbol: "btc", name: "Bitcoin", current_price: 65000.0, price_change_percentage_24h: 2.5 },
+        { id: "ethereum", symbol: "eth", name: "Ethereum", current_price: 3500.0, price_change_percentage_24h: -1.2 },
+        { id: "cardano", symbol: "ada", name: "Cardano", current_price: 0.45, price_change_percentage_24h: 0.5 },
+        { id: "solana", symbol: "sol", name: "Solana", current_price: 145.0, price_change_percentage_24h: 5.8 }
+      ]
     };
   }
 
@@ -101,18 +84,14 @@ export const exampleEffects: EffectRunner = async (effect) => {
 };
 
 export const renderPath = async (path: string) =>
-  renderApp(elmModule, createFlags({ path }), { effects: exampleEffects });
+  renderApp(elmModule, createFlags({ path }), { effects: cryptoEffects });
 
-export const createExampleWorker = (log?: (entry: string) => void) =>
-  createWorkerApp({
-    elmModule,
-    islands,
-    islandsBundle: bundleSource,
-    stylesheet,
-    routes,
-    createFlags,
-    effects: exampleEffects,
-    log
-  });
-
-export const worker = createExampleWorker();
+export const worker = createWorkerApp({
+  elmModule,
+  islands,
+  islandsBundle: bundleSource,
+  stylesheet,
+  routes,
+  createFlags,
+  effects: cryptoEffects
+});

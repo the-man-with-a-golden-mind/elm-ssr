@@ -22,7 +22,7 @@ fully typed end to end.
 @docs Loader
 @docs succeed, fail
 @docs map, map2, andThen
-@docs fetchJson
+@docs fetchJson, kvGet, kvPut, getCookie, d1Query, d1First, d1Exec
 
 
 # Runtime interpretation
@@ -125,6 +125,114 @@ fetchJson config =
         , payload = Encode.object [ ( "url", Encode.string config.url ) ]
         }
         (\result -> resumeFetchJson config.decoder result)
+
+
+{-| Read a value from Cloudflare KV. -}
+kvGet : { namespace : String, key : String, decoder : Decoder a } -> Loader a
+kvGet config =
+    Pending
+        { kind = "kvGet"
+        , payload =
+            Encode.object
+                [ ( "namespace", Encode.string config.namespace )
+                , ( "key", Encode.string config.key )
+                ]
+        }
+        (\result -> resumeFetchJson config.decoder result)
+
+
+{-| Write a value to Cloudflare KV. -}
+kvPut : { namespace : String, key : String, value : Encode.Value } -> Loader ()
+kvPut config =
+    Pending
+        { kind = "kvPut"
+        , payload =
+            Encode.object
+                [ ( "namespace", Encode.string config.namespace )
+                , ( "key", Encode.string config.key )
+                , ( "value", config.value )
+                ]
+        }
+        (\_ -> Done ())
+
+
+{-| Read a cookie by name. -}
+getCookie : String -> Loader (Maybe String)
+getCookie name =
+    Pending
+        { kind = "getCookie"
+        , payload = Encode.object [ ( "name", Encode.string name ) ]
+        }
+        (\result ->
+            case Decode.decodeValue (Decode.field "value" (Decode.nullable Decode.string)) result of
+                Ok val ->
+                    Done val
+
+                Err _ ->
+                    Failed 500 "Failed to decode cookie result"
+        )
+
+
+{-| Query modes for D1. -}
+type D1Mode
+    = D1All
+    | D1First
+    | D1Run
+
+
+{-| Query a Cloudflare D1 database. -}
+d1Query : { database : String, sql : String, params : List Encode.Value, decoder : Decoder a } -> Loader (List a)
+d1Query config =
+    Pending
+        { kind = "d1Query"
+        , payload =
+            Encode.object
+                [ ( "database", Encode.string config.database )
+                , ( "sql", Encode.string config.sql )
+                , ( "params", Encode.list identity config.params )
+                , ( "mode", Encode.string "all" )
+                ]
+        }
+        (\result -> resumeFetchJson (Decode.list config.decoder) result)
+
+
+{-| Query a Cloudflare D1 database and return only the first row. -}
+d1First : { database : String, sql : String, params : List Encode.Value, decoder : Decoder a } -> Loader (Maybe a)
+d1First config =
+    Pending
+        { kind = "d1Query"
+        , payload =
+            Encode.object
+                [ ( "database", Encode.string config.database )
+                , ( "sql", Encode.string config.sql )
+                , ( "params", Encode.list identity config.params )
+                , ( "mode", Encode.string "first" )
+                ]
+        }
+        (\result -> resumeFetchJson (Decode.nullable config.decoder) result)
+
+
+{-| Execute a statement on D1 (e.g. INSERT, UPDATE) and return the result metadata. -}
+d1Exec : { database : String, sql : String, params : List Encode.Value } -> Loader { success : Bool, changes : Int }
+d1Exec config =
+    Pending
+        { kind = "d1Query"
+        , payload =
+            Encode.object
+                [ ( "database", Encode.string config.database )
+                , ( "sql", Encode.string config.sql )
+                , ( "params", Encode.list identity config.params )
+                , ( "mode", Encode.string "run" )
+                ]
+        }
+        (\result ->
+            resumeFetchJson
+                (Decode.map2 (\s c -> { success = s, changes = c })
+                    (Decode.field "success" Decode.bool)
+                    (Decode.field "changes" Decode.int)
+                )
+                result
+        )
 
 
 resumeFetchJson : Decoder a -> Decode.Value -> Loader a

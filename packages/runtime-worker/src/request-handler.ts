@@ -1,4 +1,4 @@
-import type { IslandAsset } from "./app";
+import type { IslandMetadata } from "./app";
 import { createIslandsRuntimeSource } from "./client-runtime/islands";
 import type { AppContext, AppHandler, RenderFlagsFactory, RouteCatalog } from "./http";
 import { json, text } from "./http";
@@ -9,12 +9,14 @@ import { assetHeaders, cssHeaders, htmlHeaders, jsonHeaders } from "./response-h
 
 const isReadMethod = (method: string): boolean => method === "GET" || method === "HEAD";
 
+const isSupportedMethod = (method: string): boolean => method === "GET" || method === "HEAD" || method === "POST";
+
 const methodNotAllowed = (context: AppContext): Response => {
   if (context.url.pathname.startsWith("/api/")) {
     return json(
       {
         error: "method_not_allowed",
-        allowed: ["GET", "HEAD"]
+        allowed: ["GET", "HEAD", "POST"]
       },
       { status: 405, headers: jsonHeaders }
     );
@@ -23,20 +25,58 @@ const methodNotAllowed = (context: AppContext): Response => {
   return text("Method Not Allowed", { status: 405 });
 };
 
-const createFlagsFromContext = (
+const parseFormData = async (request: Request): Promise<Record<string, string>> => {
+  if (request.method !== "POST") {
+    return {};
+  }
+
+  const contentType = request.headers.get("content-type") || "";
+
+  if (contentType.includes("application/x-www-form-urlencoded") || contentType.includes("multipart/form-data")) {
+    try {
+      const formData = await request.formData();
+      const data: Record<string, string> = {};
+      for (const [key, value] of formData.entries()) {
+        if (typeof value === "string") {
+          data[key] = value;
+        }
+      }
+      return data;
+    } catch {
+      return {};
+    }
+  }
+
+  if (contentType.includes("application/json")) {
+    try {
+      const data = await request.json();
+      return typeof data === "object" && data !== null ? (data as Record<string, string>) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  return {};
+};
+
+const createFlagsFromContext = async (
   context: AppContext,
   path: string,
   createFlags: RenderFlagsFactory
-): Record<string, unknown> =>
-  createFlags({
+): Promise<Record<string, unknown>> => {
+  const formData = await parseFormData(context.request);
+  return createFlags({
     request: context.request,
     url: context.url,
-    path
+    path,
+    formData
   });
+};
 
 export interface RequestHandlerOptions {
   elmModule: CompiledElmModule;
-  islands?: Record<string, IslandAsset>;
+  islands?: Record<string, IslandMetadata>;
+  islandsBundle?: string;
   stylesheet: string;
   routes: RouteCatalog;
   createFlags: RenderFlagsFactory;
@@ -46,13 +86,14 @@ export interface RequestHandlerOptions {
 export const createRequestHandler = ({
   elmModule,
   islands,
+  islandsBundle,
   stylesheet,
   routes,
   createFlags,
   effects
 }: RequestHandlerOptions): AppHandler =>
   async (context) => {
-    if (!isReadMethod(context.request.method)) {
+    if (!isSupportedMethod(context.request.method)) {
       return methodNotAllowed(context);
     }
 
@@ -74,16 +115,11 @@ export const createRequestHandler = ({
       });
     }
 
-    if (context.url.pathname.startsWith("/__elm-ssr/islands/") && context.url.pathname.endsWith(".js") && islands) {
-      const islandName = context.url.pathname.slice("/__elm-ssr/islands/".length, -".js".length);
-      const island = islands[islandName];
-
-      if (island) {
-        return new Response(island.source, {
-          status: 200,
-          headers: assetHeaders
-        });
-      }
+    if (context.url.pathname === "/__elm-ssr/islands-bundle.js" && islandsBundle) {
+      return new Response(islandsBundle, {
+        status: 200,
+        headers: assetHeaders
+      });
     }
 
     if (context.url.pathname === "/api/health") {
@@ -118,8 +154,16 @@ export const createRequestHandler = ({
         );
       }
 
-      const flags = createFlagsFromContext(context, targetPath, createFlags);
+      const flags = await createFlagsFromContext(context, targetPath, createFlags);
       const rendered = await renderApp(elmModule, flags, { effects });
+
+      if (rendered.redirect) {
+        return json({ redirect: rendered.redirect }, { status: 200, headers: jsonHeaders });
+      }
+
+      if (rendered.json) {
+        return json(rendered.json, { status: 200, headers: jsonHeaders });
+      }
 
       return json(
         {
@@ -131,8 +175,20 @@ export const createRequestHandler = ({
       );
     }
 
-    const flags = createFlagsFromContext(context, context.url.pathname + context.url.search, createFlags);
+    const flags = await createFlagsFromContext(context, context.url.pathname + context.url.search, createFlags);
     const rendered = await renderApp(elmModule, flags, { effects });
+
+    if (rendered.redirect) {
+      return new Response(null, {
+        status: 302,
+        headers: { location: rendered.redirect }
+      });
+    }
+
+    if (rendered.json) {
+      return json(rendered.json, { status: 200, headers: jsonHeaders });
+    }
+
     const html = renderHtmlDocument(rendered.document);
 
     return new Response(html, {
