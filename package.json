@@ -1,6 +1,5 @@
 {
   "name": "elmssr",
-  "private": true,
   "type": "module",
   "workspaces": ["packages/*", "examples/*"],
   "scripts": {
