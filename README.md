@@ -1,72 +1,93 @@
 # elm-ssr
 
-Elm-first SSR prototype for Cloudflare Workers and Bun.
+Elm-first SSR library and framework for Cloudflare Workers (and Bun locally).
 
-The current architecture is intentionally strict:
-- Routes are server-rendered pages.
-- Interactive UI lives in islands.
-- An island is a standard Elm `Browser.element`.
-- The page runtime never tries to fake full `elm/html` hydration.
+Two execution worlds, glued by a marker element:
 
-That gives a better authoring model for library users: normal Elm inside an island, SSR pages around it, and no custom island virtual DOM to learn.
+- **Pages** are SSR-only Elm. They use a custom serialisable AST (`ElmSsr.Html`,
+  `ElmSsr.Svg`) because Cloudflare Workers has no DOM — `elm/html`'s virtual-dom
+  kernel can't run server-side.
+- **Islands** are *standard* `Browser.element` programs using stock `elm/html`,
+  `elm/svg`, `elm/http`, `Html.Keyed`, `elm/time`, … They mount client-side into
+  `<elm-ssr-island>` markers the page emits.
 
-## Current model
+The Worker exposes a **backend-neutral** effect surface (cache, sql, env,
+cookie, fetchJson, enqueue) that Elm `Loader`/`Action` describe; pluggable TS
+adapters execute them — KV/D1 on Cloudflare, Redis/Postgres/SQLite locally —
+without any change to the Elm code. Background jobs run after the response via
+`ctx.waitUntil` or Cloudflare Queues. A built-in SQL migration runner brings the
+schema with it.
 
-1. A request hits the Worker.
-2. The Worker boots the generated Elm route app for that request only.
-3. Elm returns a `Document Never`.
-4. The serializer emits HTML.
-5. If the page contains island markers, the browser loads `/__elm-ssr/islands.js`.
-6. That loader mounts each compiled island bundle with `Elm.<Module>.init({ node, flags })`.
+## Why it exists
 
-Important consequences:
-- SSR is real: HTML is produced on the server per request.
-- Routes stay stateless and per-request.
-- Island state is per browser instance, not shared between users.
-- Islands are compatible with normal `Browser.element` packages such as `elm/html`, `Html.Keyed`, `elm/http`, `elm/time`, and `elm/svg`.
-- Islands are mounted, not hydrated in the React/Next sense.
+Stock Elm SSR is awkward because `elm/html` is opaque and DOM-bound. Other
+frameworks fake hydration by replaying the whole tree. This project takes the
+other fork:
 
-## Repo layout
+- **Real SSR for pages** via a serialisable, library-owned AST → works on
+  Cloudflare Workers with no DOM, real HTML per request.
+- **No fake hydration** — islands are mounted with normal Elm browser runtime,
+  so you get unmodified `elm/html`/`Html.Keyed`/`elm/http`/`elm/svg` inside them.
+- **Backend-neutral effects** so the same Elm runs against Cloudflare KV/D1 or
+  local Redis/Postgres/SQLite by swapping the runner adapter — useful for
+  parity between local dev and production.
 
-### `packages/elm-ssr`
+## Quickstart
 
-- [Route.elm](/Users/michalmajchrzak/Projects/elmssr/packages/elm-ssr/src/ElmSsr/Route.elm): request shape and route params.
-- [Loader.elm](/Users/michalmajchrzak/Projects/elmssr/packages/elm-ssr/src/ElmSsr/Loader.elm): server-side data loading description.
-- [Document.elm](/Users/michalmajchrzak/Projects/elmssr/packages/elm-ssr/src/ElmSsr/Document.elm): SSR document type.
-- [Html.elm](/Users/michalmajchrzak/Projects/elmssr/packages/elm-ssr/src/ElmSsr/Html.elm): SSR-only HTML tree used by pages and island fallbacks.
-- [Page.elm](/Users/michalmajchrzak/Projects/elmssr/packages/elm-ssr/src/ElmSsr/Page.elm): document helpers.
-- [Island.elm](/Users/michalmajchrzak/Projects/elmssr/packages/elm-ssr/src/ElmSsr/Island.elm): embed helper that emits an island marker plus encoded flags.
-- [Runtime.elm](/Users/michalmajchrzak/Projects/elmssr/packages/elm-ssr/src/ElmSsr/Runtime.elm): internal route runtime used by generated `Main.elm`.
+```bash
+bun install
+bun run build         # CLI scans Routes/ + Islands/, generates Main.elm + islands bundle
+bun run test          # 100+ tests, including end-to-end worker.fetch coverage
+bun run dev           # wrangler dev
+```
 
-### `packages/runtime-worker`
+Scaffold a new app:
 
-- [app.ts](/Users/michalmajchrzak/Projects/elmssr/packages/runtime-worker/src/app.ts): Worker app factory.
-- [request-handler.ts](/Users/michalmajchrzak/Projects/elmssr/packages/runtime-worker/src/request-handler.ts): pages, API routes, assets, and island bundle serving.
-- [render.ts](/Users/michalmajchrzak/Projects/elmssr/packages/runtime-worker/src/render.ts): Elm boot and SSR capture.
-- [serialize.ts](/Users/michalmajchrzak/Projects/elmssr/packages/runtime-worker/src/serialize.ts): HTML serializer and conditional island loader injection.
-- [client-runtime/islands.ts](/Users/michalmajchrzak/Projects/elmssr/packages/runtime-worker/src/client-runtime/islands.ts): browser-side island loader for `Browser.element` bundles.
-- [middleware.ts](/Users/michalmajchrzak/Projects/elmssr/packages/runtime-worker/src/middleware.ts): request ids, timings, logs, error normalization, HEAD handling.
+```bash
+bun run ssr:new my-app
+```
 
-### `examples/basic`
+Optional — run integration tests against real Postgres + Redis:
 
-- [Routes/](/Users/michalmajchrzak/Projects/elmssr/examples/basic/src/Example/Basic/Routes): file-based SSR pages.
-- [Islands/](/Users/michalmajchrzak/Projects/elmssr/examples/basic/src/Example/Basic/Islands): normal Elm `Browser.element` islands.
-- [runtime.ts](/Users/michalmajchrzak/Projects/elmssr/examples/basic/runtime.ts): example Worker assembly.
-- [worker.ts](/Users/michalmajchrzak/Projects/elmssr/examples/basic/worker.ts): Wrangler entrypoint.
+```bash
+docker compose up -d --wait
+bun run test:integration
+docker compose down
+```
+
+The default `bun test` skips the integration suites when `DATABASE_URL` /
+`REDIS_URL` aren't set, so machines without Docker stay clean.
+
+## Repository layout
+
+```
+packages/
+  elm-ssr/                       # @elm-ssr/elm-ssr — authoring Elm modules
+  runtime-worker/                # @elm-ssr/runtime-worker — TS runtime + adapters
+  cli/                           # @elm-ssr/cli — `elm-ssr` build + scaffold
+examples/
+  basic/                         # The reference app (pages, islands, forms, cache, sql, tasks)
+  crypto-dashboard/              # Tailwind + elm/svg + elm/http islands with 15s refresh + cross-island bus
+docker-compose.yml               # postgres + redis for integration tests
+AGENTS.md                        # Orientation for AI agents working on this repo
+```
 
 ## Authoring
 
-Routes are file-based. A module under `src/<App>/Routes/` becomes a URL:
-- `Index.elm` -> `/`
-- `Counter.elm` -> `/counter`
-- `Greet/Name_.elm` -> `/greet/:name`
-- `NotFound.elm` -> fallback
+### Routes (file-based)
 
-Every route is a page:
+Drop a module under `src/<App>/Routes/`:
+- `Index.elm` → `/`
+- `Counter.elm` → `/counter`
+- `Greet/Name_.elm` → `/greet/:name` (names ending in `_` are dynamic segments)
+- `NotFound.elm` → fallback
+
+Every route exposes `page` (GET/HEAD) and `action` (POST):
 
 ```elm
-module Demo.Routes.Status exposing (page)
+module Demo.Routes.Status exposing (action, page)
 
+import ElmSsr.Action as Action exposing (Action)
 import ElmSsr.Document exposing (Document)
 import ElmSsr.Loader as Loader exposing (Loader)
 import ElmSsr.Route exposing (Request)
@@ -74,27 +95,61 @@ import ElmSsr.Route exposing (Request)
 page : Request -> Loader (Document Never)
 page _ =
     Loader.succeed view
+
+action : Request -> Action (Document Never)
+action _ =
+    Action.fail 405 "Method not allowed"
 ```
 
-If a page needs interactivity, it embeds an island marker:
+### Loaders + effects
+
+Loaders are pure descriptions; the Worker pumps their effects:
 
 ```elm
-module Demo.Routes.Counter exposing (page)
-
-import Demo.Islands.Counter as Counter
-
-page : Request -> Loader (Document Never)
-page _ =
-    Loader.succeed
-        (Page.page
-            { title = "Counter"
-            , head = []
-            , body = [ Counter.embed { start = 0 } ]
-            }
-        )
+cachedStatus : Loader Status
+cachedStatus =
+    Loader.cacheGet { key = "status", decoder = decoder }
+        |> Loader.andThen
+            (\cached ->
+                case cached of
+                    Just status -> Loader.succeed status
+                    Nothing ->
+                        Loader.fetchJson { url = "https://…", decoder = decoder }
+                            |> Loader.andThen
+                                (\status ->
+                                    Loader.cachePut { key = "status", value = encode status, ttlSeconds = Just 60 }
+                                        |> Loader.map (\_ -> status)
+                                )
+            )
 ```
 
-The island itself is normal Elm:
+Available effects (all backend-neutral): `fetchJson`, `cacheGet`/`cachePut`,
+`query`/`queryOne`/`execute`, `env`, `getCookie`, `enqueue`.
+
+### Actions (forms without JS)
+
+Actions are the POST equivalent of loaders — describe validation, run a server
+effect, then redirect (Post/Redirect/Get). Reuse any Loader effect via
+`Action.fromLoader`:
+
+```elm
+action : Request -> Action (Document Never)
+action request =
+    case Route.formValue "message" request of
+        Just msg when not (String.isEmpty msg) ->
+            Action.fromLoader
+                (Loader.execute { sql = "INSERT INTO entries (message) VALUES (?)"
+                                , params = [ Encode.string msg ] })
+                |> Action.andThen (\_ -> Action.redirect "/guestbook")
+
+        _ ->
+            Action.fail 422 "Message is required."
+```
+
+### Islands
+
+Drop a `Browser.element` under `src/<App>/Islands/`. The module also exposes a
+one-line `embed` that pages call directly — no generated indirection:
 
 ```elm
 module Demo.Islands.Counter exposing (embed, main)
@@ -105,85 +160,162 @@ import Html exposing (Html, button, div, text)
 import Html.Events exposing (onClick)
 import Json.Encode as Encode
 
-type alias Flags =
-    { start : Int }
+type alias Flags = { start : Int }
+type alias Model = { count : Int }
+type Msg = Increment
 
-type alias Model =
-    { count : Int }
-
-type Msg
-    = Increment
-
+embed : Flags -> Island.Node msg
 embed =
     Island.embed "Counter"
-        { encodeFlags = \flags -> Encode.object [ ( "start", Encode.int flags.start ) ]
-        , fallback = \flags -> []
+        { encodeFlags = \f -> Encode.object [ ( "start", Encode.int f.start ) ]
+        , fallback = \_ -> []
+        , id = Nothing
         }
 
 main : Program Flags Model Msg
 main =
     Browser.element
         { init = \flags -> ( { count = flags.start }, Cmd.none )
-        , update = \msg model -> ( { model | count = model.count + 1 }, Cmd.none )
+        , update = \_ m -> ( { m | count = m.count + 1 }, Cmd.none )
         , subscriptions = \_ -> Sub.none
-        , view = \model -> div [] [ button [ onClick Increment ] [ text "+" ], text (String.fromInt model.count) ]
+        , view = \m -> div [] [ button [ onClick Increment ] [ text "+" ], text (String.fromInt m.count) ]
         }
 ```
 
-The page author only embeds `Counter.embed`. The build compiles `Demo.Islands.Counter` into a browser bundle and the island loader mounts it automatically.
+The page imports the island and calls `Counter.embed { start = 0 }`. Cross-island
+state goes through `ElmSsr.Island.Shared.broadcast`/`listen` (a `window`
+CustomEvent bus).
+
+## Effect adapters
+
+Compose the worker's `effects` from small adapters:
+
+```ts
+import { inMemoryEffects, cloudflareEffects } from "@elm-ssr/runtime-worker/effects";
+import { withCache, redisCache, postgresSql } from "@elm-ssr/runtime-worker/backends";
+import { withTasks, withQueueProducer } from "@elm-ssr/runtime-worker/tasks";
+
+// Cloudflare deploy:
+const effects = withTasks(cloudflareEffects({ cacheBinding: "CACHE", dbBinding: "DB" }), {
+  sendEmail,
+  warmCache
+});
+
+// Local dev / tests:
+const effects = withTasks(
+  withCache(
+    inMemoryEffects({ sql: postgresSql(myPgClient), env: { /* … */ } }),
+    redisCache(myRedisClient)
+  ),
+  { sendEmail, warmCache }
+);
+```
+
+The Elm code is identical on both. `redisCache(client)` and `postgresSql(client)`
+take minimal client interfaces (see `packages/runtime-worker/src/backends.ts`) so
+they work with `Bun.redis`/`Bun.sql`, `ioredis`, `node-postgres`, SQLite, etc.
+
+For durable background jobs (instead of `waitUntil`), swap `withTasks` for
+`withQueueProducer({ queueBinding })` and wire `createQueueConsumer(handlers)`
+in the consumer worker's `queue` handler.
+
+## Database migrations
+
+SQL-file migrations live in a directory (e.g. `migrations/0001_init.sql`,
+`0002_add_users.sql`). The runner creates a tracking table
+(`__elm_ssr_migrations`) and applies each pending file in alphabetical order,
+**transactionally** (each migration + its tracking insert are one `BEGIN…COMMIT`,
+so a failure rolls back without leaving a partial schema). Re-runs are
+idempotent.
+
+```ts
+import { Database } from "bun:sqlite";
+import { runMigrations } from "@elm-ssr/runtime-worker/migrations";
+
+const db = new Database("app.db");
+await runMigrations(
+  {
+    exec: async (sql) => { db.exec(sql); },
+    list: async (sql) => db.query(sql).all()
+  },
+  { dir: "./migrations" }
+);
+```
+
+The same `MigrationsAdapter` shape wires to Postgres (`Bun.sql`/`node-postgres`)
+or Cloudflare D1.
 
 ## Commands
 
 ```bash
 bun install
-bun run build
-bun run ssr:build
-bun run ssr:new my-example
-bun run ssr:routes
-bun run check
-bun run test
-bun run bench
-bun run dev
+bun run build              # generate Main.elm, compile app + islands bundle, write generated/
+bun run check              # build + tsc --noEmit
+bun run test               # build + bun test (skips integration when env unset)
+bun run test:integration   # bun test test/integration/ (needs DATABASE_URL + REDIS_URL)
+bun run dev                # build + wrangler dev
+bun run deploy             # build + wrangler deploy
+bun run ssr:new <name>     # scaffold a new example app
+bun run ssr:routes         # print configured app modules
 ```
 
-What they do:
-- `bun run build`: generate `.elm-ssr/Main.elm`, compile route app, compile every island bundle, and write `generated/`.
-- `bun run ssr:build`: same build through the CLI entrypoint.
-- `bun run ssr:new <name>`: scaffold a new example app and register it in [elm-ssr.config.json](/Users/michalmajchrzak/Projects/elmssr/elm-ssr.config.json).
-- `bun run ssr:routes`: print configured app modules.
-- `bun run check`: rebuild and run TypeScript typecheck.
-- `bun run test`: rebuild and run the Bun test suite.
-- `bun run bench`: rebuild and run the benchmark script.
-- `bun run dev`: rebuild and start Wrangler dev.
+## Example routes (`examples/basic`)
 
-## Example routes
+- `GET /` — pure SSR page, no client JS.
+- `GET /status` — loader page with **server-side caching** (`cacheGet` → miss →
+  `fetchJson` → `cachePut`) and an `env` read.
+- `GET /counter` — SSR page that embeds two `Browser.element` islands.
+- `GET /greet/:name` — SSR page with a dynamic segment.
+- `GET /chart` — pure-SSR inline SVG via `ElmSsr.Svg`.
+- `GET /echo`, `POST /echo` — form action: validate → effect → PRG redirect, no JS.
+- `GET /guestbook`, `POST /guestbook` — list via `query`, insert via `execute`,
+  enqueue a background `auditEntry` task after the redirect.
 
-- `GET /`: pure SSR page, no client JS.
-- `GET /status`: SSR page backed by a server loader.
-- `GET /counter`: SSR page that embeds two Browser.element islands.
-- `GET /greet/:name`: SSR page with a dynamic segment.
-- `GET /styles.css`
-- `GET /health`
-- `GET /api/health`
-- `GET /api/routes`
-- `GET /api/render?path=/counter`
-- `GET /__elm-ssr/islands.js`
-- `GET /__elm-ssr/islands/Counter.js`
-- `GET /__elm-ssr/islands/Tasks.js`
+## Phases shipped
+
+- **Phase 1** — File-based routes, Loaders, server effect loop. (`docs/`)
+- **Phase 1.5** — Dynamic segments, small-modules split.
+- **Islands pivot** — Islands are `Browser.element` (full `elm/html` ecosystem).
+- **Phase 2** — Effectful `Action` (free monad like Loader), `fromLoader`, form
+  actions, PRG redirects.
+- **Phase 3** — Backend-neutral effects (`cacheGet`/`cachePut`, `query`/`queryOne`/
+  `execute`, `env`, `getCookie`), Cloudflare + in-memory adapters, composable
+  `withCache`/`postgresSql`/`redisCache` over driver-agnostic client interfaces.
+- **Phase 4** — Background tasks (`enqueue`) via `withTasks` (`waitUntil`) or
+  `withQueueProducer` + `createQueueConsumer` (CF Queues).
+- **Migrations** — file-based SQL with transactional per-migration safety.
 
 ## Tradeoffs
 
-- Pages still use a library-specific SSR HTML tree, not stock `elm/html`.
-- Islands use stock Elm browser runtime, not a custom patcher.
-- There is no fake “full hydration” story for arbitrary `elm/html` apps.
-- The gain is DX: authors write normal `Browser.element` code inside islands and get broad Elm package compatibility.
+- Pages use a library-specific SSR HTML tree, not stock `elm/html`. (Workers has
+  no DOM.) Islands use stock Elm.
+- No "fake full hydration" for arbitrary `elm/html` apps.
+- Islands ship one combined bundle per app (no per-route code splitting — Elm
+  has no lazy loading).
+- The default `withTasks` keeps the isolate alive via `waitUntil`; durable jobs
+  need Queues (an adapter swap, no Elm change).
 
-## Guarantees today
+## Guarantees
 
-- SSR render is request-scoped.
+- SSR render is request-scoped, with per-request `env`/bindings on the effect
+  runner.
 - Island state is client-scoped and isolated per mounted root.
 - Pages without island markers ship no browser runtime.
 - `Html.Keyed` works through Elm's own runtime inside islands.
-- Worker concerns such as middleware, REST endpoints, and asset serving stay outside the author-facing Elm modules.
+- Each SQL migration runs inside a transaction; tracking is updated only on
+  successful commit.
+- Worker concerns (middleware, REST, asset serving) stay outside the
+  author-facing Elm modules.
 
-Further authoring details live in [docs/route-loader-page.md](/Users/michalmajchrzak/Projects/elmssr/docs/route-loader-page.md) and [docs/rfc-islands.md](/Users/michalmajchrzak/Projects/elmssr/docs/rfc-islands.md).
+## More
+
+- [`AGENTS.md`](./AGENTS.md) — orientation for AI agents working on this repo.
+- [`packages/runtime-worker/README.md`](./packages/runtime-worker/README.md) — Worker runtime API.
+- [`packages/elm-ssr/README.md`](./packages/elm-ssr/README.md) — Elm authoring modules.
+- [`packages/cli/README.md`](./packages/cli/README.md) — CLI commands.
+- `docs/route-loader-page.md` and `docs/rfc-islands.md` are older design notes
+  and may lag the current implementation — code is the source of truth.
+
+## License
+
+MIT. See [LICENSE](./LICENSE).

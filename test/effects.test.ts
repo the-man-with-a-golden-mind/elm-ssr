@@ -1,8 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import { Database } from "bun:sqlite";
 import { createExampleWorker, worker } from "../examples/basic/runtime";
-import { inMemoryEffects, type SqlQuery } from "../packages/runtime-worker/src/effects";
-import { withTasks } from "../packages/runtime-worker/src/tasks";
+import { inMemoryEffects, type SqlQuery } from "@elm-ssr/runtime-worker/effects";
+import { withTasks } from "@elm-ssr/runtime-worker/tasks";
 
 // Phase 3: backend-neutral server effects. The Elm side requests logical effects
 // (cacheGet/cachePut, query/execute, env); the injectable runner maps them to a

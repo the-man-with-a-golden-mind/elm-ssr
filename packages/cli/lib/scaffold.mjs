@@ -27,14 +27,15 @@ const ensureAppMissing = (config, name) => {
 
 const elmJsonTemplate = () => ({
   type: "application",
-  "source-directories": [".elm-ssr", "src", "../../packages/elm-ssr/src"],
+  "source-directories": [".elm-ssr", "src", ".elm-ssr/src"],
   "elm-version": "0.19.1",
   dependencies: {
     direct: {
       "elm/browser": "1.0.2",
       "elm/core": "1.0.5",
       "elm/html": "1.0.0",
-      "elm/json": "1.1.3"
+      "elm/json": "1.1.3",
+      "elm/url": "1.0.0"
     },
     indirect: {
       "elm/time": "1.0.0",
@@ -271,9 +272,9 @@ view =
         }
 `;
 
-const runtimeTemplate = (name) => `import { createWorkerApp } from "../../packages/runtime-worker/src/app";
-import { renderApp, type CompiledElmModule } from "../../packages/runtime-worker/src/render";
-import type { RouteCatalog } from "../../packages/runtime-worker/src/http";
+const runtimeTemplate = (name) => `import { createWorkerApp } from "@elm-ssr/runtime-worker";
+import { renderApp, type CompiledElmModule } from "@elm-ssr/runtime-worker/render";
+import type { RouteCatalog } from "@elm-ssr/runtime-worker/http";
 import { islands, bundleSource } from "../../generated/examples/${name}/islands-manifest";
 import { stylesheet } from "./styles";
 // @ts-expect-error Generated at build time.

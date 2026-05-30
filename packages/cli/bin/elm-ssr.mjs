@@ -4,11 +4,17 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createExampleScaffold } from "../lib/scaffold.mjs";
 import { readWorkspaceConfig } from "../lib/workspace.mjs";
+import { build } from "../lib/build.mjs";
 
-const defaultRootPath = resolve(new URL("../../..", import.meta.url).pathname);
+const defaultRootPath = process.cwd();
 const packageJsonPath = resolve(defaultRootPath, "package.json");
 
-const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
+let packageJson = { name: "unknown" };
+try {
+  packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
+} catch {
+  // Not in a package root, that's okay for some commands
+}
 const args = process.argv.slice(2);
 const command = args[0] ?? "help";
 
@@ -52,11 +58,11 @@ const config = await readWorkspaceConfig(rootPath);
 switch (command) {
   case "build":
   case "compress":
-    await run("/Users/michalmajchrzak/.bun/bin/bun", ["run", "scripts/build-elm.mjs"], rootPath);
+    await build({ rootPath, config });
     break;
 
   case "dev":
-    await run("/Users/michalmajchrzak/.bun/bin/bun", ["run", "build"], rootPath);
+    await run("bun", ["run", "build"], rootPath);
     await run("./node_modules/.bin/wrangler", ["dev"], rootPath);
     break;
 

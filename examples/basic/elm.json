@@ -1,6 +1,11 @@
 {
   "type": "application",
-  "source-directories": [".elm-ssr", "src", "../../packages/elm-ssr/src"],
+  "source-directories": [
+      ".elm-ssr",
+      "src",
+      ".elm-ssr/src"
+  ],
+
   "elm-version": "0.19.1",
   "dependencies": {
     "direct": {

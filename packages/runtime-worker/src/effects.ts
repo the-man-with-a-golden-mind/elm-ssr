@@ -1,3 +1,5 @@
+import { parse as parseCookieHeader } from "cookie";
+
 export interface LoaderEffect {
   kind: string;
   payload: Record<string, unknown>;
@@ -39,6 +41,14 @@ export const normalizeEffect = (value: unknown): LoaderEffect => {
   return { kind: "unknown", payload: {} };
 };
 
+const cookieEffect = (effect: LoaderEffect, context: EffectContext): LoaderEffectResult => {
+  const header = context.request?.headers.get("cookie") ?? "";
+  const cookies = header ? parseCookieHeader(header) : {};
+  const name = String(effect.payload.name);
+  const value = cookies[name];
+  return { ok: true, value: typeof value === "string" ? value : null };
+};
+
 const fetchJsonEffect = async (effect: LoaderEffect): Promise<LoaderEffectResult> => {
   const url = typeof effect.payload.url === "string" ? effect.payload.url : "";
 
@@ -59,9 +69,13 @@ const fetchJsonEffect = async (effect: LoaderEffect): Promise<LoaderEffectResult
  * The fallback runner: `fetchJson` works everywhere, but backend effects report
  * that no adapter is configured rather than silently succeeding.
  */
-export const defaultEffectRunner: EffectRunner = async (effect) => {
+export const defaultEffectRunner: EffectRunner = async (effect, context) => {
   if (effect.kind === "fetchJson") {
     return fetchJsonEffect(effect);
+  }
+
+  if (effect.kind === "cookie") {
+    return cookieEffect(effect, context);
   }
 
   return {
@@ -158,6 +172,9 @@ export const cloudflareEffects = (config: CloudflareEffectsConfig = {}): EffectR
         const value = env[String(effect.payload.name)];
         return { ok: true, value: typeof value === "string" ? value : null };
       }
+
+      case "cookie":
+        return cookieEffect(effect, context);
 
       default:
         return { ok: false, error: `Unknown effect: ${effect.kind}` };

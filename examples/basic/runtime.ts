@@ -1,7 +1,7 @@
-import { createWorkerApp } from "../../packages/runtime-worker/src/app";
-import { inMemoryEffects, type EffectRunner } from "../../packages/runtime-worker/src/effects";
-import { renderApp, type CompiledElmModule } from "../../packages/runtime-worker/src/render";
-import type { RouteCatalog } from "../../packages/runtime-worker/src/http";
+import { createWorkerApp } from "@elm-ssr/runtime-worker";
+import { inMemoryEffects, type EffectRunner } from "@elm-ssr/runtime-worker/effects";
+import { renderApp, type CompiledElmModule } from "@elm-ssr/runtime-worker/render";
+import type { RouteCatalog } from "@elm-ssr/runtime-worker/http";
 import { islands, bundleSource } from "../../generated/examples/basic/islands-manifest";
 import { stylesheet } from "./styles";
 // @ts-expect-error Generated at build time.

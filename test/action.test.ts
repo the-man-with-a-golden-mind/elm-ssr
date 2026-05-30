@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { worker } from "../examples/basic/runtime";
+import { createExampleWorker, worker } from "../examples/basic/runtime";
+import { inMemoryEffects } from "@elm-ssr/runtime-worker/effects";
 
 // Phase 2: server Actions. A POST form submission runs the route's action, which
 // validates, performs a server effect, then redirects (Post/Redirect/Get). All
@@ -58,5 +59,23 @@ describe("server actions (POST -> action -> redirect)", () => {
   it("still rejects non-POST/GET methods", async () => {
     const response = await worker.fetch(new Request("https://example.com/echo", { method: "PUT" }));
     expect(response.status).toBe(405);
+  });
+
+  it("propagates an effect failure from the action's loader (network down -> 502)", async () => {
+    const effects = inMemoryEffects({
+      fetchJson: () => {
+        throw new Error("network down");
+      }
+    });
+    const app = createExampleWorker({ effects });
+
+    const response = await app.fetch(
+      new Request("https://example.com/echo", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: "message=hello"
+      })
+    );
+    expect(response.status).toBe(502);
   });
 });

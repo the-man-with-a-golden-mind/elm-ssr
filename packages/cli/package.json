@@ -1,8 +1,20 @@
 {
   "name": "@elm-ssr/cli",
-  "private": true,
+  "version": "0.1.0",
+  "description": "CLI for elm-ssr: scaffold new apps and build wrapper modules + island bundles from file-based routes/islands.",
+  "license": "MIT",
   "type": "module",
   "bin": {
     "elm-ssr": "./bin/elm-ssr.mjs"
+  },
+  "files": [
+    "bin",
+    "lib"
+  ],
+  "engines": {
+    "bun": ">=1.3"
+  },
+  "dependencies": {
+    "bun-types": "^1.2.0"
   }
 }

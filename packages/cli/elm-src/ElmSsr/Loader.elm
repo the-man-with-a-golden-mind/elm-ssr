@@ -6,7 +6,6 @@ module ElmSsr.Loader exposing
     , cacheGet, cachePut
     , query, queryOne, execute
     , env
-    , getCookie
     , enqueue
     , Effect, Step(..), step, encodeEffect
     )
@@ -31,7 +30,6 @@ fully typed end to end.
 @docs cacheGet, cachePut
 @docs query, queryOne, execute
 @docs env
-@docs getCookie
 @docs enqueue
 
 
@@ -202,15 +200,6 @@ env : String -> Loader (Maybe String)
 env name =
     Pending
         { kind = "env", payload = Encode.object [ ( "name", Encode.string name ) ]
-        }
-        (\result -> resumeFetchJson (Decode.nullable Decode.string) result)
-
-
-{-| Read a cookie from the incoming request by name, or `Nothing` if absent. -}
-getCookie : String -> Loader (Maybe String)
-getCookie name =
-    Pending
-        { kind = "cookie", payload = Encode.object [ ( "name", Encode.string name ) ]
         }
         (\result -> resumeFetchJson (Decode.nullable Decode.string) result)
 
