@@ -11,7 +11,12 @@ import {
   type CacheClient,
   type SqlClient
 } from "@elm-ssr/runtime-worker/backends";
-import { runMigrations, type MigrationsAdapter } from "@elm-ssr/runtime-worker/migrations";
+import {
+  listMigrations,
+  revertMigrations,
+  runMigrations,
+  type MigrationsAdapter
+} from "@elm-ssr/runtime-worker/migrations";
 
 // Gated on DATABASE_URL + REDIS_URL — the docker-compose.yml at the repo root
 // brings up matching services. Skips on machines without them, so the default
@@ -19,8 +24,12 @@ import { runMigrations, type MigrationsAdapter } from "@elm-ssr/runtime-worker/m
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const REDIS_URL = process.env.REDIS_URL;
-const enabled = Boolean(DATABASE_URL && REDIS_URL);
-const integration = enabled ? describe : describe.skip;
+
+if (!DATABASE_URL || !REDIS_URL) {
+  throw new Error("Integration tests require DATABASE_URL and REDIS_URL to be set. Run with 'bun run test:docker'.");
+}
+
+const integration = describe;
 
 const tablePrefix = `elm_ssr_it_${Math.floor(Date.now() / 1000)}_`;
 
@@ -93,6 +102,10 @@ integration("integration: Postgres (real server, via Bun.sql)", () => {
       resolve(migDir, "0001_entries.sql"),
       `CREATE TABLE ${tableName} (id SERIAL PRIMARY KEY, message TEXT NOT NULL);`
     );
+    await writeFile(
+      resolve(migDir, "0001_entries.down.sql"),
+      `DROP TABLE ${tableName};`
+    );
   });
 
   afterAll(async () => {
@@ -113,6 +126,32 @@ integration("integration: Postgres (real server, via Bun.sql)", () => {
     const second = await runMigrations(migrationsAdapter, { dir: migDir, tableName: trackingTable });
     expect(second.applied).toEqual([]);
     expect(second.skipped).toEqual(["0001_entries.sql"]);
+  });
+
+  it("listMigrations reports applied + pending on real Postgres", async () => {
+    const status = await listMigrations(migrationsAdapter, { dir: migDir, tableName: trackingTable });
+    expect(status.applied.map((a) => a.name)).toEqual(["0001_entries.sql"]);
+    expect(status.pending).toEqual([]);
+  });
+
+  it("revertMigrations rolls back the schema and the tracking row, then re-up restores it", async () => {
+    const reverted = await revertMigrations(migrationsAdapter, { dir: migDir, tableName: trackingTable });
+    expect(reverted.reverted).toEqual(["0001_entries.sql"]);
+
+    // The table is gone.
+    const stillThere = await sql.unsafe(
+      `SELECT to_regclass(${`'${tableName}'`}) AS reg`
+    );
+    const stillThereArray = Array.isArray(stillThere) ? stillThere : [...(stillThere as Iterable<unknown>)];
+    expect((stillThereArray[0] as { reg: string | null }).reg).toBeNull();
+
+    // Tracking row is gone.
+    const tracking = await sql.unsafe(`SELECT name FROM ${trackingTable}`);
+    expect(Array.isArray(tracking) ? tracking : [...tracking]).toEqual([]);
+
+    // Re-running up restores it cleanly.
+    const replay = await runMigrations(migrationsAdapter, { dir: migDir, tableName: trackingTable });
+    expect(replay.applied).toEqual(["0001_entries.sql"]);
   });
 
   it("postgresSql maps query/queryOne/execute to real Postgres", async () => {

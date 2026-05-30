@@ -62,9 +62,8 @@ The default `bun test` skips the integration suites when `DATABASE_URL` /
 
 ```
 packages/
-  elm-ssr/                       # @elm-ssr/elm-ssr — authoring Elm modules
-  runtime-worker/                # @elm-ssr/runtime-worker — TS runtime + adapters
-  cli/                           # @elm-ssr/cli — `elm-ssr` build + scaffold
+  cli/                           # @elm-ssr/cli — `elm-ssr` build + scaffold + migrate, ships the Elm authoring modules under elm-src/
+  runtime-worker/                # @elm-ssr/runtime-worker — TS runtime, effect adapters, tasks/queues, migrations
 examples/
   basic/                         # The reference app (pages, islands, forms, cache, sql, tasks)
   crypto-dashboard/              # Tailwind + elm/svg + elm/http islands with 15s refresh + cross-island bus
@@ -226,24 +225,45 @@ SQL-file migrations live in a directory (e.g. `migrations/0001_init.sql`,
 (`__elm_ssr_migrations`) and applies each pending file in alphabetical order,
 **transactionally** (each migration + its tracking insert are one `BEGIN…COMMIT`,
 so a failure rolls back without leaving a partial schema). Re-runs are
-idempotent.
+idempotent. Optional down migrations live alongside as `<name>.down.sql`.
+
+The example app ships migrations in [`examples/basic/migrations/`](./examples/basic/migrations/) — the `0001_guestbook.sql` schema used by `/guestbook`, plus a paired `0001_guestbook.down.sql`.
+
+### From the CLI
+
+```bash
+elm-ssr migrate up     --dir ./migrations --db ./app.db
+elm-ssr migrate status --dir ./migrations --db ./app.db
+elm-ssr migrate down   --dir ./migrations --db ./app.db   # revert the last applied
+elm-ssr migrate down --count 3 --dir ./migrations --db postgres://user:pass@localhost:5432/db
+```
+
+`--db` accepts a Postgres URL (`postgres://…` / `postgresql://…`), a `sqlite://` URL, or a plain SQLite file path. If omitted it reads `DATABASE_URL` from the environment.
+
+### Programmatic API
 
 ```ts
 import { Database } from "bun:sqlite";
-import { runMigrations } from "@elm-ssr/runtime-worker/migrations";
+import {
+  runMigrations,
+  revertMigrations,
+  listMigrations
+} from "@elm-ssr/runtime-worker/migrations";
 
 const db = new Database("app.db");
-await runMigrations(
-  {
-    exec: async (sql) => { db.exec(sql); },
-    list: async (sql) => db.query(sql).all()
-  },
-  { dir: "./migrations" }
-);
+const adapter = {
+  exec: async (sql) => { db.exec(sql); },
+  list: async (sql) => db.query(sql).all()
+};
+
+const { applied, skipped } = await runMigrations(adapter, { dir: "./migrations" });
+const status                = await listMigrations(adapter, { dir: "./migrations" });
+const { reverted }          = await revertMigrations(adapter, { dir: "./migrations", count: 1 });
 ```
 
 The same `MigrationsAdapter` shape wires to Postgres (`Bun.sql`/`node-postgres`)
-or Cloudflare D1.
+— optionally with `runInTransaction(fn)` if the driver exposes native
+transaction scopes (`sql.begin` / `pool.connect`) — or Cloudflare D1.
 
 ## Commands
 
@@ -253,10 +273,16 @@ bun run build              # generate Main.elm, compile app + islands bundle, wr
 bun run check              # build + tsc --noEmit
 bun run test               # build + bun test (skips integration when env unset)
 bun run test:integration   # bun test test/integration/ (needs DATABASE_URL + REDIS_URL)
+bun run test:docker        # docker compose up --wait; bun run test; docker compose down
 bun run dev                # build + wrangler dev
 bun run deploy             # build + wrangler deploy
 bun run ssr:new <name>     # scaffold a new example app
 bun run ssr:routes         # print configured app modules
+
+# Migration CLI (any directory + any backend)
+elm-ssr migrate up     --dir ./migrations --db ./app.db
+elm-ssr migrate status --dir ./migrations --db ./app.db
+elm-ssr migrate down   --dir ./migrations --db ./app.db [--count N]
 ```
 
 ## Example routes (`examples/basic`)
@@ -310,11 +336,10 @@ bun run ssr:routes         # print configured app modules
 ## More
 
 - [`AGENTS.md`](./AGENTS.md) — orientation for AI agents working on this repo.
-- [`packages/runtime-worker/README.md`](./packages/runtime-worker/README.md) — Worker runtime API.
-- [`packages/elm-ssr/README.md`](./packages/elm-ssr/README.md) — Elm authoring modules.
-- [`packages/cli/README.md`](./packages/cli/README.md) — CLI commands.
-- `docs/route-loader-page.md` and `docs/rfc-islands.md` are older design notes
-  and may lag the current implementation — code is the source of truth.
+- [`packages/runtime-worker/README.md`](./packages/runtime-worker/README.md) — Worker runtime API (effects, tasks, backends, migrations, middleware, islands runtime).
+- [`packages/cli/README.md`](./packages/cli/README.md) — CLI commands (`build`, `new`, `migrate`, `dev`, …).
+
+The CLI also ships the Elm authoring modules (under `packages/cli/elm-src/`) which the build syncs into each app's `.elm-ssr/src/ElmSsr/` at compile time.
 
 ## License
 

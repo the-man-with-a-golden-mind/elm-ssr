@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { createExampleScaffold } from "../lib/scaffold.mjs";
 import { readWorkspaceConfig } from "../lib/workspace.mjs";
 import { build } from "../lib/build.mjs";
+import { migrate } from "../lib/migrate.mjs";
 
 const defaultRootPath = process.cwd();
 const packageJsonPath = resolve(defaultRootPath, "package.json");
@@ -50,6 +51,7 @@ const printHelp = () => {
   new <name>    Create a new example app and register it in elm-ssr.config.json
   routes        Print configured apps and their public modules
   info          Print current workspace package and configured app names
+  migrate ...   Apply / revert / inspect SQL migrations (see: elm-ssr migrate --help)
 `);
 };
 
@@ -88,6 +90,10 @@ switch (command) {
   case "info":
     console.log(`workspace: ${packageJson.name}`);
     console.log(`apps: ${config.apps.map((app) => app.name).join(", ")}`);
+    break;
+
+  case "migrate":
+    await migrate(args.slice(1));
     break;
 
   default:

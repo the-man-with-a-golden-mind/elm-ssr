@@ -1,6 +1,6 @@
 import { createExampleWorker, renderPath } from "../examples/basic/runtime.ts";
 
-const worker = createExampleWorker(() => {});
+const worker = createExampleWorker({ log: () => {} });
 
 const quantile = (values, fraction) => {
   const sorted = [...values].sort((left, right) => left - right);

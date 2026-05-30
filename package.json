@@ -10,9 +10,9 @@
     "ssr:build": "bun packages/cli/bin/elm-ssr.mjs build",
     "ssr:new": "bun packages/cli/bin/elm-ssr.mjs new",
     "ssr:routes": "bun packages/cli/bin/elm-ssr.mjs routes",
-    "test": "bun run build && bun test",
+    "test": "DATABASE_URL=postgres://elmssr:elmssr@localhost:5432/elmssr REDIS_URL=redis://localhost:6379 sh -c 'bun run build && bun test'",
     "test:integration": "DATABASE_URL=postgres://elmssr:elmssr@localhost:5432/elmssr REDIS_URL=redis://localhost:6379 sh -c 'bun run build && bun test test/integration/'",
-    "test:docker": "docker compose up -d --wait && (bun run test:integration; docker compose down)",
+    "test:docker": "docker compose up -d --wait && (bun run test; docker compose down)",
     "bench": "bun run build && bun run scripts/benchmark.mjs",
     "dev": "bun run build && ./node_modules/.bin/wrangler dev",
     "deploy": "bun run build && ./node_modules/.bin/wrangler deploy"

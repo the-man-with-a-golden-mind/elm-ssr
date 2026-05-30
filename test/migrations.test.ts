@@ -3,7 +3,12 @@ import { Database } from "bun:sqlite";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { runMigrations, type MigrationsAdapter } from "@elm-ssr/runtime-worker/migrations";
+import {
+  listMigrations,
+  revertMigrations,
+  runMigrations,
+  type MigrationsAdapter
+} from "@elm-ssr/runtime-worker/migrations";
 
 // The migration runner is backend-neutral; here we drive it against an
 // in-memory SQLite database via bun:sqlite. The same `MigrationsAdapter`
@@ -135,5 +140,105 @@ describe("runMigrations", () => {
     expect(result.applied).toEqual(["0001_o'clock.sql"]);
     expect(db.query("SELECT name FROM __elm_ssr_migrations").all())
       .toEqual([{ name: "0001_o'clock.sql" }]);
+  });
+
+  it("ignores `.down.sql` files on the up pass", async () => {
+    await seed({
+      "0001_init.sql": "CREATE TABLE t (id INTEGER);",
+      "0001_init.down.sql": "DROP TABLE t;"
+    });
+    const result = await runMigrations(adapter, { dir });
+    expect(result.applied).toEqual(["0001_init.sql"]);
+  });
+});
+
+describe("revertMigrations", () => {
+  it("reverts the most-recently-applied migration via its paired down file", async () => {
+    await seed({
+      "0001_users.sql": "CREATE TABLE users (id INTEGER);",
+      "0001_users.down.sql": "DROP TABLE users;",
+      "0002_posts.sql": "CREATE TABLE posts (id INTEGER);",
+      "0002_posts.down.sql": "DROP TABLE posts;"
+    });
+    await runMigrations(adapter, { dir });
+
+    const result = await revertMigrations(adapter, { dir });
+
+    expect(result.reverted).toEqual(["0002_posts.sql"]);
+    expect(db.query("SELECT name FROM __elm_ssr_migrations").all()).toEqual([{ name: "0001_users.sql" }]);
+    expect(db.query("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('users','posts')").all())
+      .toEqual([{ name: "users" }]);
+  });
+
+  it("reverts multiple migrations when count > 1, most-recent first", async () => {
+    await seed({
+      "0001_users.sql": "CREATE TABLE users (id INTEGER);",
+      "0001_users.down.sql": "DROP TABLE users;",
+      "0002_posts.sql": "CREATE TABLE posts (id INTEGER);",
+      "0002_posts.down.sql": "DROP TABLE posts;"
+    });
+    await runMigrations(adapter, { dir });
+
+    const result = await revertMigrations(adapter, { dir, count: 2 });
+
+    expect(result.reverted).toEqual(["0002_posts.sql", "0001_users.sql"]);
+    expect(db.query("SELECT name FROM __elm_ssr_migrations").all()).toEqual([]);
+  });
+
+  it("errors clearly when a down migration is missing", async () => {
+    await seed({ "0001_init.sql": "CREATE TABLE t (id INTEGER);" });
+    await runMigrations(adapter, { dir });
+
+    await expect(revertMigrations(adapter, { dir })).rejects.toThrow(/No down migration/);
+  });
+
+  it("rolls back a failing revert without removing the tracking row", async () => {
+    await seed({
+      "0001_init.sql": "CREATE TABLE t (id INTEGER);",
+      "0001_init.down.sql": "DROP TABLE no_such_table;"
+    });
+    await runMigrations(adapter, { dir });
+
+    await expect(revertMigrations(adapter, { dir })).rejects.toThrow(/0001_init\.sql/);
+
+    // Tracking row is still there; original table still there.
+    expect(db.query("SELECT name FROM __elm_ssr_migrations").all()).toEqual([{ name: "0001_init.sql" }]);
+    expect(db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='t'").all())
+      .toEqual([{ name: "t" }]);
+  });
+
+  it("is a no-op when there's nothing applied", async () => {
+    const result = await revertMigrations(adapter, { dir });
+    expect(result.reverted).toEqual([]);
+  });
+});
+
+describe("listMigrations", () => {
+  it("reports applied entries (with timestamps) and pending filenames", async () => {
+    await seed({
+      "0001_users.sql": "CREATE TABLE users (id INTEGER);",
+      "0002_posts.sql": "CREATE TABLE posts (id INTEGER);",
+      "0003_comments.sql": "CREATE TABLE comments (id INTEGER);"
+    });
+    await runMigrations(adapter, { dir, now: () => "2026-05-30T00:00:00Z" });
+
+    // Now add a pending one without applying.
+    await seed({ "0004_likes.sql": "CREATE TABLE likes (id INTEGER);" });
+
+    const status = await listMigrations(adapter, { dir });
+
+    expect(status.applied).toEqual([
+      { name: "0001_users.sql", appliedAt: "2026-05-30T00:00:00Z" },
+      { name: "0002_posts.sql", appliedAt: "2026-05-30T00:00:00Z" },
+      { name: "0003_comments.sql", appliedAt: "2026-05-30T00:00:00Z" }
+    ]);
+    expect(status.pending).toEqual(["0004_likes.sql"]);
+  });
+
+  it("creates the tracking table on first call (returns empty applied + all pending)", async () => {
+    await seed({ "0001_init.sql": "CREATE TABLE t (id INTEGER);" });
+    const status = await listMigrations(adapter, { dir });
+    expect(status.applied).toEqual([]);
+    expect(status.pending).toEqual(["0001_init.sql"]);
   });
 });

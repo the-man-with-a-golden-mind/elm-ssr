@@ -31,35 +31,41 @@ These match real bugs I've shipped or nearly shipped. Don't repeat them.
    `ElmSsr.Html` you are wrong — that's the pre-pivot architecture we deleted.
 2. **Pages use `ElmSsr.Html`.** Pages return `Document Never`, serialized on the
    server to HTML. They cannot use `elm/html` because Workers has no DOM.
-3. **`docs/*.md` LAG the code.** The user iterates fast and rewrites large
-   pieces of the design between sessions. Treat the code as the source of
-   truth. When asked "how does X work", read the file. When you finish a
-   change, the docs are probably stale too — flag it, don't silently fix it.
-4. **Verify against code, not memory or this file.** Memory files in
+3. **Verify against code, not memory or this file.** Memory files in
    `~/.claude/projects/.../memory/` carry useful context but can also be stale.
    Run `grep`/`ls`/`Read` before asserting how something currently works.
-5. **No `Generated.*` modules in author-facing API.** The author imports the
+4. **No `Generated.*` modules in author-facing API.** The author imports the
    island module directly (`import App.Islands.Counter as Counter`) and calls
    `Counter.embed {...}`. There is *no* `Generated.Islands` re-export. Codegen
    is reserved for things the author never touches (`Main.elm`, the islands
    client program, the manifest).
-6. **Workspace subpath imports.** TS imports `@elm-ssr/runtime-worker/effects`,
-   `/tasks`, `/backends`, `/middleware`, `/http`, etc. — never relative paths
-   like `../../packages/runtime-worker/src/effects`.
-7. **Small modules.** Split by responsibility (the client runtime is split into
+5. **Workspace subpath imports.** TS imports `@elm-ssr/runtime-worker/effects`,
+   `/tasks`, `/backends`, `/migrations`, `/middleware`, `/http`, etc. — never
+   relative paths like `../../packages/runtime-worker/src/effects`.
+6. **Small modules.** Split by responsibility (the client runtime is split into
    `islands.ts` + the inline core; the effect adapters are composable
    `withCache`/`withTasks`/`withQueueProducer`). Don't grow one file.
-8. **Don't add comments that narrate the change.** No "added for issue #X",
+7. **Don't add comments that narrate the change.** No "added for issue #X",
    "now we also …", "refactored from …". Either explain a non-obvious *why* in
    one short line, or stay silent.
+8. **Elm sources live in `packages/cli/elm-src/`** (the CLI is the canonical
+   home; the build syncs them into each app's `.elm-ssr/src/ElmSsr/`). Don't
+   look for a separate `@elm-ssr/elm-ssr` package — it was removed pre-release.
 
 ## File layout
 
 ```
 packages/
-  elm-ssr/                       # @elm-ssr/elm-ssr — authoring Elm modules
-    src/ElmSsr/                  # Route, Loader, Action, Html(+.Attributes/.Events),
-                                 # Svg, Island, Island.Shared, Document, Page, Runtime
+  cli/                           # @elm-ssr/cli — `elm-ssr` command + build pipeline + migrate
+    bin/elm-ssr.mjs
+    elm-src/ElmSsr/              # Route, Loader, Action, Html(+.Attributes/.Events),
+                                 # Svg(+.Attributes), Island(+.Shared), Document(+.Encode/.Events),
+                                 # Page, Runtime — synced into each app's .elm-ssr/src/ on build
+    lib/
+      build.mjs                  # Scans Routes/ + Islands/, generates Main.elm, runs `elm make`
+      migrate.mjs                # `elm-ssr migrate up|down|status` with Postgres + SQLite adapters
+      scaffold.mjs               # `elm-ssr new <name>`
+      workspace.mjs              # reads elm-ssr.config.json
   runtime-worker/                # @elm-ssr/runtime-worker — TS runtime
     src/
       app.ts                     # createWorkerApp({elmModule, islands, ..., effects})
@@ -73,12 +79,8 @@ packages/
       response-headers.ts        # htmlHeaders, jsonHeaders, cssHeaders, assetHeaders
       serialize.ts               # SsrDocument → HTML string
       protocol.ts                # SsrNode/Attribute/Document types + isNode validation
+      migrations.ts              # runMigrations, revertMigrations, listMigrations
       client-runtime/islands.ts  # The client island runtime (source string)
-  cli/                           # @elm-ssr/cli — `elm-ssr` command + build pipeline
-    bin/elm-ssr.mjs
-    lib/build.mjs                # Scans Routes/ + Islands/, generates Main.elm + islands manifest,
-                                 # syncs elm-ssr/src/ElmSsr/* into <app>/.elm-ssr/src/, runs `elm make`
-    lib/scaffold.mjs             # `elm-ssr new <name>`
 examples/
   basic/                         # The reference app
   crypto-dashboard/              # Tailwind + elm/svg + elm/http islands + cross-island bus
@@ -176,7 +178,7 @@ user wires the real driver in their entrypoint.
 1. Reads `elm-ssr.config.json` (workspace root) listing apps.
 2. For each app, scans `src/<Namespace>/Routes/` and `Islands/`, generates
    `.elm-ssr/Main.elm` (router) + the islands manifest, and syncs
-   `packages/elm-ssr/src/ElmSsr/*` into `<app>/.elm-ssr/src/ElmSsr/*` so the
+   `packages/cli/elm-src/ElmSsr/*` into `<app>/.elm-ssr/src/ElmSsr/*` so the
    example's `elm.json` `source-directories` can list `".elm-ssr/src"`.
 3. Runs `elm make` to produce `generated/<app>/app.mjs` and a combined
    `islands.mjs` (one bundle exposing every island as `Elm.<Module>`).
@@ -188,18 +190,33 @@ plugged into `inMemoryEffects({ sql })` for the SQL adapter test).
 
 ## Migrations
 
-`@elm-ssr/runtime-worker/migrations` exports `runMigrations(adapter, { dir, tableName?, now? })`. SQL files are applied alphabetically (use a numeric prefix); each migration runs inside a `BEGIN…COMMIT` together with its tracking-table insert, so a failure rolls back without leaving a partial schema. Re-runs are idempotent.
+`@elm-ssr/runtime-worker/migrations` exports three operations:
 
-The adapter is two callbacks:
+- `runMigrations(adapter, { dir, tableName?, now? })` — apply pending `*.sql`, alphabetical, transactional per-migration, idempotent. Files named `*.down.sql` are ignored on the up pass.
+- `revertMigrations(adapter, { dir, tableName?, count? })` — revert the most-recently-applied N (default 1) by running each `<name>.down.sql`; errors clearly if a paired down file is missing.
+- `listMigrations(adapter, { dir, tableName? })` — `{ applied: [{name, appliedAt}], pending: [name] }`.
+
+The adapter is two callbacks plus an optional transaction hook:
 
 ```ts
 interface MigrationsAdapter {
   exec(sql: string): Promise<void>;                          // multi-statement
   list(sql: string): Promise<Array<Record<string, unknown>>>; // SELECT
+  runInTransaction?(fn: () => Promise<void>): Promise<void>;  // use the driver's native txn scope
 }
 ```
 
-Wire it to bun:sqlite (`{ exec: s => { db.exec(s); }, list: s => db.query(s).all() }`), `Bun.sql`/`node-postgres`, or D1. Real-world wiring lives in `test/migrations.test.ts` (SQLite) and `test/integration/redis-postgres.test.ts` (Postgres).
+Wire it to bun:sqlite (`{ exec: s => { db.exec(s); }, list: s => db.query(s).all() }`), `Bun.sql` (`runInTransaction: fn => sql.begin(fn)`), `node-postgres`, or D1. Real-world wiring lives in `test/migrations.test.ts` (SQLite, 16 tests), `test/integration/redis-postgres.test.ts` (Postgres, incl. revert + status), and `test/cli-migrate.test.ts` (the CLI driving SQLite end-to-end on the example's migrations dir).
+
+### CLI
+
+`elm-ssr migrate <up|down|status> [--dir <path>] [--db <conn>] [--count N] [--table <name>]`:
+
+- `--db postgres://…` → builds a `Bun.sql` adapter with `runInTransaction = sql.begin`.
+- `--db sqlite://path` or a bare file path → bun:sqlite adapter.
+- Reads `DATABASE_URL` if `--db` is omitted; errors clearly if neither is set.
+
+CLI lives in `packages/cli/lib/migrate.mjs`, dispatched from `packages/cli/bin/elm-ssr.mjs`.
 
 ## Integration tests (Docker)
 
