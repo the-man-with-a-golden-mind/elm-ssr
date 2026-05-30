@@ -8,7 +8,7 @@ import {
   revertMigrations,
   runMigrations,
   type MigrationsAdapter
-} from "@elm-ssr/runtime-worker/migrations";
+} from "elm-ssr/migrations";
 
 // The migration runner is backend-neutral; here we drive it against an
 // in-memory SQLite database via bun:sqlite. The same `MigrationsAdapter`

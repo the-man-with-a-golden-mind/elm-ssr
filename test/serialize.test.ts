@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { renderHtmlDocument } from "@elm-ssr/runtime-worker/serialize";
-import type { SsrDocument } from "@elm-ssr/runtime-worker/protocol";
+import { renderHtmlDocument } from "elm-ssr/serialize";
+import type { SsrDocument } from "elm-ssr/protocol";
 
 describe("renderHtmlDocument", () => {
   it("escapes HTML in text and attributes", () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import type { AppContext, AppHandler, Middleware } from "@elm-ssr/runtime-worker/http";
+import type { AppContext, AppHandler, Middleware } from "elm-ssr/http";
 import {
   composeMiddleware,
   errorMiddleware,
@@ -7,7 +7,7 @@ import {
   loggingMiddleware,
   requestIdMiddleware,
   timingMiddleware
-} from "@elm-ssr/runtime-worker/middleware";
+} from "elm-ssr/middleware";
 
 const contextFor = (request: Request): AppContext => ({
   request,

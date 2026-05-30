@@ -62,8 +62,9 @@ The default `bun test` skips the integration suites when `DATABASE_URL` /
 
 ```
 packages/
-  cli/                           # @elm-ssr/cli — `elm-ssr` build + scaffold + migrate, ships the Elm authoring modules under elm-src/
-  runtime-worker/                # @elm-ssr/runtime-worker — TS runtime, effect adapters, tasks/queues, migrations
+  elm-ssr/                       # The single published package: CLI (`elm-ssr` build/new/migrate/dev),
+                                 # TS runtime + effect adapters + tasks/queues + migrations, and the
+                                 # Elm authoring modules under elm-src/ (synced into each app on build)
 examples/
   basic/                         # The reference app (pages, islands, forms, cache, sql, tasks)
   crypto-dashboard/              # Tailwind + elm/svg + elm/http islands with 15s refresh + cross-island bus
@@ -190,9 +191,9 @@ CustomEvent bus).
 Compose the worker's `effects` from small adapters:
 
 ```ts
-import { inMemoryEffects, cloudflareEffects } from "@elm-ssr/runtime-worker/effects";
-import { withCache, redisCache, postgresSql } from "@elm-ssr/runtime-worker/backends";
-import { withTasks, withQueueProducer } from "@elm-ssr/runtime-worker/tasks";
+import { inMemoryEffects, cloudflareEffects } from "elm-ssr/effects";
+import { withCache, redisCache, postgresSql } from "elm-ssr/backends";
+import { withTasks, withQueueProducer } from "elm-ssr/tasks";
 
 // Cloudflare deploy:
 const effects = withTasks(cloudflareEffects({ cacheBinding: "CACHE", dbBinding: "DB" }), {
@@ -211,7 +212,7 @@ const effects = withTasks(
 ```
 
 The Elm code is identical on both. `redisCache(client)` and `postgresSql(client)`
-take minimal client interfaces (see `packages/runtime-worker/src/backends.ts`) so
+take minimal client interfaces (see `packages/elm-ssr/src/backends.ts`) so
 they work with `Bun.redis`/`Bun.sql`, `ioredis`, `node-postgres`, SQLite, etc.
 
 For durable background jobs (instead of `waitUntil`), swap `withTasks` for
@@ -248,7 +249,7 @@ import {
   runMigrations,
   revertMigrations,
   listMigrations
-} from "@elm-ssr/runtime-worker/migrations";
+} from "elm-ssr/migrations";
 
 const db = new Database("app.db");
 const adapter = {
@@ -336,10 +337,9 @@ elm-ssr migrate down   --dir ./migrations --db ./app.db [--count N]
 ## More
 
 - [`AGENTS.md`](./AGENTS.md) — orientation for AI agents working on this repo.
-- [`packages/runtime-worker/README.md`](./packages/runtime-worker/README.md) — Worker runtime API (effects, tasks, backends, migrations, middleware, islands runtime).
-- [`packages/cli/README.md`](./packages/cli/README.md) — CLI commands (`build`, `new`, `migrate`, `dev`, …).
+- [`packages/elm-ssr/README.md`](./packages/elm-ssr/README.md) — the package readme (CLI commands, runtime exports, Elm authoring modules).
 
-The CLI also ships the Elm authoring modules (under `packages/cli/elm-src/`) which the build syncs into each app's `.elm-ssr/src/ElmSsr/` at compile time.
+The package also ships the Elm authoring modules (under `packages/elm-ssr/elm-src/`) which the build syncs into each app's `.elm-ssr/src/ElmSsr/` at compile time.
 
 ## License
 

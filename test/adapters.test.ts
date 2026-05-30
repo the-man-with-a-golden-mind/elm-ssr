@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
-import { defaultEffectRunner, inMemoryEffects } from "@elm-ssr/runtime-worker/effects";
-import { postgresSql, redisCache, withCache, type CacheClient, type SqlClient } from "@elm-ssr/runtime-worker/backends";
-import { createQueueConsumer, withQueueProducer, type QueueBatch } from "@elm-ssr/runtime-worker/tasks";
+import { defaultEffectRunner, inMemoryEffects } from "elm-ssr/effects";
+import { postgresSql, redisCache, withCache, type CacheClient, type SqlClient } from "elm-ssr/backends";
+import { createQueueConsumer, withQueueProducer, type QueueBatch } from "elm-ssr/tasks";
 
 // Unit-level coverage for the adapter glue: cookie reading, redisCache over a
 // fake Redis-shaped client, postgresSql over a fake SQL client, and the CF

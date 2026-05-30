@@ -3,20 +3,20 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { redis, SQL } from "bun";
-import { defaultEffectRunner } from "@elm-ssr/runtime-worker/effects";
+import { defaultEffectRunner } from "elm-ssr/effects";
 import {
   postgresSql,
   redisCache,
   withCache,
   type CacheClient,
   type SqlClient
-} from "@elm-ssr/runtime-worker/backends";
+} from "elm-ssr/backends";
 import {
   listMigrations,
   revertMigrations,
   runMigrations,
   type MigrationsAdapter
-} from "@elm-ssr/runtime-worker/migrations";
+} from "elm-ssr/migrations";
 
 // Gated on DATABASE_URL + REDIS_URL — the docker-compose.yml at the repo root
 // brings up matching services. Skips on machines without them, so the default

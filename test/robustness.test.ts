@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { renderHtmlDocument } from "@elm-ssr/runtime-worker/serialize";
-import type { SsrDocument, SsrNode } from "@elm-ssr/runtime-worker/protocol";
+import { renderHtmlDocument } from "elm-ssr/serialize";
+import type { SsrDocument, SsrNode } from "elm-ssr/protocol";
 
 describe("extended robustness tests", () => {
   it("handles deeply nested island markers with O(1) flag correctly", () => {

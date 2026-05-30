@@ -25,7 +25,7 @@ describe("elm-ssr CLI", () => {
     const command = Bun.spawn(
       [
         "bun",
-        "packages/cli/bin/elm-ssr.mjs",
+        "packages/elm-ssr/bin/elm-ssr.mjs",
         "new",
         "hello-world",
         "--root",

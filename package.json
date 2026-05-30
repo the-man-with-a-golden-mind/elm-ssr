@@ -1,17 +1,19 @@
 {
   "name": "elmssr",
+  "version": "0.0.0",
+  "private": true,
   "type": "module",
   "workspaces": ["packages/*", "examples/*"],
   "scripts": {
-    "build:elm": "bun packages/cli/bin/elm-ssr.mjs build",
+    "build:elm": "bun packages/elm-ssr/bin/elm-ssr.mjs build",
     "build": "bun run build:elm",
     "check": "bun run build && bun ./node_modules/typescript/bin/tsc --noEmit",
-    "ssr:build": "bun packages/cli/bin/elm-ssr.mjs build",
-    "ssr:new": "bun packages/cli/bin/elm-ssr.mjs new",
-    "ssr:routes": "bun packages/cli/bin/elm-ssr.mjs routes",
-    "test": "DATABASE_URL=postgres://elmssr:elmssr@localhost:5432/elmssr REDIS_URL=redis://localhost:6379 sh -c 'bun run build && bun test'",
-    "test:integration": "DATABASE_URL=postgres://elmssr:elmssr@localhost:5432/elmssr REDIS_URL=redis://localhost:6379 sh -c 'bun run build && bun test test/integration/'",
-    "test:docker": "docker compose up -d --wait && (bun run test; docker compose down)",
+    "ssr:build": "bun packages/elm-ssr/bin/elm-ssr.mjs build",
+    "ssr:new": "bun packages/elm-ssr/bin/elm-ssr.mjs new",
+    "ssr:routes": "bun packages/elm-ssr/bin/elm-ssr.mjs routes",
+    "test": "docker compose up -d --wait && (DATABASE_URL=postgres://elmssr:elmssr@localhost:5432/elmssr REDIS_URL=redis://localhost:6379 sh -c 'bun run build && bun test'; ec=$?; docker compose down; exit $ec)",
+    "test:unit": "bun run build && bun test $(find test -name '*.test.ts' -not -path '*/integration/*')",
+    "test:integration": "docker compose up -d --wait && (DATABASE_URL=postgres://elmssr:elmssr@localhost:5432/elmssr REDIS_URL=redis://localhost:6379 sh -c 'bun run build && bun test test/integration/'; ec=$?; docker compose down; exit $ec)",
     "bench": "bun run build && bun run scripts/benchmark.mjs",
     "dev": "bun run build && ./node_modules/.bin/wrangler dev",
     "deploy": "bun run build && ./node_modules/.bin/wrangler deploy"
@@ -20,8 +22,7 @@
     "bun": ">=1.3"
   },
   "devDependencies": {
-    "@elm-ssr/cli": "workspace:*",
-    "@elm-ssr/runtime-worker": "workspace:*",
+    "elm-ssr": "workspace:*",
     "elm": "^0.19.1-6",
     "happy-dom": "^20.9.0",
     "typescript": "^5.9.0",

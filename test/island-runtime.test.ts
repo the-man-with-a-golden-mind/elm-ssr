@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { Window } from "happy-dom";
-import { islandsCoreSource } from "@elm-ssr/runtime-worker/islands-runtime";
+import { islandsCoreSource } from "elm-ssr/islands-runtime";
 
 // Exercises the real island client runtime (boot + persistence + navigation)
 // against a happy-dom DOM, with the actual compiled island bundle injected.

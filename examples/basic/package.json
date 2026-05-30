@@ -1,0 +1,10 @@
+{
+  "name": "@elm-ssr/example-basic",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Reference example app: pages, islands, forms (PRG), server caching, SQL via migrations, background tasks.",
+  "dependencies": {
+    "elm-ssr": "workspace:*"
+  }
+}

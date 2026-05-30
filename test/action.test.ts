@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { createExampleWorker, worker } from "../examples/basic/runtime";
-import { inMemoryEffects } from "@elm-ssr/runtime-worker/effects";
+import { inMemoryEffects } from "elm-ssr/effects";
 
 // Phase 2: server Actions. A POST form submission runs the route's action, which
 // validates, performs a server effect, then redirects (Post/Redirect/Get). All

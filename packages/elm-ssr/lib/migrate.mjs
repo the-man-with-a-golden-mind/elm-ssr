@@ -5,7 +5,7 @@ import {
   listMigrations,
   revertMigrations,
   runMigrations
-} from "@elm-ssr/runtime-worker/migrations";
+} from "../src/migrations.ts";
 
 const USAGE = `\
 elm-ssr migrate <up|down|status> [options]

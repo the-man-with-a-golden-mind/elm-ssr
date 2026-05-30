@@ -272,9 +272,9 @@ view =
         }
 `;
 
-const runtimeTemplate = (name) => `import { createWorkerApp } from "@elm-ssr/runtime-worker";
-import { renderApp, type CompiledElmModule } from "@elm-ssr/runtime-worker/render";
-import type { RouteCatalog } from "@elm-ssr/runtime-worker/http";
+const runtimeTemplate = (name) => `import { createWorkerApp } from "elm-ssr";
+import { renderApp, type CompiledElmModule } from "elm-ssr/render";
+import type { RouteCatalog } from "elm-ssr/http";
 import { islands, bundleSource } from "../../generated/examples/${name}/islands-manifest";
 import { stylesheet } from "./styles";
 // @ts-expect-error Generated at build time.

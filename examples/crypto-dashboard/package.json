@@ -1,0 +1,10 @@
+{
+  "name": "@elm-ssr/example-crypto-dashboard",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Crypto dashboard example: Tailwind + elm/svg + elm/http islands with 15s live refresh and cross-island event bus.",
+  "dependencies": {
+    "elm-ssr": "workspace:*"
+  }
+}

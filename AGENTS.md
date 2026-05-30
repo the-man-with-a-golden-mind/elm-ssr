@@ -39,25 +39,28 @@ These match real bugs I've shipped or nearly shipped. Don't repeat them.
    `Counter.embed {...}`. There is *no* `Generated.Islands` re-export. Codegen
    is reserved for things the author never touches (`Main.elm`, the islands
    client program, the manifest).
-5. **Workspace subpath imports.** TS imports `@elm-ssr/runtime-worker/effects`,
+5. **Workspace subpath imports.** TS imports `elm-ssr/effects`,
    `/tasks`, `/backends`, `/migrations`, `/middleware`, `/http`, etc. — never
-   relative paths like `../../packages/runtime-worker/src/effects`.
+   relative paths like `../../packages/elm-ssr/src/effects`.
 6. **Small modules.** Split by responsibility (the client runtime is split into
    `islands.ts` + the inline core; the effect adapters are composable
    `withCache`/`withTasks`/`withQueueProducer`). Don't grow one file.
 7. **Don't add comments that narrate the change.** No "added for issue #X",
    "now we also …", "refactored from …". Either explain a non-obvious *why* in
    one short line, or stay silent.
-8. **Elm sources live in `packages/cli/elm-src/`** (the CLI is the canonical
-   home; the build syncs them into each app's `.elm-ssr/src/ElmSsr/`). Don't
-   look for a separate `@elm-ssr/elm-ssr` package — it was removed pre-release.
+8. **Elm sources live in `packages/elm-ssr/elm-src/`** (the package is the
+   canonical home; the build syncs them into each app's `.elm-ssr/src/ElmSsr/`).
+   There is **one** published package — `elm-ssr` — covering CLI, TS runtime,
+   effect adapters, tasks/queues, migrations, and the Elm authoring modules.
+   The earlier split into `@elm-ssr/cli` + `@elm-ssr/runtime-worker` was
+   collapsed pre-release; don't look for those.
 
 ## File layout
 
 ```
 packages/
-  cli/                           # @elm-ssr/cli — `elm-ssr` command + build pipeline + migrate
-    bin/elm-ssr.mjs
+  elm-ssr/                       # The single published package
+    bin/elm-ssr.mjs              # `elm-ssr` CLI entry
     elm-src/ElmSsr/              # Route, Loader, Action, Html(+.Attributes/.Events),
                                  # Svg(+.Attributes), Island(+.Shared), Document(+.Encode/.Events),
                                  # Page, Runtime — synced into each app's .elm-ssr/src/ on build
@@ -66,7 +69,6 @@ packages/
       migrate.mjs                # `elm-ssr migrate up|down|status` with Postgres + SQLite adapters
       scaffold.mjs               # `elm-ssr new <name>`
       workspace.mjs              # reads elm-ssr.config.json
-  runtime-worker/                # @elm-ssr/runtime-worker — TS runtime
     src/
       app.ts                     # createWorkerApp({elmModule, islands, ..., effects})
       request-handler.ts         # Routes + dispatch; threads effectContext into render
@@ -174,11 +176,11 @@ user wires the real driver in their entrypoint.
 
 ## Build pipeline
 
-`bun run build` → `bun run packages/cli/bin/elm-ssr.mjs build`:
+`bun run build` → `bun run packages/elm-ssr/bin/elm-ssr.mjs build`:
 1. Reads `elm-ssr.config.json` (workspace root) listing apps.
 2. For each app, scans `src/<Namespace>/Routes/` and `Islands/`, generates
    `.elm-ssr/Main.elm` (router) + the islands manifest, and syncs
-   `packages/cli/elm-src/ElmSsr/*` into `<app>/.elm-ssr/src/ElmSsr/*` so the
+   `packages/elm-ssr/elm-src/ElmSsr/*` into `<app>/.elm-ssr/src/ElmSsr/*` so the
    example's `elm.json` `source-directories` can list `".elm-ssr/src"`.
 3. Runs `elm make` to produce `generated/<app>/app.mjs` and a combined
    `islands.mjs` (one bundle exposing every island as `Elm.<Module>`).
@@ -190,7 +192,7 @@ plugged into `inMemoryEffects({ sql })` for the SQL adapter test).
 
 ## Migrations
 
-`@elm-ssr/runtime-worker/migrations` exports three operations:
+`elm-ssr/migrations` exports three operations:
 
 - `runMigrations(adapter, { dir, tableName?, now? })` — apply pending `*.sql`, alphabetical, transactional per-migration, idempotent. Files named `*.down.sql` are ignored on the up pass.
 - `revertMigrations(adapter, { dir, tableName?, count? })` — revert the most-recently-applied N (default 1) by running each `<name>.down.sql`; errors clearly if a paired down file is missing.
@@ -216,7 +218,7 @@ Wire it to bun:sqlite (`{ exec: s => { db.exec(s); }, list: s => db.query(s).all
 - `--db sqlite://path` or a bare file path → bun:sqlite adapter.
 - Reads `DATABASE_URL` if `--db` is omitted; errors clearly if neither is set.
 
-CLI lives in `packages/cli/lib/migrate.mjs`, dispatched from `packages/cli/bin/elm-ssr.mjs`.
+CLI lives in `packages/elm-ssr/lib/migrate.mjs`, dispatched from `packages/elm-ssr/bin/elm-ssr.mjs`.
 
 ## Integration tests (Docker)
 

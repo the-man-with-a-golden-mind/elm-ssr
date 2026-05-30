@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
-import { createWorkerApp } from "@elm-ssr/runtime-worker";
-import { renderHtmlDocument } from "@elm-ssr/runtime-worker/serialize";
-import { renderApp, type CompiledElmModule } from "@elm-ssr/runtime-worker/render";
+import { createWorkerApp } from "elm-ssr";
+import { renderHtmlDocument } from "elm-ssr/serialize";
+import { renderApp, type CompiledElmModule } from "elm-ssr/render";
 import { createFlags, routes, worker, renderPath } from "../examples/basic/runtime";
 import { islands, bundleSource } from "../generated/examples/basic/islands-manifest";
 import { stylesheet } from "../examples/basic/styles";

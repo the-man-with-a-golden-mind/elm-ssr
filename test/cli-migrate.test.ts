@@ -4,7 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 // @ts-expect-error JS sibling — Bun resolves the .mjs CLI at runtime; tsc doesn't include test/.
-import { migrate } from "../packages/cli/lib/migrate.mjs";
+import { migrate } from "../packages/elm-ssr/lib/migrate.mjs";
 
 // End-to-end smoke for the `elm-ssr migrate` CLI: applies the example app's
 // migrations against a fresh SQLite file, then reverts, exercising the full

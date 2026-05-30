@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { createWorkerApp } from "@elm-ssr/runtime-worker";
+import { createWorkerApp } from "elm-ssr";
 import { routes, createFlags, exampleEffects } from "../examples/basic/runtime";
 // @ts-expect-error Generated at build time.
 import ElmRuntime from "../generated/examples/basic/app.mjs";

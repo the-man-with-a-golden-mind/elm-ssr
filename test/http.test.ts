@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { json, text, withHeaders } from "@elm-ssr/runtime-worker/http";
+import { json, text, withHeaders } from "elm-ssr/http";
 
 describe("json", () => {
   it("serializes the body and sets content-type when not already set", async () => {

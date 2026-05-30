@@ -1,9 +1,13 @@
 {
-  "name": "@elm-ssr/runtime-worker",
+  "name": "elm-ssr",
   "version": "0.1.0",
-  "description": "Cloudflare Workers / Bun runtime for elm-ssr: request handling, backend-neutral effect adapters (KV/D1/Redis/Postgres), background tasks/queues, and the client island bootstrap.",
+  "description": "Elm-first SSR library and framework for Cloudflare Workers (and Bun): file-based routes/islands, backend-neutral effect adapters (KV/D1/Redis/Postgres), background tasks (waitUntil/Queues), SQL-file migrations, CLI scaffold + build.",
   "license": "MIT",
   "type": "module",
+  "scripts": {},
+  "bin": {
+    "elm-ssr": "bin/elm-ssr.mjs"
+  },
   "main": "./src/app.ts",
   "exports": {
     ".": "./src/app.ts",
@@ -20,6 +24,9 @@
     "./islands-runtime": "./src/client-runtime/islands.ts"
   },
   "files": [
+    "bin",
+    "lib",
+    "elm-src",
     "src"
   ],
   "engines": {
