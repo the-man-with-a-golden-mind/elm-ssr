@@ -3,6 +3,28 @@
   "version": "0.1.0",
   "description": "Elm-first SSR library and framework for Cloudflare Workers (and Bun): file-based routes/islands, backend-neutral effect adapters (KV/D1/Redis/Postgres), background tasks (waitUntil/Queues), SQL-file migrations, CLI scaffold + build.",
   "license": "MIT",
+  "author": "Michał Majchrzak <michmajchrzak@gmail.com>",
+  "homepage": "https://github.com/the-man-with-a-golden-mind/elm-ssr#readme",
+  "bugs": {
+    "url": "https://github.com/the-man-with-a-golden-mind/elm-ssr/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/the-man-with-a-golden-mind/elm-ssr.git",
+    "directory": "packages/elm-ssr"
+  },
+  "keywords": [
+    "elm",
+    "ssr",
+    "server-side-rendering",
+    "cloudflare-workers",
+    "bun",
+    "islands",
+    "framework",
+    "edge",
+    "file-based-routing",
+    "migrations"
+  ],
   "type": "module",
   "scripts": {},
   "bin": {
