@@ -1,11 +1,38 @@
+import { serialize as serializeCookie } from "cookie";
 import type { IslandMetadata } from "./app";
 import { createIslandsRuntimeSource } from "./client-runtime/islands";
 import type { AppContext, AppHandler, RenderFlagsFactory, RouteCatalog } from "./http";
 import { json, text } from "./http";
 import { type EffectRunner } from "./effects";
-import { renderApp, type CompiledElmModule } from "./render";
+import { renderApp, type CompiledElmModule, type SetCookieDirective } from "./render";
 import { renderHtmlDocument } from "./serialize";
 import { assetHeaders, cssHeaders, htmlHeaders, jsonHeaders } from "./response-headers";
+
+const formatCookie = (cookie: SetCookieDirective): string =>
+  serializeCookie(cookie.name, cookie.value, {
+    maxAge: cookie.maxAge ?? undefined,
+    expires: cookie.expires ? new Date(cookie.expires) : undefined,
+    domain: cookie.domain ?? undefined,
+    path: cookie.path ?? undefined,
+    secure: cookie.secure ?? false,
+    httpOnly: cookie.httpOnly ?? false,
+    sameSite: cookie.sameSite ?? undefined
+  });
+
+const withSetCookies = (response: Response, cookies: SetCookieDirective[] | undefined): Response => {
+  if (!cookies || cookies.length === 0) {
+    return response;
+  }
+  const headers = new Headers(response.headers);
+  for (const cookie of cookies) {
+    headers.append("set-cookie", formatCookie(cookie));
+  }
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers
+  });
+};
 
 const isReadMethod = (method: string): boolean => method === "GET" || method === "HEAD";
 
@@ -189,20 +216,26 @@ export const createRequestHandler = ({
     });
 
     if (rendered.redirect) {
-      return new Response(null, {
-        status: 302,
-        headers: { location: rendered.redirect }
-      });
+      return withSetCookies(
+        new Response(null, {
+          status: 302,
+          headers: { location: rendered.redirect }
+        }),
+        rendered.cookies
+      );
     }
 
     if (rendered.json) {
-      return json(rendered.json, { status: 200, headers: jsonHeaders });
+      return withSetCookies(json(rendered.json, { status: 200, headers: jsonHeaders }), rendered.cookies);
     }
 
     const html = renderHtmlDocument(rendered.document);
 
-    return new Response(html, {
-      status: rendered.status,
-      headers: htmlHeaders
-    });
+    return withSetCookies(
+      new Response(html, {
+        status: rendered.status,
+        headers: htmlHeaders
+      }),
+      rendered.cookies
+    );
   };

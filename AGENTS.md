@@ -4,6 +4,10 @@ If you are an AI agent (Claude Code, Cursor, …) opening this repo, read this
 file first. It encodes the project's architecture, conventions, and the small
 set of footguns that tend to bite agents specifically.
 
+For deeper, topic-by-topic docs see [`docs/`](./docs/). For an LLM-oriented
+entry-point with links to the most useful pages, see
+[`llms.txt`](./llms.txt) at the repo root.
+
 ## TL;DR
 
 `elm-ssr` is a small Elm-first SSR library + framework for Cloudflare Workers
@@ -100,7 +104,7 @@ test/                            # bun test, happy-dom for the client runtime
 - **Loaders/Actions are descriptions.** They produce `Pending Effect (Value -> …)`.
   The Worker (`render.ts`) pumps the effect loop via ports until terminal.
 - **`Action.fromLoader` lifts a `Loader` into an `Action`** — that's how actions
-  reuse every Loader effect (cacheGet, query, execute, env, fetchJson, getCookie, enqueue).
+  reuse every Loader effect (cacheGet, query, execute, env, fetchJson, enqueue).
 - **Islands** live in `src/<App>/Islands/`. The codegen scans the directory,
   emits `Generated.Islands` only for the *client registry/manifest* (never
   re-exported to authors), and one combined `islands.mjs` is shipped per app.
@@ -123,8 +127,11 @@ In Elm (`ElmSsr.Loader`, reusable from `Action` via `fromLoader`):
 | `cacheGet { key, decoder }` / `cachePut { key, value, ttlSeconds }` | `cacheGet`/`cachePut` | `env.CACHE` (KV) | in-memory `Map` (or `withCache(redisCache(client))`) |
 | `query` / `queryOne` / `execute` | `query`/`queryOne`/`execute` | `env.DB` (D1) | `inMemoryEffects({ sql })` hook (plug bun:sqlite / Postgres / SQLite) |
 | `env name` | `env` | `context.env[name]` | the `env` option object |
-| `getCookie name` | `cookie` | parsed from `context.request` cookie header | same |
 | `enqueue { task, payload }` | `enqueue` | `withTasks(...)` → `ctx.waitUntil`, OR `withQueueProducer({queueBinding})` → CF Queue | `withTasks` fire-and-forget |
+
+The TS runtime *also* handles `kind: "cookie"` (parsed from
+`request.headers["cookie"]`), but no Elm wrapper is currently exported from
+`ElmSsr.Loader`. If you reach for `Loader.getCookie` it is not there yet.
 
 The adapters are *composable*. A realistic stack:
 

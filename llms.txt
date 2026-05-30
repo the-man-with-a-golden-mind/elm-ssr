@@ -1,0 +1,65 @@
+# elm-ssr
+
+> Elm-first SSR library and framework for Cloudflare Workers (and Bun locally).
+> Pages render server-side from a custom serialisable AST (because Workers has
+> no DOM). Islands are stock `Browser.element` programs mounted client-side.
+> A backend-neutral effect surface (cache/sql/env/cookie/fetchJson/enqueue) lets
+> the same Elm code run on Cloudflare KV/D1 or local Redis/Postgres/SQLite by
+> swapping the adapter. Background work via `waitUntil` or Cloudflare Queues.
+> SQL-file migrations bundled. One package, `elm-ssr`, ships CLI + runtime + Elm
+> authoring modules.
+
+## Start here
+
+- [README](README.md): Project overview, quickstart, full authoring example.
+- [docs/README.md](docs/README.md): Table of contents for the topic-by-topic
+  docs.
+- [docs/getting-started.md](docs/getting-started.md): Install, scaffold, build,
+  run.
+
+## Core concepts
+
+- [docs/routing.md](docs/routing.md): File-based routing (Routes/, dynamic
+  segments, NotFound).
+- [docs/loaders-and-actions.md](docs/loaders-and-actions.md): `Loader` (data
+  fetching for pages) and `Action` (form handling / non-GET).
+- [docs/effects.md](docs/effects.md): The backend-neutral effect vocabulary
+  (`fetchJson`, `cacheGet/Put`, `query/queryOne/execute`, `env`, `getCookie`,
+  `enqueue`).
+- [docs/islands.md](docs/islands.md): Standard `Browser.element` islands;
+  `Island.embed`; cross-island bus via `ElmSsr.Island.Shared`.
+
+## Runtime / adapters
+
+- [docs/backends.md](docs/backends.md): Composing adapters
+  (`inMemoryEffects`, `cloudflareEffects`, `withCache`, `redisCache`,
+  `postgresSql`).
+- [docs/tasks.md](docs/tasks.md): Background work — `withTasks` (`waitUntil`)
+  and Cloudflare Queues (`withQueueProducer` / `createQueueConsumer`).
+- [docs/migrations.md](docs/migrations.md): SQL-file migration runner
+  (`runMigrations`, `revertMigrations`, `listMigrations`); transactional.
+- [docs/middleware.md](docs/middleware.md): The middleware stack
+  (`composeMiddleware`, requestId, timing, logging, error, HEAD).
+
+## Tooling
+
+- [docs/cli.md](docs/cli.md): `elm-ssr build|new|migrate|dev|compress|routes`.
+- [docs/testing.md](docs/testing.md): `bun run test` (Docker-managed PG+Redis),
+  `bun run test:unit`, `bun run test:integration`.
+
+## Conventions for AI agents
+
+- [AGENTS.md](AGENTS.md): Hard rules and footguns for LLMs editing this repo.
+  Read this before changing anything — especially the rule that islands use
+  `elm/html`, pages use `ElmSsr.Html`, and there is no `Generated.*` re-export
+  in the author-facing API.
+
+## Source of truth
+
+- TS runtime: [packages/elm-ssr/src/](packages/elm-ssr/src/)
+- CLI scripts: [packages/elm-ssr/lib/](packages/elm-ssr/lib/) (bin entry at
+  [packages/elm-ssr/bin/elm-ssr.mjs](packages/elm-ssr/bin/elm-ssr.mjs))
+- Elm authoring modules: [packages/elm-ssr/elm-src/ElmSsr/](packages/elm-ssr/elm-src/ElmSsr/)
+- Reference app: [examples/basic/](examples/basic/)
+- Crypto dashboard (islands + svg + http + cross-island bus):
+  [examples/crypto-dashboard/](examples/crypto-dashboard/)

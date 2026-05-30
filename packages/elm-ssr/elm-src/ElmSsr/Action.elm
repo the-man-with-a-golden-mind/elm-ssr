@@ -2,7 +2,8 @@ module ElmSsr.Action exposing
     ( Action
     , succeed, fail, redirect, json
     , map, andThen, fromLoader
-    , Effect, Step(..), step, encodeStep
+    , Cookie, SameSite(..), setCookie, clearCookie, defaultCookie
+    , Effect, Step(..), step, collectCookies, encodeStep, encodeCookies
     )
 
 {-| An `Action` describes what should happen in response to a non-GET request
@@ -32,12 +33,20 @@ redirects (the Post/Redirect/Get pattern):
 @docs map, andThen, fromLoader
 
 
+# Cookies
+
+Attach `Set-Cookie` headers to any action's response (including redirects and
+JSON responses). The Worker serializes the attributes for you.
+
+@docs Cookie, SameSite, setCookie, clearCookie, defaultCookie
+
+
 # Runtime interpretation
 
 Used by the elm-ssr runtime to drive an action. Application authors do not need
 these.
 
-@docs Effect, Step, step, encodeStep
+@docs Effect, Step, step, collectCookies, encodeStep, encodeCookies
 
 -}
 
@@ -53,12 +62,109 @@ type Action a
     | Redirect String
     | JsonResult Encode.Value
     | Pending Effect (Decode.Value -> Action a)
+    | WithCookies (List Cookie) (Action a)
 
 
 {-| A single side effect the Worker runs, addressed by `kind`. Shared with
 [`ElmSsr.Loader`](./Loader.elm), so actions reuse the same effect vocabulary. -}
 type alias Effect =
     Loader.Effect
+
+
+{-| `SameSite` policy for a cookie. Maps to the `SameSite=` attribute. -}
+type SameSite
+    = Lax
+    | Strict
+    | None
+
+
+{-| A cookie to attach to the response. Build one with
+[`defaultCookie`](#defaultCookie) and override the attributes you care about.
+-}
+type alias Cookie =
+    { name : String
+    , value : String
+    , maxAge : Maybe Int
+    , expires : Maybe String
+    , domain : Maybe String
+    , path : Maybe String
+    , secure : Bool
+    , httpOnly : Bool
+    , sameSite : Maybe SameSite
+    }
+
+
+{-| A cookie with sensible defaults: `path=/`, no other attributes set. Override
+fields with record update syntax.
+
+    Action.setCookie
+        { defaultCookie "session" sessionId | httpOnly = True, secure = True, maxAge = Just (60 * 60 * 24 * 7) }
+        (Action.redirect "/dashboard")
+
+-}
+defaultCookie : String -> String -> Cookie
+defaultCookie name value =
+    { name = name
+    , value = value
+    , maxAge = Nothing
+    , expires = Nothing
+    , domain = Nothing
+    , path = Just "/"
+    , secure = False
+    , httpOnly = False
+    , sameSite = Nothing
+    }
+
+
+{-| Attach a `Set-Cookie` header to the action's response. Stackable — call
+multiple times to set multiple cookies. Works with any terminal step (success,
+fail, redirect, JSON) and is preserved through `map`/`andThen`.
+
+    Action.fromLoader (createSession email)
+        |> Action.andThen
+            (\sessionId ->
+                Action.redirect "/dashboard"
+                    |> Action.setCookie
+                        ({ defaultCookie "session" sessionId
+                            | httpOnly = True
+                            , secure = True
+                            , sameSite = Just Lax
+                            , maxAge = Just (60 * 60 * 24 * 7)
+                         })
+            )
+
+-}
+setCookie : Cookie -> Action a -> Action a
+setCookie cookie action =
+    case action of
+        WithCookies cookies inner ->
+            WithCookies (cookies ++ [ cookie ]) inner
+
+        _ ->
+            WithCookies [ cookie ] action
+
+
+{-| Clear a cookie by setting `Max-Age=0`. Honors the same `path`/`domain` you
+used to set it — pass them in if you scoped the original cookie that way.
+
+    Action.redirect "/login"
+        |> Action.clearCookie { name = "session", path = Just "/", domain = Nothing }
+
+-}
+clearCookie : { name : String, path : Maybe String, domain : Maybe String } -> Action a -> Action a
+clearCookie config action =
+    setCookie
+        { name = config.name
+        , value = ""
+        , maxAge = Just 0
+        , expires = Nothing
+        , domain = config.domain
+        , path = config.path
+        , secure = False
+        , httpOnly = False
+        , sameSite = Nothing
+        }
+        action
 
 
 {-| An action that resolves to a value with no further work. -}
@@ -104,6 +210,9 @@ map fn action =
         Pending effect continue ->
             Pending effect (\value -> map fn (continue value))
 
+        WithCookies cookies inner ->
+            WithCookies cookies (map fn inner)
+
 
 {-| Sequence actions: run a second step that depends on the first's result.
 Effects run one after the other, each completing before the next begins. -}
@@ -124,6 +233,9 @@ andThen fn action =
 
         Pending effect continue ->
             Pending effect (\value -> andThen fn (continue value))
+
+        WithCookies cookies inner ->
+            WithCookies cookies (andThen fn inner)
 
 
 {-| Lift a [`Loader`](./Loader.elm) into an action so its effects run as part of
@@ -152,7 +264,9 @@ type Step a
     | Await Effect (Decode.Value -> Action a)
 
 
-{-| Inspect the next step of an action. -}
+{-| Inspect the next step of an action. `WithCookies` wrappers are skipped —
+use [`collectCookies`](#collectCookies) first if you need the attached cookies.
+-}
 step : Action a -> Step a
 step action =
     case action of
@@ -171,16 +285,51 @@ step action =
         Pending effect continue ->
             Await effect continue
 
+        WithCookies _ inner ->
+            step inner
 
-{-| Encode a terminal step for the Worker runtime. `Await` is never encoded —
-the runtime runs its effect first — so it is reported defensively as an error. -}
-encodeStep : (a -> Encode.Value) -> Step a -> Encode.Value
-encodeStep encoder step_ =
+
+{-| Strip the top-level `WithCookies` wrappers and return the accumulated
+cookies plus the unwrapped action. Used by the runtime so terminal steps can
+carry `Set-Cookie` headers.
+-}
+collectCookies : Action a -> ( List Cookie, Action a )
+collectCookies action =
+    case action of
+        WithCookies cookies inner ->
+            let
+                ( more, base ) =
+                    collectCookies inner
+            in
+            ( cookies ++ more, base )
+
+        _ ->
+            ( [], action )
+
+
+{-| JSON-encode a list of cookies in the shape the Worker runtime expects.
+Used internally; exposed for cases that build a terminal response by hand
+(e.g. error responses from the runtime). -}
+encodeCookies : List Cookie -> Encode.Value
+encodeCookies cookies =
+    Encode.list encodeCookie cookies
+
+
+{-| Encode a terminal step plus any attached `Set-Cookie`s for the Worker
+runtime. `Await` is never encoded — the runtime runs its effect first — so it
+is reported defensively as an error. -}
+encodeStep : List Cookie -> (a -> Encode.Value) -> Step a -> Encode.Value
+encodeStep cookies encoder step_ =
+    let
+        cookieField =
+            ( "cookies", encodeCookies cookies )
+    in
     case step_ of
         Resolved value ->
             Encode.object
                 [ ( "kind", Encode.string "resolved" )
                 , ( "value", encoder value )
+                , cookieField
                 ]
 
         Errored status message ->
@@ -188,18 +337,21 @@ encodeStep encoder step_ =
                 [ ( "kind", Encode.string "errored" )
                 , ( "status", Encode.int status )
                 , ( "message", Encode.string message )
+                , cookieField
                 ]
 
         Moved url ->
             Encode.object
                 [ ( "kind", Encode.string "redirect" )
                 , ( "url", Encode.string url )
+                , cookieField
                 ]
 
         SentJson value ->
             Encode.object
                 [ ( "kind", Encode.string "json" )
                 , ( "value", value )
+                , cookieField
                 ]
 
         Await _ _ ->
@@ -207,4 +359,43 @@ encodeStep encoder step_ =
                 [ ( "kind", Encode.string "errored" )
                 , ( "status", Encode.int 500 )
                 , ( "message", Encode.string "Action step was not resolved before encoding." )
+                , cookieField
                 ]
+
+
+encodeCookie : Cookie -> Encode.Value
+encodeCookie cookie =
+    Encode.object
+        [ ( "name", Encode.string cookie.name )
+        , ( "value", Encode.string cookie.value )
+        , ( "maxAge", encodeMaybe Encode.int cookie.maxAge )
+        , ( "expires", encodeMaybe Encode.string cookie.expires )
+        , ( "domain", encodeMaybe Encode.string cookie.domain )
+        , ( "path", encodeMaybe Encode.string cookie.path )
+        , ( "secure", Encode.bool cookie.secure )
+        , ( "httpOnly", Encode.bool cookie.httpOnly )
+        , ( "sameSite", encodeMaybe encodeSameSite cookie.sameSite )
+        ]
+
+
+encodeMaybe : (a -> Encode.Value) -> Maybe a -> Encode.Value
+encodeMaybe encoder value =
+    case value of
+        Just inner ->
+            encoder inner
+
+        Nothing ->
+            Encode.null
+
+
+encodeSameSite : SameSite -> Encode.Value
+encodeSameSite sameSite =
+    case sameSite of
+        Lax ->
+            Encode.string "lax"
+
+        Strict ->
+            Encode.string "strict"
+
+        None ->
+            Encode.string "none"

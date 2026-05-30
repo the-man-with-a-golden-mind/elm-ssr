@@ -26,11 +26,25 @@ export interface CompiledElmModule {
   };
 }
 
+/** A `Set-Cookie` directive emitted from the Elm side (via `Action.setCookie`). */
+export interface SetCookieDirective {
+  name: string;
+  value: string;
+  maxAge?: number | null;
+  expires?: string | null;
+  domain?: string | null;
+  path?: string | null;
+  secure?: boolean;
+  httpOnly?: boolean;
+  sameSite?: "lax" | "strict" | "none" | null;
+}
+
 export interface RenderedDocument {
   document: SsrDocument;
   status: number;
   redirect?: string;
   json?: unknown;
+  cookies?: SetCookieDirective[];
 }
 
 export interface RenderOptions {
@@ -45,7 +59,11 @@ interface ActionStep {
   message?: string;
   url?: string;
   value?: unknown;
+  cookies?: SetCookieDirective[];
 }
+
+const normalizeCookies = (cookies: SetCookieDirective[] | undefined): SetCookieDirective[] | undefined =>
+  cookies && cookies.length > 0 ? cookies : undefined;
 
 export const renderApp = async (
   elmModule: CompiledElmModule,
@@ -77,11 +95,14 @@ export const renderApp = async (
 
   const step = payload as ActionStep;
 
+  const cookies = normalizeCookies(step.cookies);
+
   if (step.kind === "redirect") {
     return {
       status: 302,
       redirect: step.url,
-      document: { status: 302, lang: "en", hasIslands: false, head: [], body: [] }
+      document: { status: 302, lang: "en", hasIslands: false, head: [], body: [] },
+      cookies
     };
   }
 
@@ -89,7 +110,8 @@ export const renderApp = async (
     return {
       status: 200,
       json: step.value,
-      document: { status: 200, lang: "en", hasIslands: false, head: [], body: [] }
+      document: { status: 200, lang: "en", hasIslands: false, head: [], body: [] },
+      cookies
     };
   }
 
@@ -98,7 +120,8 @@ export const renderApp = async (
     const document = step.value ? assertDocument(step.value) : { status, lang: "en", hasIslands: false, head: [], body: [] };
     return {
       status,
-      document
+      document,
+      cookies
     };
   }
 
@@ -106,6 +129,7 @@ export const renderApp = async (
 
   return {
     document,
-    status: document.status
+    status: document.status,
+    cookies
   };
 };

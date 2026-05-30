@@ -124,7 +124,7 @@ cachedStatus =
 ```
 
 Available effects (all backend-neutral): `fetchJson`, `cacheGet`/`cachePut`,
-`query`/`queryOne`/`execute`, `env`, `getCookie`, `enqueue`.
+`query`/`queryOne`/`execute`, `env`, `enqueue`.
 
 ### Actions (forms without JS)
 
@@ -306,7 +306,7 @@ elm-ssr migrate down   --dir ./migrations --db ./app.db [--count N]
 - **Phase 2** — Effectful `Action` (free monad like Loader), `fromLoader`, form
   actions, PRG redirects.
 - **Phase 3** — Backend-neutral effects (`cacheGet`/`cachePut`, `query`/`queryOne`/
-  `execute`, `env`, `getCookie`), Cloudflare + in-memory adapters, composable
+  `execute`, `env`), Cloudflare + in-memory adapters, composable
   `withCache`/`postgresSql`/`redisCache` over driver-agnostic client interfaces.
 - **Phase 4** — Background tasks (`enqueue`) via `withTasks` (`waitUntil`) or
   `withQueueProducer` + `createQueueConsumer` (CF Queues).
@@ -336,8 +336,14 @@ elm-ssr migrate down   --dir ./migrations --db ./app.db [--count N]
 
 ## More
 
-- [`AGENTS.md`](./AGENTS.md) — orientation for AI agents working on this repo.
-- [`packages/elm-ssr/README.md`](./packages/elm-ssr/README.md) — the package readme (CLI commands, runtime exports, Elm authoring modules).
+- [`docs/`](./docs/) — topic-by-topic documentation (routing, effects,
+  backends, tasks, islands, migrations, CLI, middleware, testing).
+- [`llms.txt`](./llms.txt) — entry point for LLMs/AI agents reading this repo
+  ([llmstxt.org](https://llmstxt.org/) format).
+- [`AGENTS.md`](./AGENTS.md) — orientation for AI agents working on this
+  repo (hard rules + footguns).
+- [`packages/elm-ssr/README.md`](./packages/elm-ssr/README.md) — the package
+  readme (CLI commands, runtime exports, Elm authoring modules).
 
 The package also ships the Elm authoring modules (under `packages/elm-ssr/elm-src/`) which the build syncs into each app's `.elm-ssr/src/ElmSsr/` at compile time.
 

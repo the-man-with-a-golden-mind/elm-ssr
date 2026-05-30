@@ -117,7 +117,7 @@ advance : Config -> Loader (Document Never) -> ( State, Cmd Msg )
 advance config loader =
     case Loader.step loader of
         Loader.Resolved document ->
-            ( Rendered, render config document )
+            ( Rendered, render config [] document )
 
         Loader.Errored status message ->
             ( Aborted status message, renderError config status message )
@@ -128,36 +128,46 @@ advance config loader =
 
 advanceAction : Config -> Action (Document Never) -> ( State, Cmd Msg )
 advanceAction config action =
-    case Action.step action of
+    let
+        ( cookies, base ) =
+            Action.collectCookies action
+    in
+    case Action.step base of
         Action.Resolved document ->
-            ( Rendered, render config document )
+            ( Rendered, render config cookies document )
 
         Action.Errored status message ->
-            ( Aborted status message, renderError config status message )
+            ( Aborted status message, renderActionError config cookies status message )
 
         Action.Moved url ->
-            ( Rendered, config.ports.rendered (Action.encodeStep (always Json.null) (Action.Moved url)) )
+            ( Rendered, config.ports.rendered (Action.encodeStep cookies (always Json.null) (Action.Moved url)) )
 
         Action.SentJson value ->
-            ( Rendered, config.ports.rendered (Action.encodeStep (always Json.null) (Action.SentJson value)) )
+            ( Rendered, config.ports.rendered (Action.encodeStep cookies (always Json.null) (Action.SentJson value)) )
 
         Action.Await effect continue ->
             ( PerformingAction continue, config.ports.effectRequest (Loader.encodeEffect effect) )
 
 
-render : Config -> Document Never -> Cmd Msg
-render config document =
-    config.ports.rendered (Action.encodeStep Encode.encode (Action.Resolved (Document.map never document)))
+render : Config -> List Action.Cookie -> Document Never -> Cmd Msg
+render config cookies document =
+    config.ports.rendered (Action.encodeStep cookies Encode.encode (Action.Resolved (Document.map never document)))
 
 
 renderError : Config -> Int -> String -> Cmd Msg
 renderError config status message =
+    renderActionError config [] status message
+
+
+renderActionError : Config -> List Action.Cookie -> Int -> String -> Cmd Msg
+renderActionError config cookies status message =
     config.ports.rendered
         (Json.object
             [ ( "kind", Json.string "errored" )
             , ( "status", Json.int status )
             , ( "message", Json.string message )
             , ( "value", Encode.encode (Document.map never (Page.error status message)) )
+            , ( "cookies", Action.encodeCookies cookies )
             ]
         )
 
