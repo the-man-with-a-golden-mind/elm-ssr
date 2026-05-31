@@ -3,6 +3,26 @@
 All notable changes to the `elm-ssr` package. Dates are ISO; "Unreleased" lives
 at the top until a version is cut.
 
+## 0.3.0 — 2026-05-31
+
+Style + DX refresh for the reference app. **No changes to the published
+package surface** — every export, type, and effect from 0.2.0 still works
+identically. Bumped because the in-repo `examples/basic` (which the docs link
+to as docs-as-code) was inconsistent and lacked interactive affordances.
+
+### Changed
+
+- **Unified button/link styling in `examples/basic`.** Five overlapping class
+  names (`.button-link`, `.counter-button`, `.button`, `.task-up`,
+  `.task-remove`) collapsed into one `.btn` family with explicit emphasis
+  modifiers (`.btn-primary`, `.btn-secondary`, `.btn-ghost`, `.btn-danger`,
+  `.btn-square`). All clickable elements now have real `:hover`, `:focus-visible`,
+  and `:active` states; inline links use `.text-link` (underlined). The
+  navigation pills (`.nav-link`) were made visually distinct from CTAs so
+  visitors can tell links apart from buttons. Inputs gained focus rings.
+- **Stylesheet token system** in [examples/basic/styles.ts](examples/basic/styles.ts) —
+  `--accent-strong`, `--line-strong`, `--focus-ring` added for hover/focus.
+
 ## 0.2.0 — 2026-05-30
 
 Sessions + CSRF land as a first-class, opt-in layer; **server push via

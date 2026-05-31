@@ -77,7 +77,7 @@ entryForm : Node msg
 entryForm =
     form [ Attr.class "echo-form", Attr.method "post", Attr.action "/guestbook" ]
         [ input [ Attr.type_ "text", Attr.name "message", Attr.placeholder "Sign the guestbook", Attr.required True ]
-        , button [ Attr.type_ "submit", Attr.class "button-link primary" ] [ text "Sign" ]
+        , button [ Attr.type_ "submit", Attr.class "btn btn-primary" ] [ text "Sign" ]
         ]
 
 

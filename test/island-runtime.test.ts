@@ -146,7 +146,7 @@ describe("island client runtime", () => {
     await tick();
 
     const live = firstMarker() as Element;
-    findByClass(live, "primary")?.dispatchEvent(new window.Event("click", { bubbles: true }) as unknown as Event);
+    findByClass(live, "btn-primary")?.dispatchEvent(new window.Event("click", { bubbles: true }) as unknown as Event);
     await tick();
     expect(live.textContent).toContain("6");
 

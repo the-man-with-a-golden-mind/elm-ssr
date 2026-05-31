@@ -72,7 +72,7 @@ view profile token =
                     , form
                         [ Attr.method "post", Attr.action "/profile?op=logout" ]
                         (csrfField token
-                            ++ [ button [ Attr.type_ "submit", Attr.class "button" ] [ text "Sign out" ] ]
+                            ++ [ button [ Attr.type_ "submit", Attr.class "btn btn-secondary" ] [ text "Sign out" ] ]
                         )
                     ]
 
@@ -89,7 +89,7 @@ view profile token =
                                     , Attr.type_ "text"
                                     , Attr.class "input"
                                     ]
-                               , button [ Attr.type_ "submit", Attr.class "button" ] [ text "Sign in" ]
+                               , button [ Attr.type_ "submit", Attr.class "btn btn-secondary" ] [ text "Sign in" ]
                                ]
                         )
                     ]

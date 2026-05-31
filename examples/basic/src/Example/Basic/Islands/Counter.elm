@@ -101,10 +101,10 @@ view : Model -> Html Msg
 view model =
     div [ class "counter-island" ]
         [ div [ class "counter-actions" ]
-            [ button [ class "counter-button", type_ "button", onClick Decrement ] [ text "-" ]
+            [ button [ class "btn btn-secondary btn-square", type_ "button", onClick Decrement ] [ text "-" ]
             , span [ class "counter-value" ] [ text (String.fromInt model.count) ]
-            , button [ class "counter-button primary", type_ "button", onClick Increment ] [ text "+" ]
-            , button [ class "counter-button", type_ "button", onClick Reset ] [ text "reset" ]
+            , button [ class "btn btn-primary btn-square", type_ "button", onClick Increment ] [ text "+" ]
+            , button [ class "btn btn-secondary btn-square", type_ "button", onClick Reset ] [ text "reset" ]
             ]
         , code [ class "counter-code" ] [ text "Browser.element island using standard elm/html" ]
         ]

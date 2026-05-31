@@ -145,7 +145,7 @@ viewItem item =
             , onInput (UpdateNote item.id)
             ]
             []
-        , button [ class "task-up", type_ "button", onClick (MoveUp item.id) ] [ text "↑" ]
-        , button [ class "task-remove", type_ "button", onClick (Remove item.id) ] [ text "remove" ]
+        , button [ class "btn btn-ghost btn-square task-up", type_ "button", onClick (MoveUp item.id) ] [ text "↑" ]
+        , button [ class "btn btn-danger task-remove", type_ "button", onClick (Remove item.id) ] [ text "remove" ]
         ]
     )

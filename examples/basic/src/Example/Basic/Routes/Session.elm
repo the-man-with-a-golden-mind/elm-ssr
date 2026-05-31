@@ -67,7 +67,7 @@ view session =
                     [ h1 [] [ text "Signed in" ]
                     , p [] [ text "Welcome back, ", span [ Attr.class "value" ] [ text user ], text "." ]
                     , form [ Attr.method "post", Attr.action "/session?op=logout" ]
-                        [ button [ Attr.type_ "submit", Attr.class "button" ] [ text "Sign out" ] ]
+                        [ button [ Attr.type_ "submit", Attr.class "btn btn-secondary" ] [ text "Sign out" ] ]
                     ]
 
                 Nothing ->
@@ -82,7 +82,7 @@ view session =
                             , Attr.class "input"
                             , Attr.attr "autocomplete" "username"
                             ]
-                        , button [ Attr.type_ "submit", Attr.class "button" ] [ text "Sign in" ]
+                        , button [ Attr.type_ "submit", Attr.class "btn btn-secondary" ] [ text "Sign in" ]
                         ]
                     ]
             )

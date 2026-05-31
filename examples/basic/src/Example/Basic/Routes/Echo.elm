@@ -52,7 +52,7 @@ view request =
                     [ span [ Attr.class "eyebrow" ] [ text "Action complete" ]
                     , h1 [] [ text "Message received" ]
                     , p [] [ text ("Saved on the server (region: " ++ (Route.query "region" request |> Maybe.withDefault "unknown") ++ "). This page arrived via a POST → action → redirect, no client JavaScript.") ]
-                    , p [] [ a [ Attr.class "button-link", Attr.href "/echo" ] [ text "Send another" ] ]
+                    , p [] [ a [ Attr.class "btn btn-secondary", Attr.href "/echo" ] [ text "Send another" ] ]
                     ]
 
                 _ ->
@@ -72,5 +72,5 @@ echoForm =
             [ span [] [ text "Message" ]
             , input [ Attr.type_ "text", Attr.name "message", Attr.placeholder "Say something", Attr.required True ]
             ]
-        , button [ Attr.type_ "submit", Attr.class "button-link primary" ] [ text "Send" ]
+        , button [ Attr.type_ "submit", Attr.class "btn btn-primary" ] [ text "Send" ]
         ]

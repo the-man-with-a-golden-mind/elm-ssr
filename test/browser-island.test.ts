@@ -118,7 +118,7 @@ describe("Browser.element islands", () => {
     await tick();
     expect(root.textContent).toContain("5");
 
-    findByClass(root, "primary").dispatchEvent(new window.Event("click", { bubbles: true }) as unknown as Event);
+    findByClass(root, "btn-primary").dispatchEvent(new window.Event("click", { bubbles: true }) as unknown as Event);
     await tick();
 
     expect(root.textContent).toContain("6");
@@ -139,8 +139,8 @@ describe("Browser.element islands", () => {
 
     await tick();
 
-    findByClass(alice, "primary").dispatchEvent(new window.Event("click", { bubbles: true }) as unknown as Event);
-    findByClass(bob, "primary").dispatchEvent(new window.Event("click", { bubbles: true }) as unknown as Event);
+    findByClass(alice, "btn-primary").dispatchEvent(new window.Event("click", { bubbles: true }) as unknown as Event);
+    findByClass(bob, "btn-primary").dispatchEvent(new window.Event("click", { bubbles: true }) as unknown as Event);
     await tick();
 
     expect(alice.textContent).toContain("1");

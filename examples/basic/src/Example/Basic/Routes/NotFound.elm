@@ -30,7 +30,7 @@ view =
                 [ article [ class "panel" ]
                     [ h1 [] [ text "404" ]
                     , p [] [ text "This route is not registered in the example app." ]
-                    , a [ class "link", href "/" ] [ text "Back to home" ]
+                    , a [ class "text-link", href "/" ] [ text "Back to home" ]
                     ]
                 ]
             ]
