@@ -134,6 +134,10 @@ stores, CSRF protection, the `Loader.session`/`csrfToken`/`setSession`/
 `clearSession` effects), see [docs/sessions.md](docs/sessions.md). Opt in
 with `sessions:` + `csrf:` on `createWorkerApp`.
 
+For **server push** (live-updating islands via Server-Sent Events) see
+[docs/sse.md](docs/sse.md). TS side: `createSseStream(request, handler)`
+from `elm-ssr/sse`; Elm side: `ElmSsr.Island.Sse.open` / `events` / `match`.
+
 ### Actions (forms without JS)
 
 Actions are the POST equivalent of loaders — describe validation, run a server

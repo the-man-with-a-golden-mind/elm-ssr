@@ -145,6 +145,15 @@ store) + `csrfMiddleware` and auto-wraps your effect runner with
 [docs/sessions.md](./docs/sessions.md) and
 [examples/basic/src/Example/Basic/Routes/Profile.elm](./examples/basic/src/Example/Basic/Routes/Profile.elm).
 
+**Server-Sent Events.** `elm-ssr/sse` exports `createSseStream(request,
+handler, options?)` which returns a streaming Response with proper framing.
+Wire it OUTSIDE the Elm router (dispatch yourself, fall through to
+`worker.fetch` for everything else). Islands consume with `ElmSsr.Island.Sse`
+— `open url`, `close url`, `events GotEvent`, plus the `match url decoder`
+helper for routing in `update`. The client runtime auto-closes EventSources
+when non-persistent islands are torn down. See [docs/sse.md](./docs/sse.md)
+and [examples/basic/src/Example/Basic/Islands/Live.elm](./examples/basic/src/Example/Basic/Islands/Live.elm).
+
 The adapters are *composable*. A realistic stack:
 
 ```ts

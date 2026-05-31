@@ -187,6 +187,82 @@ describe("island client runtime", () => {
     expect(busListeners).toBeLessThanOrEqual(1);
   });
 
+  it("syncHead preserves identical <link rel=stylesheet> across navigation (no FOUC)", async () => {
+    // Start with a head that already has /styles.css, like a real SSR'd page.
+    window.document.head.innerHTML =
+      '<title>Start</title><meta name="x" content="1"><link rel="stylesheet" href="/styles.css">';
+    window.document.body.innerHTML = marker({ start: 0 });
+
+    const originalLink = window.document.head.getElementsByTagName("link")[0] as unknown as Element;
+    const originalMeta = Array.from(window.document.head.getElementsByTagName("meta"))[0] as unknown as Element;
+
+    // Incoming page has the SAME stylesheet href and SAME meta — only the title changed.
+    const html =
+      "<!doctype html><html><head>" +
+      "<title>Next</title>" +
+      '<meta name="x" content="1">' +
+      '<link rel="stylesheet" href="/styles.css">' +
+      "</head><body>" +
+      marker({ start: 0 }) +
+      "</body></html>";
+    window.fetch = (async () => ({ json: async () => ({ html }) })) as unknown as typeof window.fetch;
+
+    const runtime = await newRuntime();
+    await runtime.bootIslands();
+    await tick();
+    await runtime.navigate(new URL("https://example.com/next"));
+    await tick();
+
+    // The link + meta nodes must be the SAME elements — diff-based sync skips
+    // them when their key is unchanged. Re-creating them is what caused the
+    // brief flash of unstyled content the user reported.
+    const linkAfter = window.document.head.getElementsByTagName("link")[0] as unknown as Element;
+    const metaAfter = Array.from(window.document.head.getElementsByTagName("meta"))[0] as unknown as Element;
+    expect(linkAfter).toBe(originalLink);
+    expect(metaAfter).toBe(originalMeta);
+    expect(window.document.title).toBe("Next"); // title still syncs
+    // And exactly one stylesheet — we didn't accidentally append a duplicate.
+    expect(window.document.head.getElementsByTagName("link").length).toBe(1);
+  });
+
+  it("syncHead removes orphan stylesheets and adds new ones in a single diff pass", async () => {
+    window.document.head.innerHTML =
+      '<title>Start</title>' +
+      '<link rel="stylesheet" href="/old.css">' +
+      '<link rel="stylesheet" href="/shared.css">';
+    window.document.body.innerHTML = marker({ start: 0 });
+
+    const sharedBefore = Array.from(window.document.head.getElementsByTagName("link")).find(
+      (l) => (l as unknown as Element).getAttribute("href") === "/shared.css"
+    ) as unknown as Element;
+
+    const html =
+      "<!doctype html><html><head><title>N</title>" +
+      '<link rel="stylesheet" href="/shared.css">' +
+      '<link rel="stylesheet" href="/new.css">' +
+      "</head><body>" +
+      marker({ start: 0 }) +
+      "</body></html>";
+    window.fetch = (async () => ({ json: async () => ({ html }) })) as unknown as typeof window.fetch;
+
+    const runtime = await newRuntime();
+    await runtime.bootIslands();
+    await tick();
+    await runtime.navigate(new URL("https://example.com/x"));
+    await tick();
+
+    const hrefs = Array.from(window.document.head.getElementsByTagName("link"))
+      .map((l) => (l as unknown as Element).getAttribute("href"))
+      .sort();
+    expect(hrefs).toEqual(["/new.css", "/shared.css"]);
+
+    // /shared.css was kept (same element), not torn down + re-added.
+    const sharedAfter = Array.from(window.document.head.getElementsByTagName("link")).find(
+      (l) => (l as unknown as Element).getAttribute("href") === "/shared.css"
+    ) as unknown as Element;
+    expect(sharedAfter).toBe(sharedBefore);
+  });
+
   it("ignores hash-only / same-page links (no SPA fetch)", async () => {
     window.document.body.innerHTML = marker({ start: 0 });
     let fetched = false;

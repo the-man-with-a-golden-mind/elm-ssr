@@ -23,6 +23,8 @@ function createIslandsRuntime(deps) {
       return;
     }
 
+    const teardowns = [];
+
     if (app.ports.broadcastOut) {
       app.ports.broadcastOut.subscribe((event) => {
         window.dispatchEvent(new window.CustomEvent("elm-ssr-broadcast", { detail: event }));
@@ -32,7 +34,69 @@ function createIslandsRuntime(deps) {
     if (app.ports.broadcastIn) {
       const handler = (event) => app.ports.broadcastIn.send(event.detail);
       window.addEventListener("elm-ssr-broadcast", handler);
-      cleanups.set(marker, () => window.removeEventListener("elm-ssr-broadcast", handler));
+      teardowns.push(() => window.removeEventListener("elm-ssr-broadcast", handler));
+    }
+
+    // Server-Sent Events ports. One EventSource per (url, island); the island
+    // opens/closes via sseOpen/sseClose, and receives raw frames via sseEventIn.
+    if (app.ports.sseOpen || app.ports.sseClose || app.ports.sseEventIn || app.ports.sseErrorIn) {
+      const sources = new Map(); // url -> EventSource
+
+      const open = (url) => {
+        if (sources.has(url)) {
+          return;
+        }
+        let source;
+        try {
+          source = new window.EventSource(url);
+        } catch (error) {
+          if (app.ports.sseErrorIn) {
+            app.ports.sseErrorIn.send({ url, message: String(error) });
+          }
+          return;
+        }
+        source.onmessage = (event) => {
+          if (app.ports.sseEventIn) {
+            app.ports.sseEventIn.send({ url, data: typeof event.data === "string" ? event.data : "" });
+          }
+        };
+        source.onerror = () => {
+          if (app.ports.sseErrorIn) {
+            app.ports.sseErrorIn.send({ url, message: "EventSource error" });
+          }
+        };
+        sources.set(url, source);
+      };
+
+      const close = (url) => {
+        const source = sources.get(url);
+        if (source) {
+          source.close();
+          sources.delete(url);
+        }
+      };
+
+      if (app.ports.sseOpen) {
+        app.ports.sseOpen.subscribe(open);
+      }
+      if (app.ports.sseClose) {
+        app.ports.sseClose.subscribe(close);
+      }
+
+      teardowns.push(() => {
+        for (const source of sources.values()) {
+          source.close();
+        }
+        sources.clear();
+      });
+    }
+
+    if (teardowns.length > 0) {
+      cleanups.set(marker, () => {
+        for (const fn of teardowns) {
+          fn();
+        }
+      });
     }
   };
 
@@ -128,28 +192,62 @@ function createIslandsRuntime(deps) {
     }
   };
 
-  const managedHeadNodes = (head) => {
-    const metas = Array.prototype.slice.call(head.getElementsByTagName("meta"));
-    const links = Array.prototype.slice
+  const stylesheetLinks = (head) =>
+    Array.prototype.slice
       .call(head.getElementsByTagName("link"))
       .filter((link) => link.getAttribute("rel") === "stylesheet");
-    return metas.concat(links);
+
+  const metaNodes = (head) => Array.prototype.slice.call(head.getElementsByTagName("meta"));
+
+  // Stable signature for diffing: href (+ media if set) for stylesheets,
+  // full attribute set for metas. Two nodes with the same signature are
+  // treated as identical; we never tear one down and re-create it.
+  const stylesheetKey = (link) => (link.getAttribute("href") || "") + "|" + (link.getAttribute("media") || "");
+  const metaKey = (meta) =>
+    meta
+      .getAttributeNames()
+      .sort()
+      .map((name) => name + "=" + meta.getAttribute(name))
+      .join("|");
+
+  // Diff-based sync: only add what's new, only remove what's gone. Avoids the
+  // flash of unstyled content that came from removing-then-readding the
+  // <link rel=stylesheet>, even when the href was identical across pages.
+  const syncCollection = (currentNodes, incomingNodes, keyOf) => {
+    const currentByKey = new Map();
+    for (const node of currentNodes) {
+      currentByKey.set(keyOf(node), node);
+    }
+    const incomingByKey = new Map();
+    for (const node of incomingNodes) {
+      incomingByKey.set(keyOf(node), node);
+    }
+
+    // Remove only what's not in the incoming doc.
+    for (const [key, node] of currentByKey) {
+      if (!incomingByKey.has(key)) {
+        node.remove();
+      }
+    }
+
+    // Add only what's not already present.
+    for (const [key, node] of incomingByKey) {
+      if (!currentByKey.has(key)) {
+        const copy = document.createElement(node.tagName);
+        for (const name of node.getAttributeNames()) {
+          copy.setAttribute(name, node.getAttribute(name));
+        }
+        document.head.appendChild(copy);
+      }
+    }
   };
 
   const syncHead = (sourceDoc) => {
-    document.title = sourceDoc.title;
-
-    for (const node of managedHeadNodes(document.head)) {
-      node.remove();
+    if (document.title !== sourceDoc.title) {
+      document.title = sourceDoc.title;
     }
-
-    for (const node of managedHeadNodes(sourceDoc.head)) {
-      const copy = document.createElement(node.tagName);
-      for (const name of node.getAttributeNames()) {
-        copy.setAttribute(name, node.getAttribute(name));
-      }
-      document.head.appendChild(copy);
-    }
+    syncCollection(stylesheetLinks(document.head), stylesheetLinks(sourceDoc.head), stylesheetKey);
+    syncCollection(metaNodes(document.head), metaNodes(sourceDoc.head), metaKey);
   };
 
   const navigate = async (url, push = true) => {

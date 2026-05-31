@@ -34,6 +34,8 @@ go deeper, one concern at a time.
 - [Sessions and CSRF](sessions.md) — signed-cookie sessions (memory + cache
   stores), CSRF protection, `Loader.session`/`csrfToken`/`setSession`/
   `clearSession`.
+- [Server-Sent Events (SSE)](sse.md) — `createSseStream` on the server +
+  `ElmSsr.Island.Sse` on islands. Per-connection live updates.
 
 ## Tooling
 

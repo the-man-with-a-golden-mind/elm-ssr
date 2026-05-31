@@ -41,6 +41,7 @@
     "./migrations": "./src/migrations.ts",
     "./middleware": "./src/middleware.ts",
     "./sessions": "./src/sessions/index.ts",
+    "./sse": "./src/sse.ts",
     "./response-headers": "./src/response-headers.ts",
     "./serialize": "./src/serialize.ts",
     "./protocol": "./src/protocol.ts",

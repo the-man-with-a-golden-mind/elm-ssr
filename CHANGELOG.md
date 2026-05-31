@@ -5,12 +5,19 @@ at the top until a version is cut.
 
 ## 0.2.0 — 2026-05-30
 
-Sessions + CSRF land as a first-class, opt-in layer; cookie primitives gain
-hardened defaults; the CLI's `new` command stops scaffolding under
-`examples/`.
+Sessions + CSRF land as a first-class, opt-in layer; **server push via
+Server-Sent Events** for islands; cookie primitives gain hardened defaults;
+the CLI's `new` command stops scaffolding under `examples/`.
 
 ### Added
 
+- **Server-Sent Events** ([docs/sse.md](docs/sse.md))
+  - New subpath `elm-ssr/sse` exports `createSseStream(request, handler, options?)` and `createNamedSseStream` for streaming responses with proper SSE framing. Handler receives `(send, signal)` — `signal` aborts on client disconnect.
+  - `encodeSseEvent` exposed for ad-hoc framing.
+  - New Elm port module `ElmSsr.Island.Sse` with `open`/`close` (Cmd), `events`/`errors` (Sub), and a `match url decoder` helper for routing typed events out of `update`.
+  - Client runtime wires SSE ports automatically and closes EventSources when non-persistent islands are torn down on SPA navigation.
+  - **examples/basic**: `/live` page + `Live` island + `/__elm-ssr/live` endpoint pushing a tick every second. Demonstrates the `withLiveStream(base)` pattern for dispatching custom SSE routes alongside the Elm router.
+  - **examples/crypto-dashboard**: `MarketOverview` island migrated from 15s `Time.every` polling to a live SSE subscription. New `/__elm-ssr/markets/stream` endpoint pushes the four-coin snapshot every 2s with small randomised price nudges so the cards visibly move.
 - **Sessions and CSRF** ([docs/sessions.md](docs/sessions.md))
   - New subpath `elm-ssr/sessions` exports `sessionMiddleware`,
     `csrfMiddleware`, `sessionEffects`, `memorySessionStore`,
@@ -67,6 +74,13 @@ hardened defaults; the CLI's `new` command stops scaffolding under
 ### Fixed
 
 - `elm-ssr new <name>` no longer hardcodes `examples/<name>/`.
+- **Flash of unstyled content on SPA navigation.** `syncHead` used to remove
+  every managed `<link rel="stylesheet">` and re-add the new ones, even when
+  the href was identical across pages — for one paint cycle the page had no
+  stylesheet. The diff-based sync now keeps stylesheets in place when their
+  `href`/`media` is unchanged, removes only orphans, and adds only what's new.
+  Same diff applied to `<meta>` tags (less DOM churn, no visual impact).
+  `document.title` is also only reassigned when it actually changes.
 
 ### Removed
 

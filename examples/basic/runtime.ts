@@ -1,8 +1,9 @@
 import { createWorkerApp } from "elm-ssr";
 import { inMemoryEffects, type EffectRunner } from "elm-ssr/effects";
 import { renderApp, type CompiledElmModule } from "elm-ssr/render";
-import type { RouteCatalog } from "elm-ssr/http";
+import type { RouteCatalog, WorkerHandler } from "elm-ssr/http";
 import { memorySessionStore } from "elm-ssr/sessions";
+import { createSseStream } from "elm-ssr/sse";
 import { islands, bundleSource } from "../../generated/examples/basic/islands-manifest";
 import { stylesheet } from "./styles";
 // @ts-expect-error Generated at build time.
@@ -107,17 +108,54 @@ export const exampleEffects: EffectRunner = inMemoryEffects({
 export const renderPath = async (path: string) =>
   renderApp(elmModule, createFlags({ path }), { effects: exampleEffects });
 
-export const createExampleWorker = (options: { effects?: EffectRunner; log?: (entry: string) => void } = {}) =>
-  createWorkerApp({
-    elmModule,
-    islands,
-    islandsBundle: bundleSource,
-    stylesheet,
-    routes,
-    createFlags,
-    effects: options.effects ?? exampleEffects,
-    log: options.log
+/**
+ * SSE endpoint demonstration — `/__elm-ssr/live`. Emits a JSON tick every
+ * second. The Live island opens an EventSource against this URL and patches
+ * its subtree as ticks arrive.
+ *
+ * `n` is a monotonic counter so the demo is obviously moving even if the
+ * clock drifts between Worker isolates. We bound the loop at 600 ticks
+ * (~10 min) so a forgotten tab doesn't keep a Worker hot forever.
+ */
+const liveStreamHandler = (request: Request): Response =>
+  createSseStream(request, async (send, signal) => {
+    let n = 0;
+    while (!signal.aborted && n < 600) {
+      n += 1;
+      send(JSON.stringify({ time: new Date().toISOString(), n }));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
   });
+
+/**
+ * Wraps a base worker so `/__elm-ssr/live` returns the SSE stream and
+ * everything else falls through to the elm-ssr handler. This is the pattern
+ * users follow whenever they want custom routes alongside Elm: dispatch
+ * yourself, fall through to `worker.fetch`.
+ */
+const withLiveStream = (base: WorkerHandler): WorkerHandler => ({
+  async fetch(request, env, executionCtx) {
+    const url = new URL(request.url);
+    if (url.pathname === "/__elm-ssr/live") {
+      return liveStreamHandler(request);
+    }
+    return base.fetch(request, env, executionCtx);
+  }
+});
+
+export const createExampleWorker = (options: { effects?: EffectRunner; log?: (entry: string) => void } = {}) =>
+  withLiveStream(
+    createWorkerApp({
+      elmModule,
+      islands,
+      islandsBundle: bundleSource,
+      stylesheet,
+      routes,
+      createFlags,
+      effects: options.effects ?? exampleEffects,
+      log: options.log
+    })
+  );
 
 export const worker = createExampleWorker();
 

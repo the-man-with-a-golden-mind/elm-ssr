@@ -44,6 +44,8 @@
 - [docs/sessions.md](docs/sessions.md): Signed-cookie sessions + CSRF.
   Memory + cache stores. `Loader.session` / `csrfToken` / `setSession` /
   `clearSession`.
+- [docs/sse.md](docs/sse.md): Server-Sent Events for islands.
+  `createSseStream` + `ElmSsr.Island.Sse`. Per-connection streams.
 
 ## Tooling
 

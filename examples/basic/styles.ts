@@ -7,8 +7,11 @@ export const stylesheet = `
   --muted: #5a554f;
   --accent: #155848;
   --accent-soft: #dcebe5;
+  --accent-strong: #0f4136;
   --line: rgba(29, 27, 25, 0.08);
+  --line-strong: rgba(29, 27, 25, 0.18);
   --shadow: 0 18px 60px rgba(21, 88, 72, 0.14);
+  --focus-ring: 0 0 0 3px rgba(21, 88, 72, 0.28);
 }
 
 * {
@@ -69,34 +72,130 @@ a {
   font-size: 1.1rem;
 }
 
+/* === Navigation ===
+   nav-links are clearly NOT primary actions: ghost styling that only fills
+   in on hover/active. Keeps the header quiet, distinct from .btn CTAs. */
 .nav {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 4px;
 }
 
-.nav-link,
-.button-link,
-.link {
+.nav-link {
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-weight: 600;
   text-decoration: none;
-  font-weight: 700;
+  color: var(--muted);
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
-.nav-link,
-.button-link {
+.nav-link:hover,
+.nav-link:focus-visible {
+  background: var(--accent-soft);
+  color: var(--accent);
+  outline: none;
+}
+
+.nav-link[aria-current="page"] {
+  color: var(--accent);
+}
+
+/* === Buttons & button-like anchors ===
+   One class family for every clickable action, whether <button> or <a>.
+   .btn = base shape + hit area; modifiers set the visual emphasis. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 42px;
+  padding: 10px 18px;
   border-radius: 999px;
-  border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.72);
-  padding: 10px 14px;
+  border: 1px solid transparent;
+  font: inherit;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+  user-select: none;
+  transition: transform 0.05s ease, background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.button-link.primary,
-.counter-button.primary {
+.btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.btn:active {
+  transform: translateY(1px);
+}
+
+.btn-primary {
   background: var(--accent);
-  border-color: var(--accent);
   color: white;
+  border-color: var(--accent);
 }
 
+.btn-primary:hover {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+}
+
+.btn-secondary {
+  background: white;
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+
+.btn-secondary:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--accent);
+  border-color: transparent;
+}
+
+.btn-ghost:hover {
+  background: var(--accent-soft);
+}
+
+.btn-danger {
+  background: white;
+  color: #a02b1c;
+  border-color: rgba(160, 43, 28, 0.35);
+}
+
+.btn-danger:hover {
+  background: rgba(160, 43, 28, 0.08);
+  border-color: #a02b1c;
+}
+
+/* Square-cornered button shape, e.g. the counter +/- where round pills feel wrong. */
+.btn-square {
+  border-radius: 14px;
+  min-width: 64px;
+}
+
+/* === Inline text links ===
+   For prose links. Underlined, so they don't get mistaken for buttons. */
+.text-link {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.text-link:hover,
+.text-link:focus-visible {
+  color: var(--accent-strong);
+  outline: none;
+}
+
+/* === Layout primitives === */
 .content {
   display: grid;
   gap: 24px;
@@ -140,8 +239,7 @@ a {
   line-height: 1.7;
 }
 
-.hero-actions,
-.counter-actions {
+.actions {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
@@ -154,6 +252,37 @@ a {
   gap: 18px;
 }
 
+/* === Forms === */
+.form {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.form label {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.input {
+  width: 100%;
+  padding: 12px 14px;
+  font: inherit;
+  border-radius: 12px;
+  border: 1px solid var(--line-strong);
+  background: white;
+  color: var(--ink);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+
+/* === Counter island === */
 .counter-value {
   margin-top: 24px;
   font-size: clamp(4rem, 14vw, 7rem);
@@ -161,16 +290,12 @@ a {
   letter-spacing: -0.06em;
 }
 
-.counter-button {
-  min-width: 88px;
-  border-radius: 18px;
-  border: 1px solid var(--line);
-  background: white;
-  color: var(--ink);
-  padding: 14px 18px;
-  font: inherit;
-  font-weight: 700;
-  cursor: pointer;
+.counter-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 24px;
+  align-items: center;
 }
 
 .counter-code {
@@ -178,6 +303,12 @@ a {
   margin-top: 20px;
   color: var(--accent);
   white-space: pre-wrap;
+}
+
+/* Highlighted inline value (e.g. "Welcome back, <alice>"). */
+.value {
+  font-weight: 700;
+  color: var(--accent);
 }
 
 .list {
