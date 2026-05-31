@@ -1,9 +1,12 @@
 {
-  "name": "elmssr",
-  "version": "0.0.0",
+  "name": "elm-ssr",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "workspaces": ["packages/*", "examples/*"],
+  "workspaces": [
+    "packages/*",
+    "examples/*"
+  ],
   "scripts": {
     "build:elm": "bun packages/elm-ssr/bin/elm-ssr.mjs build",
     "build": "bun run build:elm",
