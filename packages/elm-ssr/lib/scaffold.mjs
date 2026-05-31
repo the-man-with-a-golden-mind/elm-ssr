@@ -272,13 +272,19 @@ view =
         }
 `;
 
-const runtimeTemplate = (name) => `import { createWorkerApp } from "elm-ssr";
+const runtimeTemplate = (appRoot) => {
+  // appRoot is a slash-separated path like "my-app" or "apps/my-app".
+  // The generated bundles live at <workspaceRoot>/generated/<appRoot>/. From
+  // <workspaceRoot>/<appRoot>/runtime.ts, we climb out by one ".." per segment.
+  const upToRoot = appRoot.split("/").map(() => "..").join("/");
+  const generatedPrefix = `${upToRoot}/generated/${appRoot}`;
+  return `import { createWorkerApp } from "elm-ssr";
 import { renderApp, type CompiledElmModule } from "elm-ssr/render";
 import type { RouteCatalog } from "elm-ssr/http";
-import { islands, bundleSource } from "../../generated/examples/${name}/islands-manifest";
+import { islands, bundleSource } from "${generatedPrefix}/islands-manifest";
 import { stylesheet } from "./styles";
 // @ts-expect-error Generated at build time.
-import ElmRuntime from "../../generated/examples/${name}/app.mjs";
+import ElmRuntime from "${generatedPrefix}/app.mjs";
 
 const elmModule = ElmRuntime as CompiledElmModule;
 
@@ -361,6 +367,7 @@ export const worker = createWorkerApp({
   createFlags
 });
 `;
+};
 
 const workerTemplate = () => `import { worker } from "./runtime";
 
@@ -426,36 +433,54 @@ body {
 \`;
 `;
 
-const filesForExample = (name) => {
+const filesForApp = (name, appRoot) => {
   const namespace = toPascalCase(name);
 
   return {
     configEntry: {
       name,
-      root: `examples/${name}`,
+      root: appRoot,
       module: namespace
     },
     files: [
-      { path: `examples/${name}/elm.json`, content: JSON.stringify(elmJsonTemplate(), null, 2) + "\n" },
-      { path: `examples/${name}/runtime.ts`, content: runtimeTemplate(name) },
-      { path: `examples/${name}/worker.ts`, content: workerTemplate() },
-      { path: `examples/${name}/styles.ts`, content: stylesTemplate() },
-      { path: `examples/${name}/src/${namespace}/View/Shared.elm`, content: sharedTemplate(namespace) },
-      { path: `examples/${name}/src/${namespace}/Routes/Index.elm`, content: indexRouteTemplate(namespace) },
-      { path: `examples/${name}/src/${namespace}/Routes/Counter.elm`, content: counterRouteTemplate(namespace) },
-      { path: `examples/${name}/src/${namespace}/Routes/NotFound.elm`, content: notFoundRouteTemplate(namespace) },
-      { path: `examples/${name}/src/${namespace}/Islands/Counter.elm`, content: counterIslandTemplate(namespace) }
+      { path: `${appRoot}/elm.json`, content: JSON.stringify(elmJsonTemplate(), null, 2) + "\n" },
+      { path: `${appRoot}/runtime.ts`, content: runtimeTemplate(appRoot) },
+      { path: `${appRoot}/worker.ts`, content: workerTemplate() },
+      { path: `${appRoot}/styles.ts`, content: stylesTemplate() },
+      { path: `${appRoot}/src/${namespace}/View/Shared.elm`, content: sharedTemplate(namespace) },
+      { path: `${appRoot}/src/${namespace}/Routes/Index.elm`, content: indexRouteTemplate(namespace) },
+      { path: `${appRoot}/src/${namespace}/Routes/Counter.elm`, content: counterRouteTemplate(namespace) },
+      { path: `${appRoot}/src/${namespace}/Routes/NotFound.elm`, content: notFoundRouteTemplate(namespace) },
+      { path: `${appRoot}/src/${namespace}/Islands/Counter.elm`, content: counterIslandTemplate(namespace) }
     ]
   };
 };
 
-export const createExampleScaffold = async (rootPath, name) => {
+const normalizeAppRoot = (rawRoot, name) => {
+  const candidate = (rawRoot ?? name).trim().replace(/^\/+|\/+$/g, "");
+  if (candidate.length === 0) {
+    throw new Error("App root cannot be empty.");
+  }
+  if (candidate.includes("..")) {
+    throw new Error(`App root must not contain '..': ${candidate}`);
+  }
+  return candidate;
+};
+
+/**
+ * Scaffold a new elm-ssr app under `<rootPath>/<appRoot>/` and register it in
+ * elm-ssr.config.json. `appRoot` defaults to the app's `name`; pass an
+ * explicit value to place the app under a subdirectory (e.g. "apps/my-app").
+ */
+export const createAppScaffold = async (rootPath, name, options = {}) => {
   ensureValidName(name);
 
   const config = await readWorkspaceConfig(rootPath);
   ensureAppMissing(config, name);
 
-  const { configEntry, files } = filesForExample(name);
+  const appRoot = normalizeAppRoot(options.root, name);
+
+  const { configEntry, files } = filesForApp(name, appRoot);
 
   for (const file of files) {
     const filePath = resolve(rootPath, file.path);
@@ -470,3 +495,6 @@ export const createExampleScaffold = async (rootPath, name) => {
 
   return configEntry;
 };
+
+/** @deprecated Use `createAppScaffold`. */
+export const createExampleScaffold = createAppScaffold;

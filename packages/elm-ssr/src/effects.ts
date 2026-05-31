@@ -17,6 +17,8 @@ export interface EffectContext {
   request?: Request;
   /** Keeps the runtime alive for background work scheduled after the response. */
   waitUntil?: (promise: Promise<unknown>) => void;
+  /** Populated by `sessionMiddleware`; consumed by `sessionEffects`. */
+  session?: import("./sessions/types").RequestSession;
 }
 
 /**

@@ -2,6 +2,7 @@ import { createWorkerApp } from "elm-ssr";
 import { inMemoryEffects, type EffectRunner } from "elm-ssr/effects";
 import { renderApp, type CompiledElmModule } from "elm-ssr/render";
 import type { RouteCatalog } from "elm-ssr/http";
+import { memorySessionStore } from "elm-ssr/sessions";
 import { islands, bundleSource } from "../../generated/examples/basic/islands-manifest";
 import { stylesheet } from "./styles";
 // @ts-expect-error Generated at build time.
@@ -119,3 +120,29 @@ export const createExampleWorker = (options: { effects?: EffectRunner; log?: (en
   });
 
 export const worker = createExampleWorker();
+
+/**
+ * A second example worker that enables sessions + CSRF (against an in-memory
+ * store). Used by the /profile end-to-end tests. The hardened cookie defaults
+ * are turned down for the example because tests run over plain HTTP — in
+ * production `secure: true` is the default.
+ */
+export const createSessionExampleWorker = (
+  options: { effects?: EffectRunner; log?: (entry: string) => void; secret?: string } = {}
+) =>
+  createWorkerApp({
+    elmModule,
+    islands,
+    islandsBundle: bundleSource,
+    stylesheet,
+    routes,
+    createFlags,
+    effects: options.effects ?? exampleEffects,
+    log: options.log,
+    sessions: {
+      secret: options.secret ?? "elm-ssr-example-dev-secret-do-not-use-in-prod",
+      store: memorySessionStore(),
+      secure: false
+    },
+    csrf: true
+  });

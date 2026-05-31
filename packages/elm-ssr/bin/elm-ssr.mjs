@@ -2,7 +2,7 @@
 
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { createExampleScaffold } from "../lib/scaffold.mjs";
+import { createAppScaffold } from "../lib/scaffold.mjs";
 import { readWorkspaceConfig } from "../lib/workspace.mjs";
 import { build } from "../lib/build.mjs";
 import { migrate } from "../lib/migrate.mjs";
@@ -48,7 +48,8 @@ const printHelp = () => {
   build         Generate wrapper modules and compile configured Elm SSR apps
   compress      Pre-compress island and app bundles using Gzip for faster edge delivery
   dev           Build and start wrangler dev using the current workspace config
-  new <name>    Create a new example app and register it in elm-ssr.config.json
+  new <name>    Create a new app at <workspace>/<name>/ (or <workspace>/<subdir>/<name>/
+                with --in <subdir>) and register it in elm-ssr.config.json
   routes        Print configured apps and their public modules
   info          Print current workspace package and configured app names
   migrate ...   Apply / revert / inspect SQL migrations (see: elm-ssr migrate --help)
@@ -72,11 +73,15 @@ switch (command) {
     const name = args[1];
 
     if (!name) {
-      console.error("Usage: elm-ssr new <name>");
+      console.error("Usage: elm-ssr new <name> [--in <subdir>]");
+      console.error("  Default location: <workspace>/<name>/");
+      console.error("  Use --in apps to place it under <workspace>/apps/<name>/, etc.");
       process.exit(1);
     }
 
-    const created = await createExampleScaffold(rootPath, name);
+    const subdir = findFlagValue("--in");
+    const appRoot = subdir ? `${subdir.replace(/\/+$/, "")}/${name}` : name;
+    const created = await createAppScaffold(rootPath, name, { root: appRoot });
     console.log(`Created ${created.name} at ${created.root}`);
     break;
   }

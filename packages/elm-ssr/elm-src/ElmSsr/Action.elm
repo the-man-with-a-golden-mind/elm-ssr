@@ -2,7 +2,7 @@ module ElmSsr.Action exposing
     ( Action
     , succeed, fail, redirect, json
     , map, andThen, fromLoader
-    , Cookie, SameSite(..), setCookie, clearCookie, defaultCookie
+    , Cookie, SameSite(..), setCookie, clearCookie, defaultCookie, sessionCookie
     , Effect, Step(..), step, collectCookies, encodeStep, encodeCookies
     )
 
@@ -38,7 +38,7 @@ redirects (the Post/Redirect/Get pattern):
 Attach `Set-Cookie` headers to any action's response (including redirects and
 JSON responses). The Worker serializes the attributes for you.
 
-@docs Cookie, SameSite, setCookie, clearCookie, defaultCookie
+@docs Cookie, SameSite, setCookie, clearCookie, defaultCookie, sessionCookie
 
 
 # Runtime interpretation
@@ -113,6 +113,40 @@ defaultCookie name value =
     , secure = False
     , httpOnly = False
     , sameSite = Nothing
+    }
+
+
+{-| A cookie hardened for session use: `HttpOnly` (JS can't read it),
+`Secure` (HTTPS-only), `SameSite=Lax` (sent on top-level navigations,
+blocked on cross-site sub-requests), `Path=/`, and a 7-day `Max-Age`.
+
+Use this for anything that grants authority — session IDs, auth tokens —
+and override only what you need.
+
+    Action.redirect "/dashboard"
+        |> Action.setCookie (Action.sessionCookie "session" sessionId)
+
+To use a stricter `SameSite=Strict`, or shorter/longer lifetime:
+
+    Action.sessionCookie "session" sid
+        |> (\c -> { c | sameSite = Just Action.Strict, maxAge = Just (60 * 30) })
+        |> (\c -> Action.setCookie c (Action.redirect "/dashboard"))
+
+If you are testing locally over plain HTTP, you'll need to set `secure = False`
+on the cookie — modern browsers ignore `Secure` cookies on `http://`.
+
+-}
+sessionCookie : String -> String -> Cookie
+sessionCookie name value =
+    { name = name
+    , value = value
+    , maxAge = Just (60 * 60 * 24 * 7)
+    , expires = Nothing
+    , domain = Nothing
+    , path = Just "/"
+    , secure = True
+    , httpOnly = True
+    , sameSite = Just Lax
     }
 
 

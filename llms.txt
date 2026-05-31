@@ -12,6 +12,7 @@
 ## Start here
 
 - [README](README.md): Project overview, quickstart, full authoring example.
+- [CHANGELOG](CHANGELOG.md): What changed in each release.
 - [docs/README.md](docs/README.md): Table of contents for the topic-by-topic
   docs.
 - [docs/getting-started.md](docs/getting-started.md): Install, scaffold, build,
@@ -40,6 +41,9 @@
   (`runMigrations`, `revertMigrations`, `listMigrations`); transactional.
 - [docs/middleware.md](docs/middleware.md): The middleware stack
   (`composeMiddleware`, requestId, timing, logging, error, HEAD).
+- [docs/sessions.md](docs/sessions.md): Signed-cookie sessions + CSRF.
+  Memory + cache stores. `Loader.session` / `csrfToken` / `setSession` /
+  `clearSession`.
 
 ## Tooling
 

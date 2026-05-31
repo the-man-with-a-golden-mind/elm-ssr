@@ -124,7 +124,15 @@ cachedStatus =
 ```
 
 Available effects (all backend-neutral): `fetchJson`, `cacheGet`/`cachePut`,
-`query`/`queryOne`/`execute`, `env`, `enqueue`.
+`query`/`queryOne`/`execute`, `env`, `getCookie`, `enqueue`. To write
+cookies, use `Action.setCookie` / `Action.sessionCookie` / `Action.clearCookie`
+from inside an `Action` — see
+[docs/loaders-and-actions.md](docs/loaders-and-actions.md#cookies).
+
+For higher-level **sessions + CSRF** (signed-cookie sessions, pluggable
+stores, CSRF protection, the `Loader.session`/`csrfToken`/`setSession`/
+`clearSession` effects), see [docs/sessions.md](docs/sessions.md). Opt in
+with `sessions:` + `csrf:` on `createWorkerApp`.
 
 ### Actions (forms without JS)
 
@@ -337,7 +345,8 @@ elm-ssr migrate down   --dir ./migrations --db ./app.db [--count N]
 ## More
 
 - [`docs/`](./docs/) — topic-by-topic documentation (routing, effects,
-  backends, tasks, islands, migrations, CLI, middleware, testing).
+  backends, tasks, islands, migrations, sessions, CLI, middleware, testing).
+- [`CHANGELOG.md`](./CHANGELOG.md) — release notes.
 - [`llms.txt`](./llms.txt) — entry point for LLMs/AI agents reading this repo
   ([llmstxt.org](https://llmstxt.org/) format).
 - [`AGENTS.md`](./AGENTS.md) — orientation for AI agents working on this

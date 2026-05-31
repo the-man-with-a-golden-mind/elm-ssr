@@ -8,6 +8,7 @@ module ElmSsr.Loader exposing
     , env
     , getCookie
     , enqueue
+    , session, csrfToken, setSession, clearSession
     , Effect, Step(..), step, encodeEffect
     )
 
@@ -33,6 +34,15 @@ fully typed end to end.
 @docs env
 @docs getCookie
 @docs enqueue
+
+
+# Sessions
+
+These require the TS-side `sessionMiddleware` + `sessionEffects(runner)` to be
+wired in the Worker. Without them the effects fail with a clear message at
+request time.
+
+@docs session, csrfToken, setSession, clearSession
 
 
 # Runtime interpretation
@@ -238,6 +248,65 @@ enqueue config =
                 ]
         }
         (\result -> resumeFetchJson (Decode.succeed ()) result)
+
+
+{-| Read the current session payload (whatever was last `setSession`-ed) and
+decode it. Returns `Nothing` when the session is empty.
+
+    type alias User = { id : String, email : String }
+
+    currentUser : Loader (Maybe User)
+    currentUser =
+        Loader.session userDecoder
+
+-}
+session : Decoder a -> Loader (Maybe a)
+session decoder =
+    Pending
+        { kind = "session", payload = Encode.object [] }
+        (\result -> resumeFetchJson (Decode.nullable decoder) result)
+
+
+{-| Read the current request's CSRF token. Embed it in form submissions
+(hidden input named `_csrf`) or in an `X-CSRF-Token` header on `fetch`. The
+TS-side `csrfMiddleware` checks the match on POST/PUT/PATCH/DELETE.
+-}
+csrfToken : Loader (Maybe String)
+csrfToken =
+    Pending
+        { kind = "csrfToken", payload = Encode.object [] }
+        (\result -> resumeFetchJson (Decode.nullable Decode.string) result)
+
+
+{-| Replace the current session payload. Typically used from an `Action` via
+`Action.fromLoader` after authenticating. The middleware persists and rolls
+the signed cookie on the response.
+
+    Action.fromLoader (Loader.setSession (encodeUser user))
+        |> Action.andThen (\_ -> Action.redirect "/dashboard")
+
+-}
+setSession : Encode.Value -> Loader ()
+setSession value =
+    Pending
+        { kind = "setSession"
+        , payload = Encode.object [ ( "value", value ) ]
+        }
+        (\_ -> Done ())
+
+
+{-| Destroy the current session. The middleware deletes the record from the
+store and clears the signed cookie on the response.
+
+    Action.fromLoader Loader.clearSession
+        |> Action.andThen (\_ -> Action.redirect "/")
+
+-}
+clearSession : Loader ()
+clearSession =
+    Pending
+        { kind = "clearSession", payload = Encode.object [] }
+        (\_ -> Done ())
 
 
 sqlPayload : String -> List Encode.Value -> Encode.Value

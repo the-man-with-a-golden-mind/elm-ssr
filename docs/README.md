@@ -31,6 +31,9 @@ go deeper, one concern at a time.
   `revertMigrations`, `listMigrations`); transactional per-migration.
 - [Middleware](middleware.md) — the standard middleware stack and
   `composeMiddleware`.
+- [Sessions and CSRF](sessions.md) — signed-cookie sessions (memory + cache
+  stores), CSRF protection, `Loader.session`/`csrfToken`/`setSession`/
+  `clearSession`.
 
 ## Tooling
 
@@ -39,6 +42,7 @@ go deeper, one concern at a time.
 
 ## See also
 
+- [CHANGELOG](../CHANGELOG.md) — release notes.
 - [AGENTS.md](../AGENTS.md) — hard rules + orientation for AI agents working on
   this repo.
 - [examples/basic/](../examples/basic/) — reference app (pages, islands, forms,

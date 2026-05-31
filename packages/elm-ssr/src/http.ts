@@ -20,6 +20,8 @@ export interface AppContext {
   startedAt: number;
   executionCtx?: WorkerExecutionContext;
   env?: Record<string, unknown>;
+  /** Populated by `sessionMiddleware`; used by `csrfMiddleware` and `sessionEffects`. */
+  session?: import("./sessions/types").RequestSession;
 }
 
 export interface RouteDefinition {

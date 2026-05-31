@@ -187,32 +187,44 @@ export const createRequestHandler = ({
         effectContext: {
           env: context.env,
           request: context.request,
+          session: context.session,
           waitUntil: context.executionCtx ? (promise) => context.executionCtx?.waitUntil(promise) : undefined
         }
       });
 
       if (rendered.redirect) {
-        return json({ redirect: rendered.redirect }, { status: 200, headers: jsonHeaders });
+        return withSetCookies(
+          json({ redirect: rendered.redirect }, { status: 200, headers: jsonHeaders }),
+          rendered.cookies
+        );
       }
 
       if (rendered.json) {
-        return json(rendered.json, { status: 200, headers: jsonHeaders });
+        return withSetCookies(json(rendered.json, { status: 200, headers: jsonHeaders }), rendered.cookies);
       }
 
-      return json(
-        {
-          path: targetPath,
-          status: rendered.status,
-          html: renderHtmlDocument(rendered.document)
-        },
-        { status: 200, headers: jsonHeaders }
+      return withSetCookies(
+        json(
+          {
+            path: targetPath,
+            status: rendered.status,
+            html: renderHtmlDocument(rendered.document)
+          },
+          { status: 200, headers: jsonHeaders }
+        ),
+        rendered.cookies
       );
     }
 
     const flags = await createFlagsFromContext(context, context.url.pathname + context.url.search, createFlags);
     const rendered = await renderApp(elmModule, flags, {
       effects,
-      effectContext: { env: context.env, request: context.request }
+      effectContext: {
+        env: context.env,
+        request: context.request,
+        session: context.session,
+        waitUntil: context.executionCtx ? (promise) => context.executionCtx?.waitUntil(promise) : undefined
+      }
     });
 
     if (rendered.redirect) {

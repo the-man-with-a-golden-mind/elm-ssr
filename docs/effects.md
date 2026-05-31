@@ -20,12 +20,16 @@ All effects are available on `Loader`. Actions reuse them via
 | `Loader.queryOne { sql, params, decoder }` | `queryOne` | First row only (`Maybe a`). |
 | `Loader.execute { sql, params }` | `execute` | INSERT/UPDATE/DELETE; returns `{ rowsAffected }`. |
 | `Loader.env name` | `env` | Read an env var / binding name. |
+| `Loader.getCookie name` | `cookie` | Read a request cookie (parsed from the `Cookie` header). Returns `Maybe String`. |
+| `Loader.session decoder` | `session` | Read the current session payload (requires `sessionMiddleware`). See [sessions](sessions.md). |
+| `Loader.csrfToken` | `csrfToken` | Read the current CSRF token (requires `sessionMiddleware`). See [sessions](sessions.md). |
+| `Loader.setSession value` | `setSession` | Replace the session payload. Mark dirty for middleware to persist. See [sessions](sessions.md). |
+| `Loader.clearSession` | `clearSession` | Destroy the session. Mark for middleware to delete + clear cookie. See [sessions](sessions.md). |
 | `Loader.enqueue { task, payload }` | `enqueue` | Fire-and-forget background work. See [tasks](tasks.md). |
 
-> **Note:** The TS runtime also handles `kind: "cookie"` (parses
-> `request.headers["cookie"]`), but no Elm wrapper is exported today. To use
-> it, emit a `cookie` effect from a custom Elm helper or wait for an upstream
-> `Loader.getCookie`.
+To **write** a cookie on the response, use `Action.setCookie` /
+`Action.clearCookie` / `Action.sessionCookie` from inside an `Action` — see
+[Loaders and Actions](loaders-and-actions.md#cookies).
 
 ## Failure modes
 

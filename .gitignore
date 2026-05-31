@@ -1,0 +1,7 @@
+node_modules
+.wrangler
+.elm-home
+.home
+.elm-ssr
+elm-stuff
+generated

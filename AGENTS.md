@@ -127,11 +127,23 @@ In Elm (`ElmSsr.Loader`, reusable from `Action` via `fromLoader`):
 | `cacheGet { key, decoder }` / `cachePut { key, value, ttlSeconds }` | `cacheGet`/`cachePut` | `env.CACHE` (KV) | in-memory `Map` (or `withCache(redisCache(client))`) |
 | `query` / `queryOne` / `execute` | `query`/`queryOne`/`execute` | `env.DB` (D1) | `inMemoryEffects({ sql })` hook (plug bun:sqlite / Postgres / SQLite) |
 | `env name` | `env` | `context.env[name]` | the `env` option object |
+| `getCookie name` | `cookie` | parsed from `context.request` cookie header | same |
 | `enqueue { task, payload }` | `enqueue` | `withTasks(...)` → `ctx.waitUntil`, OR `withQueueProducer({queueBinding})` → CF Queue | `withTasks` fire-and-forget |
 
-The TS runtime *also* handles `kind: "cookie"` (parsed from
-`request.headers["cookie"]`), but no Elm wrapper is currently exported from
-`ElmSsr.Loader`. If you reach for `Loader.getCookie` it is not there yet.
+Cookies are also writable from `Action`: `Action.setCookie`,
+`Action.clearCookie`, plus the hardened `Action.sessionCookie` (Secure,
+HttpOnly, SameSite=Lax, Max-Age=7d). They propagate through `map`/`andThen`/
+`fromLoader` and attach as `Set-Cookie` headers on the response (including
+redirects and `/api/render`). See
+[docs/loaders-and-actions.md#cookies](./docs/loaders-and-actions.md#cookies).
+
+For higher-level **sessions + CSRF**, opt in via `sessions:` + `csrf:` on
+`createWorkerApp`. That wires `sessionMiddleware` (signed cookie, pluggable
+store) + `csrfMiddleware` and auto-wraps your effect runner with
+`sessionEffects` so the Elm side can call `Loader.session`,
+`Loader.csrfToken`, `Loader.setSession`, and `Loader.clearSession`. See
+[docs/sessions.md](./docs/sessions.md) and
+[examples/basic/src/Example/Basic/Routes/Profile.elm](./examples/basic/src/Example/Basic/Routes/Profile.elm).
 
 The adapters are *composable*. A realistic stack:
 

@@ -93,6 +93,101 @@ Action.redirect : String -> Action a
 Action.json     : Value -> Action a
 ```
 
+### Cookies
+
+Any `Action` can attach `Set-Cookie` headers to its response — including
+redirects, JSON responses, and even failures. Cookies travel through
+`map`/`andThen`/`fromLoader` so you can compose freely.
+
+```elm
+Action.Cookie : { name : String, value : String, maxAge : Maybe Int, expires : Maybe String, domain : Maybe String, path : Maybe String, secure : Bool, httpOnly : Bool, sameSite : Maybe SameSite }
+
+Action.SameSite = Lax | Strict | None
+
+-- Build a cookie:
+Action.defaultCookie : String -> String -> Cookie    -- permissive (Path=/), fill in what you need
+Action.sessionCookie : String -> String -> Cookie    -- HARDENED: Secure, HttpOnly, SameSite=Lax, Max-Age=7d
+
+-- Attach to an action:
+Action.setCookie   : Cookie -> Action a -> Action a
+Action.clearCookie : { name : String, path : Maybe String, domain : Maybe String } -> Action a -> Action a
+```
+
+**Security defaults matter.** `Action.sessionCookie` is what you should reach
+for any time a cookie grants authority (session IDs, auth tokens). It sets:
+
+- `HttpOnly` — JavaScript cannot read it (XSS-resistant).
+- `Secure` — only sent over HTTPS.
+- `SameSite=Lax` — sent on top-level navigations, blocked on cross-site
+  sub-requests (CSRF-resistant for unsafe verbs).
+- `Path=/`, `Max-Age=7 days`.
+
+`Action.defaultCookie` is the unopinionated escape hatch for non-sensitive
+cookies (preferences, analytics consent, etc).
+
+### Example: login (PRG + hardened session cookie)
+
+```elm
+action : Request -> Action (Document Never)
+action request =
+    case Route.formValue "username" request of
+        Just username ->
+            Action.fromLoader (mintSessionToken username)
+                |> Action.andThen
+                    (\token ->
+                        Action.redirect "/dashboard"
+                            |> Action.setCookie (Action.sessionCookie "session" token)
+                    )
+
+        Nothing ->
+            Action.fail 422 "Username is required"
+```
+
+### Example: logout
+
+```elm
+action _ =
+    Action.redirect "/login"
+        |> Action.clearCookie { name = "session", path = Just "/", domain = Nothing }
+```
+
+### Reading cookies back
+
+From the matching `page` (or any `Loader`), use `Loader.getCookie`:
+
+```elm
+page _ =
+    Loader.getCookie "session"
+        |> Loader.andThen
+            (\session ->
+                case session of
+                    Just token ->
+                        Loader.map renderDashboard (lookupUser token)
+
+                    Nothing ->
+                        Loader.succeed renderLoginPrompt
+            )
+```
+
+### Stacking multiple cookies
+
+`setCookie` is composable — call it more than once to attach multiple
+cookies to the same response:
+
+```elm
+Action.redirect "/onboarding/step-2"
+    |> Action.setCookie (Action.sessionCookie "session" token)
+    |> Action.setCookie ({ defaultCookie "onboarding" "step-2" | sameSite = Just Lax })
+```
+
+### Local dev gotcha
+
+`Secure` cookies are rejected by modern browsers on plain `http://`. If
+you're hitting your app on `http://localhost`, either run it over HTTPS
+(wrangler dev does, by default) or override `secure = False` on the cookie.
+See [examples/basic/src/Example/Basic/Routes/Session.elm](../examples/basic/src/Example/Basic/Routes/Session.elm)
+for the pattern.
+
 ### Composition
 
 ```elm
