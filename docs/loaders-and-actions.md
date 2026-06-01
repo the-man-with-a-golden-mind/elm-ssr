@@ -79,6 +79,52 @@ cachedStatus =
             )
 ```
 
+### `Loader.custom` — escape hatch for your own effect kinds
+
+When a route needs something the framework doesn't ship — a fan-out
+`Promise.all` over independent SQL queries, an external API call, a vector
+search — emit a custom `kind` from Elm and intercept it in your TS adapter:
+
+```elm
+import Json.Encode as Encode
+import ElmSsr.Loader as Loader exposing (Loader)
+
+
+type alias Dashboard =
+    { totalOrders : Int, recentOrderIds : List Int }
+
+
+dashboard : Loader Dashboard
+dashboard =
+    Loader.custom
+        { kind = "parallelDashboard"
+        , payload = Encode.object []      -- pass filters / args here
+        , decoder = dashboardDecoder
+        }
+```
+
+```ts
+// TS-side: wrap your effect runner.
+const myEffects: EffectRunner = async (effect, ctx) => {
+  if (effect.kind === "parallelDashboard") {
+    const [totals, recent] = await Promise.all([
+      pg.unsafe("SELECT count(*)::int AS c FROM orders"),
+      pg.unsafe("SELECT id FROM orders ORDER BY created DESC LIMIT 10"),
+    ]);
+    return {
+      ok: true,
+      value: { totalOrders: totals[0].c, recentOrderIds: recent.map(r => r.id) }
+    };
+  }
+  return baseRunner(effect, ctx);
+};
+```
+
+The route awaits ONCE; the two queries run concurrently inside the adapter.
+See the [parallel queries recipe](recipes/parallel-queries.md) for the
+worked-out pattern, and `/parallel` in `examples/basic` for a runnable
+demo.
+
 ## Action (form handling, for `action`)
 
 `Action a` is the non-GET equivalent. It can resolve to a value, fail, redirect

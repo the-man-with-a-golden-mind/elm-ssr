@@ -9,6 +9,8 @@ module ElmSsr.Loader exposing
     , getCookie
     , enqueue
     , session, csrfToken, setSession, clearSession
+    , custom
+    , JobId, JobStatus(..), startJob, jobStatus
     , Effect, Step(..), step, encodeEffect
     )
 
@@ -43,6 +45,31 @@ wired in the Worker. Without them the effects fail with a clear message at
 request time.
 
 @docs session, csrfToken, setSession, clearSession
+
+
+# Custom effects
+
+Escape hatch for emitting a `kind` your own `EffectRunner` adapter handles.
+Use this to plug in things the framework does not cover natively — fan-out
+SQL with `Promise.all`, external services, vector search, queues. The shape
+of `payload` and the decoder for the result are entirely your contract with
+your adapter.
+
+@docs custom
+
+
+# Background jobs
+
+Long-running work that exceeds a single request budget. Submit a job with
+[`startJob`](#startJob) (returns an id immediately), poll progress with
+[`jobStatus`](#jobStatus). The TS-side `withJobs(runner, { store,
+handlers })` adapter persists records and runs handlers via `ctx.waitUntil`.
+
+A typical PRG flow: form action calls `startJob`, redirects to
+`/jobs/<id>`, that page polls `jobStatus` (or subscribes via SSE) and
+renders progress until `JobDone`.
+
+@docs JobId, JobStatus, startJob, jobStatus
 
 
 # Runtime interpretation
@@ -307,6 +334,156 @@ clearSession =
     Pending
         { kind = "clearSession", payload = Encode.object [] }
         (\_ -> Done ())
+
+
+{-| Emit a custom effect that your TS-side `EffectRunner` handles. The runner
+must inspect `effect.kind === <your kind>` and return
+`{ ok: true, value: <data> }`; the `decoder` runs against that value.
+
+The common use case is server-side fan-out — run several heavy SQL queries
+or external fetches with `Promise.all` inside one effect call, then return a
+combined payload so the route only awaits once:
+
+    -- Elm:
+    import Json.Decode as Decode
+
+    type alias Dashboard =
+        { totals : Int, recent : List Order, byCountry : List CountryStat }
+
+    dashboard : Loader Dashboard
+    dashboard =
+        Loader.custom
+            { kind = "parallelDashboard"
+            , payload = Encode.object []
+            , decoder = dashboardDecoder
+            }
+
+    -- TS adapter (wrap your existing runner):
+    const myEffects = async (effect, ctx) => {
+      if (effect.kind === "parallelDashboard") {
+        const [totals, recent, byCountry] = await Promise.all([
+          pg.unsafe("SELECT count(*) AS c FROM orders"),
+          pg.unsafe("SELECT * FROM orders ORDER BY created DESC LIMIT 10"),
+          pg.unsafe("SELECT country, sum(total) AS s FROM orders GROUP BY 1"),
+        ]);
+        return { ok: true, value: { totals: totals[0].c, recent, byCountry } };
+      }
+      return baseRunner(effect, ctx);
+    };
+
+See `docs/recipes/parallel-queries.md` for the full pattern.
+-}
+custom : { kind : String, payload : Encode.Value, decoder : Decoder a } -> Loader a
+custom config =
+    Pending
+        { kind = config.kind, payload = config.payload }
+        (\result -> resumeFetchJson config.decoder result)
+
+
+{-| Opaque handle to a submitted background job. Treat as a string for routing
+or storage; the TS-side store assigns it. -}
+type alias JobId =
+    String
+
+
+{-| The state of a job as the TS-side `JobStore` sees it. Decoded from the
+record by [`jobStatus`](#jobStatus); unknown ids decode as `JobMissing`.
+
+  - `JobQueued` — accepted, not yet running.
+  - `JobRunning { progress }` — currently executing; `progress` carries
+    whatever the handler last reported (or `Nothing`).
+  - `JobDone result` — handler resolved; `result` is the decoded value.
+  - `JobFailed { reason }` — handler threw; `reason` is the error message.
+  - `JobMissing` — no record under this id (TTL expired, never existed).
+
+-}
+type JobStatus a
+    = JobQueued
+    | JobRunning { progress : Maybe Decode.Value }
+    | JobDone a
+    | JobFailed { reason : String }
+    | JobMissing
+
+
+{-| Submit a background job. Returns the assigned `JobId` immediately —
+the handler runs after the response goes out (via `ctx.waitUntil` on
+Cloudflare, fire-and-forget locally).
+
+Pair `kind` with a handler registered in your TS-side
+`withJobs(runner, { handlers })`. `payload` is your handler's input;
+decoder for the result is on [`jobStatus`](#jobStatus).
+
+    submit : Action (Document Never)
+    submit =
+        Action.fromLoader
+            (Loader.startJob
+                { kind = "generateReport"
+                , payload = Encode.object [ ( "month", Encode.string "2026-05" ) ]
+                }
+            )
+            |> Action.andThen (\id -> Action.redirect ("/reports/" ++ id))
+
+-}
+startJob : { kind : String, payload : Encode.Value } -> Loader JobId
+startJob config =
+    Pending
+        { kind = "startJob"
+        , payload =
+            Encode.object
+                [ ( "kind", Encode.string config.kind )
+                , ( "payload", config.payload )
+                ]
+        }
+        (\result -> resumeFetchJson Decode.string result)
+
+
+{-| Read the current state of a submitted job. Decoded into [`JobStatus`](#JobStatus).
+The result decoder runs against the handler's return value when `status === "done"`.
+
+    statusLoader : JobId -> Loader (JobStatus Report)
+    statusLoader id =
+        Loader.jobStatus { jobId = id, decoder = reportDecoder }
+
+-}
+jobStatus : { jobId : JobId, decoder : Decoder a } -> Loader (JobStatus a)
+jobStatus config =
+    Pending
+        { kind = "jobStatus"
+        , payload = Encode.object [ ( "jobId", Encode.string config.jobId ) ]
+        }
+        (\result -> resumeFetchJson (jobStatusDecoder config.decoder) result)
+
+
+jobStatusDecoder : Decoder a -> Decoder (JobStatus a)
+jobStatusDecoder resultDecoder =
+    Decode.oneOf
+        [ Decode.null JobMissing
+        , Decode.field "status" Decode.string
+            |> Decode.andThen
+                (\status ->
+                    case status of
+                        "queued" ->
+                            Decode.succeed JobQueued
+
+                        "running" ->
+                            Decode.map (\progress -> JobRunning { progress = progress })
+                                (Decode.maybe (Decode.field "progress" Decode.value))
+
+                        "done" ->
+                            Decode.map JobDone (Decode.field "result" resultDecoder)
+
+                        "failed" ->
+                            Decode.map (\reason -> JobFailed { reason = reason })
+                                (Decode.oneOf
+                                    [ Decode.field "error" Decode.string
+                                    , Decode.succeed "Job failed without a message"
+                                    ]
+                                )
+
+                        other ->
+                            Decode.fail ("Unknown job status: " ++ other)
+                )
+        ]
 
 
 sqlPayload : String -> List Encode.Value -> Encode.Value

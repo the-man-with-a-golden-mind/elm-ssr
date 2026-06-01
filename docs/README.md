@@ -36,6 +36,21 @@ go deeper, one concern at a time.
   `clearSession`.
 - [Server-Sent Events (SSE)](sse.md) — `createSseStream` on the server +
   `ElmSsr.Island.Sse` on islands. Per-connection live updates.
+- [Background jobs](jobs.md) — `withJobs` adapter + `Loader.startJob` /
+  `Loader.jobStatus` for long-running work that exceeds a single request
+  budget (heavy compute, report generation, big aggregations).
+
+## Recipes
+
+- [Parallel SQL queries](recipes/parallel-queries.md) — `Loader.custom` +
+  `Promise.all` in the adapter for fan-out workloads (3 queries in one
+  effect call).
+
+## Examples gallery
+
+- [Examples](examples.md) — every demo route and island in
+  `examples/basic` and `examples/crypto-dashboard`, mapped to the feature
+  it shows. Start here when you want to find runnable code for X.
 
 ## Tooling
 

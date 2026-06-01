@@ -26,6 +26,8 @@ All effects are available on `Loader`. Actions reuse them via
 | `Loader.setSession value` | `setSession` | Replace the session payload. Mark dirty for middleware to persist. See [sessions](sessions.md). |
 | `Loader.clearSession` | `clearSession` | Destroy the session. Mark for middleware to delete + clear cookie. See [sessions](sessions.md). |
 | `Loader.enqueue { task, payload }` | `enqueue` | Fire-and-forget background work. See [tasks](tasks.md). |
+| `Loader.custom { kind, payload, decoder }` | `<your kind>` | Escape hatch — emit any effect kind your adapter handles. See [recipe: parallel queries](recipes/parallel-queries.md) for the most common use (Promise.all fan-out). |
+| `Loader.startJob { kind, payload }` / `Loader.jobStatus { jobId, decoder }` | `startJob` / `jobStatus` | Submit and poll a long-running background job. Requires `withJobs(runner, { store, handlers })`. See [jobs](jobs.md). |
 
 To **write** a cookie on the response, use `Action.setCookie` /
 `Action.clearCookie` / `Action.sessionCookie` from inside an `Action` — see

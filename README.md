@@ -349,7 +349,14 @@ elm-ssr migrate down   --dir ./migrations --db ./app.db [--count N]
 ## More
 
 - [`docs/`](./docs/) — topic-by-topic documentation (routing, effects,
-  backends, tasks, islands, migrations, sessions, CLI, middleware, testing).
+  backends, tasks, islands, migrations, sessions, SSE, CLI, middleware,
+  testing).
+- [`docs/examples.md`](./docs/examples.md) — **catalog of every demo route
+  and island** in `examples/basic` and `examples/crypto-dashboard`, mapped
+  to the feature it shows. Start here when looking for runnable code.
+- [`docs/recipes/`](./docs/recipes/) — composition patterns. Currently:
+  [parallel-queries.md](./docs/recipes/parallel-queries.md) (`Loader.custom`
+  + `Promise.all` for fan-out workloads).
 - [`CHANGELOG.md`](./CHANGELOG.md) — release notes.
 - [`llms.txt`](./llms.txt) — entry point for LLMs/AI agents reading this repo
   ([llmstxt.org](https://llmstxt.org/) format).

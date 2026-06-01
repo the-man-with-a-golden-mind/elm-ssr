@@ -4,6 +4,7 @@ import { renderApp, type CompiledElmModule } from "elm-ssr/render";
 import type { RouteCatalog, WorkerHandler } from "elm-ssr/http";
 import { memorySessionStore } from "elm-ssr/sessions";
 import { createSseStream } from "elm-ssr/sse";
+import { memoryJobStore, withJobs, type JobHandlers } from "elm-ssr/jobs";
 import { islands, bundleSource } from "../../generated/examples/basic/islands-manifest";
 import { stylesheet } from "./styles";
 // @ts-expect-error Generated at build time.
@@ -94,7 +95,7 @@ export const statusFixture = { uptime: "99.98%", region: "edge", builds: 128 };
 // cache, env values, and a fixture for the `app://status` fetch its loader uses.
 // On Cloudflare you'd swap in `cloudflareEffects()` (KV/D1/env) without touching
 // any Elm.
-export const exampleEffects: EffectRunner = inMemoryEffects({
+const baseEffects: EffectRunner = inMemoryEffects({
   env: { GREETING: "hello from the server env" },
   fetchJson: (url) => {
     if (url === "app://status") {
@@ -105,8 +106,93 @@ export const exampleEffects: EffectRunner = inMemoryEffects({
   }
 });
 
+/**
+ * Demonstrates `Loader.custom` + Promise.all fan-out: the /parallel route
+ * emits a single `parallelMarkets` effect; the adapter runs three fake
+ * "queries" concurrently and returns the combined payload. Wall-clock ≈ the
+ * slowest query, not the sum. See docs/recipes/parallel-queries.md.
+ */
+const fakeQuery = async <T>(name: string, latencyMs: number, value: T): Promise<{ name: string; ms: number; value: T }> => {
+  const start = performance.now();
+  await new Promise((resolve) => setTimeout(resolve, latencyMs));
+  return { name, ms: Math.round(performance.now() - start), value };
+};
+
+export const exampleEffects: EffectRunner = async (effect, context) => {
+  if (effect.kind === "parallelMarkets") {
+    const startedAt = performance.now();
+    const [totals, recent, byCountry] = await Promise.all([
+      fakeQuery("totalOrders", 60, 4217),
+      fakeQuery("recentOrderIds", 80, [4217, 4216, 4215, 4214, 4213]),
+      fakeQuery(
+        "topCountries",
+        70,
+        [
+          { country: "PL", total: 1402 },
+          { country: "US", total: 1188 },
+          { country: "DE", total: 803 }
+        ] as Array<{ country: string; total: number }>
+      )
+    ]);
+    return {
+      ok: true,
+      value: {
+        totalOrders: totals.value,
+        recentOrderIds: recent.value,
+        topCountries: byCountry.value,
+        timings: {
+          totalMs: Math.round(performance.now() - startedAt),
+          fanout: [
+            { name: totals.name, ms: totals.ms },
+            { name: recent.name, ms: recent.ms },
+            { name: byCountry.name, ms: byCountry.ms }
+          ]
+        }
+      }
+    };
+  }
+  return baseEffects(effect, context);
+};
+
+/**
+ * Background-job handlers — fan in from `withJobs` below. The `generateReport`
+ * handler takes ~1.2s and reports progress at three checkpoints, which the
+ * /reports page renders. A real-world handler would do heavy compute, big
+ * SQL, vector search, etc.
+ */
+export const reportJobHandlers: JobHandlers = {
+  generateReport: async (payload, ctx) => {
+    const month = (payload as { month?: string }).month ?? "unknown";
+    const phases = ["fetching orders", "grouping by country", "rendering"];
+    const rows = [
+      { country: "PL", total: 1402 },
+      { country: "US", total: 1188 },
+      { country: "DE", total: 803 },
+      { country: "BR", total: 612 }
+    ];
+    for (let i = 0; i < phases.length; i += 1) {
+      if (ctx.signal.aborted) {
+        throw new Error("aborted");
+      }
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      await ctx.reportProgress({ phase: phases[i], step: i + 1, of: phases.length });
+    }
+    return { month, rows };
+  }
+};
+
+// Per-process job store so /reports submissions can be polled. memory* is
+// the dev/test default — production would use cacheJobStore(redisCache(...))
+// so jobs survive isolate restarts and span instances.
+export const jobStore = memoryJobStore();
+
+const effectsWithJobs: EffectRunner = withJobs(exampleEffects, {
+  store: jobStore,
+  handlers: reportJobHandlers
+});
+
 export const renderPath = async (path: string) =>
-  renderApp(elmModule, createFlags({ path }), { effects: exampleEffects });
+  renderApp(elmModule, createFlags({ path }), { effects: effectsWithJobs });
 
 /**
  * SSE endpoint demonstration — `/__elm-ssr/live`. Emits a JSON tick every
@@ -152,7 +238,7 @@ export const createExampleWorker = (options: { effects?: EffectRunner; log?: (en
       stylesheet,
       routes,
       createFlags,
-      effects: options.effects ?? exampleEffects,
+      effects: options.effects ?? effectsWithJobs,
       log: options.log
     })
   );

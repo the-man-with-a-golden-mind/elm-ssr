@@ -4,9 +4,19 @@ If you are an AI agent (Claude Code, Cursor, …) opening this repo, read this
 file first. It encodes the project's architecture, conventions, and the small
 set of footguns that tend to bite agents specifically.
 
-For deeper, topic-by-topic docs see [`docs/`](./docs/). For an LLM-oriented
-entry-point with links to the most useful pages, see
-[`llms.txt`](./llms.txt) at the repo root.
+Documentation lives in two tracks:
+
+- **For humans:** [`docs/`](./docs/) — narrative tutorials with
+  explanations, trade-offs, worked examples.
+- **For AI agents:** [`docs/ai/`](./docs/ai/) — dense operational
+  reference per feature: signatures, types, effect kinds, minimal
+  example, common patterns, footguns. **One file per feature, structured
+  the same way.** Prefer this folder when generating code; cross-link to
+  the human docs when the user asks "why" or "when".
+
+This file (`AGENTS.md`) is the entry point for AI: hard rules + footguns
+specific to this codebase. [`llms.txt`](./llms.txt) at the repo root
+links into both tracks.
 
 ## TL;DR
 
@@ -129,6 +139,9 @@ In Elm (`ElmSsr.Loader`, reusable from `Action` via `fromLoader`):
 | `env name` | `env` | `context.env[name]` | the `env` option object |
 | `getCookie name` | `cookie` | parsed from `context.request` cookie header | same |
 | `enqueue { task, payload }` | `enqueue` | `withTasks(...)` → `ctx.waitUntil`, OR `withQueueProducer({queueBinding})` → CF Queue | `withTasks` fire-and-forget |
+| `session decoder` / `csrfToken` / `setSession value` / `clearSession` | `session` / `csrfToken` / `setSession` / `clearSession` | `sessionEffects(runner)` mutates `context.session` (populated by `sessionMiddleware`) | same |
+| `custom { kind, payload, decoder }` | `<your kind>` | whatever your wrapping `EffectRunner` returns | same — wrap `inMemoryEffects` with your own branch |
+| `startJob { kind, payload }` / `jobStatus { jobId, decoder }` | `startJob` / `jobStatus` | `withJobs(runner, { store, handlers })` runs handler via `ctx.waitUntil` and persists record to the store | same, but fire-and-forget |
 
 Cookies are also writable from `Action`: `Action.setCookie`,
 `Action.clearCookie`, plus the hardened `Action.sessionCookie` (Secure,
@@ -296,3 +309,16 @@ Cookie/redis/postgres/queues are unit-tested with fakes — no real servers.
   though tsc wouldn't accept that import elsewhere.
 - **`bun run check` exits with `tail`'s status if you pipe it.** Capture
   `bun run check > /tmp/log 2>&1; echo "exit: $?"` to read the real exit code.
+
+## When the user asks "where's the example for X"
+
+Look in [docs/examples.md](./docs/examples.md) first — that's the catalog
+of every demo route + island in the two reference apps, mapped to the
+feature it shows. The same file lists the TS wiring (`runtime.ts`
+branches) for SSE endpoints, the parallel-queries custom effect, the
+session-enabled worker variant, etc.
+
+Recipe articles for non-trivial composition patterns live under
+[docs/recipes/](./docs/recipes/) — currently
+[parallel-queries.md](./docs/recipes/parallel-queries.md) for fan-out
+SQL via `Loader.custom` + `Promise.all`.
