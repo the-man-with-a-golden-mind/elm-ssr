@@ -36,7 +36,14 @@ const findWorkspaceRoot = async (startPath) => {
 };
 
 const userRoot = findFlagValue("--root");
-const rootPath = resolve(userRoot ?? await findWorkspaceRoot(defaultRootPath));
+let rootPath;
+if (userRoot) {
+  rootPath = resolve(userRoot);
+} else if (["new", "init", "migrate", "help"].includes(command)) {
+  rootPath = defaultRootPath;
+} else {
+  rootPath = resolve(await findWorkspaceRoot(defaultRootPath));
+}
 const packageJsonPath = resolve(rootPath, "package.json");
 
 let packageJson = { name: "unknown" };

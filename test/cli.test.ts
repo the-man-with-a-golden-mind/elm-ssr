@@ -231,4 +231,65 @@ describe("elm-ssr CLI", () => {
     expect(packageJson.scripts.dev).toBe("elm-ssr dev");
     expect(packageJson.devDependencies["elm-ssr"]).toBe("latest");
   });
+
+  it("scaffolding commands (like 'init') do not climb parent directories", async () => {
+    const parentRoot = await mkdtemp(join(tmpdir(), "elm-ssr-cli-"));
+    tempRoots.push(parentRoot);
+
+    // Create a config at parent directory
+    await writeFile(
+      resolve(parentRoot, "elm-ssr.config.json"),
+      JSON.stringify({ apps: [{ name: "parent-app", root: "parent-app", module: "ParentApp" }] }, null, 2),
+      "utf8"
+    );
+
+    // Create a subdirectory representing the child workspace
+    const childRoot = resolve(parentRoot, "child-workspace");
+    await mkdir(childRoot, { recursive: true });
+
+    const binPath = resolve(process.cwd(), "packages/elm-ssr/bin/elm-ssr.mjs");
+
+    // Run 'init' inside the child subdirectory without specifying --root
+    // It should initialize a new config inside the child-workspace folder, rather than climbing up to parentRoot!
+    const command = Bun.spawn(
+      ["bun", binPath, "init", "child-app"],
+      {
+        cwd: childRoot,
+        stdout: "pipe",
+        stderr: "pipe"
+      }
+    );
+
+    const exitCode = await command.exited;
+    const stdout = await new Response(command.stdout).text();
+    const stderr = await new Response(command.stderr).text();
+
+    expect(exitCode).toBe(0);
+    expect(stderr).toBe("");
+    expect(stdout).toContain("Initialized child-app in current directory");
+
+    // Verify child-workspace has its own new elm-ssr.config.json
+    const config = JSON.parse(await readFile(resolve(childRoot, "elm-ssr.config.json"), "utf8")) as {
+      apps: Array<{ name: string; root: string; module: string }>;
+    };
+    expect(config.apps).toEqual([
+      {
+        name: "child-app",
+        root: ".",
+        module: "ChildApp"
+      }
+    ]);
+
+    // Parent config should remain completely untouched!
+    const parentConfig = JSON.parse(await readFile(resolve(parentRoot, "elm-ssr.config.json"), "utf8")) as {
+      apps: Array<{ name: string; root: string; module: string }>;
+    };
+    expect(parentConfig.apps).toEqual([
+      {
+        name: "parent-app",
+        root: "parent-app",
+        module: "ParentApp"
+      }
+    ]);
+  });
 });

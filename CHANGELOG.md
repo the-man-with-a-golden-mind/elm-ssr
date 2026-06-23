@@ -3,6 +3,12 @@
 All notable changes to the `elm-ssr` package. Dates are ISO; "Unreleased" lives
 at the top until a version is cut.
 
+## 0.6.2 — 2026-06-23
+
+### Fixed
+
+- Scaffolding commands (`new`, `init`) and `migrate` now execute relative to the current working directory (`process.cwd()`) rather than climbing directories to locate a parent workspace. Auto-discovery climbing is reserved only for execution commands (`dev`, `build`, `routes`, `info`), preventing subfolder commands from hijacking new project creations.
+
 ## 0.6.1 — 2026-06-23
 
 ### Fixed
