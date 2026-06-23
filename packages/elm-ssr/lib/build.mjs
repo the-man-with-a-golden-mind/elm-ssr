@@ -1,6 +1,10 @@
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile, stat } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
 import { gzipSync } from "node:zlib";
+import { exec } from "node:child_process";
+import { promisify } from "node:util";
+
+const execAsync = promisify(exec);
 
 // This lib is part of elm-ssr. It handles generating Main.elm and 
 // compiling the route apps and island bundles.
@@ -199,10 +203,71 @@ main =
     await rm(rawOutputPath, { force: true });
   };
 
+const findLocalTailwind = async (startDir) => {
+  let current = resolve(startDir);
+  while (true) {
+    const candidate = resolve(current, "node_modules", ".bin", "tailwindcss");
+    try {
+      await stat(candidate);
+      return candidate;
+    } catch {
+      // ignore
+    }
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return null;
+};
+
+  const compileStylesheet = async ({ inputPath, outputPath, appConfig, appRoot }) => {
+    try {
+      await stat(inputPath);
+    } catch {
+      return;
+    }
+
+    let css = "";
+    const isTailwindEnabled = appConfig.tailwind === true;
+
+    if (isTailwindEnabled) {
+      try {
+        console.log(`[elm-ssr] Compiling Tailwind CSS for app "${appConfig.name}"...`);
+        const contentGlob = "src/**/*.elm,src/**/*.ts,src/**/*.js";
+        
+        let tailwindBin = await findLocalTailwind(rootPath);
+        if (!tailwindBin) {
+          tailwindBin = await findLocalTailwind(cliRoot);
+        }
+        const binCommand = tailwindBin ? tailwindBin : "npx --yes tailwindcss";
+
+        const command = `${binCommand} -i ${inputPath} --content "${contentGlob}" --minify`;
+        const { stdout } = await execAsync(command, { cwd: appRoot });
+        css = stdout.toString().trim();
+      } catch (err) {
+        console.warn(`[elm-ssr] Tailwind CSS compilation failed. Falling back to plain CSS read. Error:`, err.message);
+        const raw = await readFile(inputPath, "utf8");
+        css = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\s+/g, " ").trim();
+      }
+    } else {
+      const raw = await readFile(inputPath, "utf8");
+      css = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\s+/g, " ").trim();
+    }
+
+    const tsContent = `export const stylesheet = \`${css.replace(/`/g, "\\`").replace(/\$/g, "\\$")}\`;\n`;
+    await writeFile(outputPath, tsContent, "utf8");
+  };
+
   await mkdir(elmHome, { recursive: true });
 
   for (const appConfig of config.apps) {
     const exampleRoot = resolve(rootPath, appConfig.root);
+    await compileStylesheet({
+      inputPath: resolve(exampleRoot, "src", "app.css"),
+      outputPath: resolve(exampleRoot, "styles.ts"),
+      appConfig,
+      appRoot: exampleRoot
+    });
     const namespace = appConfig.module;
     const namespacePath = resolve(exampleRoot, "src", moduleToPath(namespace));
     const routes = await collectRoutes(namespace, resolve(namespacePath, "Routes"));

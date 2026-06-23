@@ -3,7 +3,8 @@
     {
       "name": "basic",
       "root": "examples/basic",
-      "module": "Example.Basic"
+      "module": "Example.Basic",
+      "tailwind": true
     },
     {
       "name": "crypto-dashboard",

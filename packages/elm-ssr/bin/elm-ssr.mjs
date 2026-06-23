@@ -136,7 +136,7 @@ switch (command) {
       const srcDir = resolve(rootPath, app.root, "src");
       try {
         const watcher = watch(srcDir, { recursive: true }, (eventType, filename) => {
-          if (filename && filename.endsWith(".elm")) {
+          if (filename && (filename.endsWith(".elm") || filename.endsWith(".css"))) {
             triggerBuild();
           }
         });
