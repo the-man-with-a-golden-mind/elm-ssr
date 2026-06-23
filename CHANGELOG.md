@@ -3,6 +3,17 @@
 All notable changes to the `elm-ssr` package. Dates are ISO; "Unreleased" lives
 at the top until a version is cut.
 
+## 0.8.0 — 2026-06-23
+
+### Added
+
+- **Type-safe Request & Form Validation Library (`ElmSsr.Request.Decode`)**:
+  - Implemented `Decoder a` and `FieldDecoder a` types supporting type-safe request query/form parameter parsing.
+  - Implemented pipeline decoding support (`required`, `optional`, `optionalWithDefault`) with full applicative validation error accumulation.
+  - Added built-in validations (like `email`, `nonEmpty`, `minLength`, `maxLength`, and numeric boundaries).
+  - Handles checkbox state normalization (normalization of checkbox presence or omission to Boolean values).
+  - Added new integration demo route (`/validate`) and end-to-end integration tests.
+
 ## 0.7.0 — 2026-06-23
 
 ### Added
