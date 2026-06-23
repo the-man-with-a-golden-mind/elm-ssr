@@ -3,6 +3,12 @@
 All notable changes to the `elm-ssr` package. Dates are ISO; "Unreleased" lives
 at the top until a version is cut.
 
+## 0.6.1 — 2026-06-23
+
+### Fixed
+
+- Improve error messaging when trying to scaffold an app name that already exists in `elm-ssr.config.json`. Correct terminology to refer to "App" instead of "Example".
+
 ## 0.6.0 — 2026-06-23
 
 ### Added

@@ -15,13 +15,13 @@ const toPascalCase = (value) =>
 
 const ensureValidName = (name) => {
   if (!/^[a-z0-9-]+$/.test(name)) {
-    throw new Error("Example name must use lowercase letters, numbers, and dashes only.");
+    throw new Error("App name must use lowercase letters, numbers, and dashes only.");
   }
 };
 
 const ensureAppMissing = (config, name) => {
   if (config.apps.some((app) => app.name === name)) {
-    throw new Error(`Example "${name}" already exists in elm-ssr.config.json.`);
+    throw new Error(`App "${name}" already exists in elm-ssr.config.json. If you want to recreate it, remove its entry from elm-ssr.config.json first.`);
   }
 };
 
