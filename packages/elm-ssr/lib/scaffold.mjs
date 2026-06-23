@@ -541,3 +541,159 @@ export const createAppScaffold = async (rootPath, name, options = {}) => {
 
 /** @deprecated Use `createAppScaffold`. */
 export const createExampleScaffold = createAppScaffold;
+
+const parseRoutePath = (routePath) => {
+  const parts = routePath.split("/").map(p => p.trim()).filter(Boolean);
+  if (parts.length === 0) {
+    throw new Error(`Invalid route path: "${routePath}"`);
+  }
+  
+  return parts.map(part => {
+    const clean = part.replace(/_+$/, "");
+    const underscores = part.slice(clean.length);
+    return toPascalCase(clean) + underscores;
+  });
+};
+
+export const createRouteScaffold = async (rootPath, appConfig, routePath, options = {}) => {
+  const parts = parseRoutePath(routePath);
+  const namespace = appConfig.module;
+  
+  if (options.isWs || options.isSse) {
+    const endpointName = parts.join("");
+    const fileSubpath = `src/Endpoints/${parts.join("/")}.ts`;
+    const filePath = resolve(rootPath, appConfig.root, fileSubpath);
+    
+    let content = "";
+    let type = "";
+    let instructions = "";
+    
+    if (options.isWs) {
+      type = "WebSocket";
+      content = `export const handleWebSocket = (request: Request): Response => {
+  const upgradeHeader = request.headers.get("Upgrade");
+  if (!upgradeHeader || upgradeHeader !== "websocket") {
+    return new Response("Expected Upgrade: websocket", { status: 426 });
+  }
+
+  const webSocketPair = new WebSocketPair();
+  const [client, server] = Object.values(webSocketPair);
+
+  server.accept();
+  server.addEventListener("message", (event) => {
+    console.log("WS received:", event.data);
+    server.send(JSON.stringify({ echo: event.data, time: new Date().toISOString() }));
+  });
+
+  server.addEventListener("close", () => {
+    console.log("WS connection closed");
+  });
+
+  return new Response(null, {
+    status: 101,
+    webSocket: client
+  });
+};
+`;
+      instructions = `1. Import this handler in your worker entrypoint (${appConfig.root}/worker.ts or runtime.ts):
+   import { handleWebSocket } from "./src/Endpoints/${parts.join("/")}";
+
+2. Intercept the request in your fetch handler:
+   if (url.pathname === "/${routePath}") {
+     return handleWebSocket(request);
+   }`;
+    } else {
+      type = "Server-Sent Events (SSE)";
+      content = `import { createSseStream } from "elm-ssr/sse";
+
+export const handleSse = (request: Request): Response => {
+  return createSseStream(request, async (send, signal) => {
+    let count = 0;
+    while (!signal.aborted && count < 100) {
+      count += 1;
+      send(JSON.stringify({ event: "tick", count, time: new Date().toISOString() }));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  });
+};
+`;
+      instructions = `1. Import this handler in your worker entrypoint (${appConfig.root}/worker.ts or runtime.ts):
+   import { handleSse } from "./src/Endpoints/${parts.join("/")}";
+
+2. Intercept the request in your fetch handler:
+   if (url.pathname === "/${routePath}") {
+     return handleSse(request);
+   }`;
+    }
+    
+    await mkdir(dirname(filePath), { recursive: true });
+    await writeFile(filePath, content, "utf8");
+    
+    return { type, path: fileSubpath, instructions };
+  } else {
+    const moduleName = parts.join(".");
+    const fileSubpath = `src/${namespace.split(".").join("/")}/Routes/${parts.join("/")}.elm`;
+    const filePath = resolve(rootPath, appConfig.root, fileSubpath);
+    
+    let content = "";
+    let type = "";
+    
+    if (options.isApi) {
+      type = "Elm JSON API";
+      content = `module ${namespace}.Routes.${moduleName} exposing (page, action)
+
+import ElmSsr.Action as Action exposing (Action)
+import ElmSsr.Document exposing (Document)
+import ElmSsr.Loader as Loader exposing (Loader)
+import ElmSsr.Route exposing (Request)
+import Json.Encode as Encode
+
+page : Request -> Loader (Document Never)
+page _ =
+    Loader.fail 405 "GET not allowed on this API route"
+
+action : Request -> Action (Document Never)
+action request =
+    -- Process request and return JSON response
+    Action.json <|
+        Encode.object
+            [ ( "ok", Encode.bool True )
+            , ( "message", Encode.string "Hello from ${routePath} API route!" )
+            ]
+`;
+    } else {
+      type = "Elm Page";
+      content = `module ${namespace}.Routes.${moduleName} exposing (page, action)
+
+import ElmSsr.Action as Action exposing (Action)
+import ElmSsr.Document exposing (Document)
+import ElmSsr.Html exposing (div, text)
+import ElmSsr.Loader as Loader exposing (Loader)
+import ElmSsr.Page as Page
+import ElmSsr.Route exposing (Request)
+import ${namespace}.View.Shared as Shared
+
+page : Request -> Loader (Document Never)
+page _ =
+    Loader.succeed view
+
+action : Request -> Action (Document Never)
+action _ =
+    Action.fail 405 "Method not allowed"
+
+view : Document Never
+view =
+    Page.page
+        { title = "${parts[parts.length - 1]}"
+        , head = Shared.head
+        , body = [ div [] [ text "Hello from ${routePath}!" ] ]
+        }
+`;
+    }
+    
+    await mkdir(dirname(filePath), { recursive: true });
+    await writeFile(filePath, content, "utf8");
+    
+    return { type, path: fileSubpath };
+  }
+};

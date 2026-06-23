@@ -3,6 +3,17 @@
 All notable changes to the `elm-ssr` package. Dates are ISO; "Unreleased" lives
 at the top until a version is cut.
 
+## 0.7.0 — 2026-06-23
+
+### Added
+
+- **`elm-ssr route <path>` Command**: A new generator CLI command to scaffold routes. Supports:
+  - Standard HTML page routes (`page` and `action` in Elm).
+  - JSON API routes (`--api` yielding `Action.json` in Elm).
+  - WebSocket routes (`--ws` yielding a TypeScript handler in `src/Endpoints/`).
+  - Server-Sent Events routes (`--sse` yielding a TypeScript handler with `createSseStream` in `src/Endpoints/`).
+- **Flexible Route Scaffolding**: Support for dynamic segments (preserving underscores like `slug_`) and segment casing. Automatically supports targeting specific apps in multi-app configurations via the `--app <name>` flag.
+
 ## 0.6.2 — 2026-06-23
 
 ### Fixed

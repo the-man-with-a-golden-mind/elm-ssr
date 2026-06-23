@@ -292,4 +292,73 @@ describe("elm-ssr CLI", () => {
       }
     ]);
   });
+
+  it("scaffolds all types of routes using the 'route' command", async () => {
+    const root = await mkdtemp(join(tmpdir(), "elm-ssr-cli-"));
+    tempRoots.push(root);
+
+    // Initialize workspace and app first
+    await writeFile(
+      resolve(root, "elm-ssr.config.json"),
+      JSON.stringify({ apps: [{ name: "my-app", root: "my-app", module: "MyApp" }] }, null, 2),
+      "utf8"
+    );
+    await mkdir(resolve(root, "my-app"), { recursive: true });
+
+    const binPath = resolve(process.cwd(), "packages/elm-ssr/bin/elm-ssr.mjs");
+
+    // 1. Scaffold HTML route
+    const htmlCmd = Bun.spawn(
+      ["bun", binPath, "route", "profile/settings", "--root", root],
+      {
+        cwd: "/Users/michalmajchrzak/Projects/elmssr",
+        stdout: "pipe",
+        stderr: "pipe"
+      }
+    );
+    expect(await htmlCmd.exited).toBe(0);
+    await stat(resolve(root, "my-app/src/MyApp/Routes/Profile/Settings.elm"));
+
+    // 2. Scaffold Elm API route
+    const apiCmd = Bun.spawn(
+      ["bun", binPath, "route", "api/users", "--api", "--root", root],
+      {
+        cwd: "/Users/michalmajchrzak/Projects/elmssr",
+        stdout: "pipe",
+        stderr: "pipe"
+      }
+    );
+    expect(await apiCmd.exited).toBe(0);
+    await stat(resolve(root, "my-app/src/MyApp/Routes/Api/Users.elm"));
+    const apiContent = await readFile(resolve(root, "my-app/src/MyApp/Routes/Api/Users.elm"), "utf8");
+    expect(apiContent).toContain("Action.json");
+
+    // 3. Scaffold SSE route
+    const sseCmd = Bun.spawn(
+      ["bun", binPath, "route", "api/live-stream", "--sse", "--root", root],
+      {
+        cwd: "/Users/michalmajchrzak/Projects/elmssr",
+        stdout: "pipe",
+        stderr: "pipe"
+      }
+    );
+    expect(await sseCmd.exited).toBe(0);
+    await stat(resolve(root, "my-app/src/Endpoints/Api/LiveStream.ts"));
+    const sseContent = await readFile(resolve(root, "my-app/src/Endpoints/Api/LiveStream.ts"), "utf8");
+    expect(sseContent).toContain("createSseStream");
+
+    // 4. Scaffold WebSocket route
+    const wsCmd = Bun.spawn(
+      ["bun", binPath, "route", "chat", "--ws", "--root", root],
+      {
+        cwd: "/Users/michalmajchrzak/Projects/elmssr",
+        stdout: "pipe",
+        stderr: "pipe"
+      }
+    );
+    expect(await wsCmd.exited).toBe(0);
+    await stat(resolve(root, "my-app/src/Endpoints/Chat.ts"));
+    const wsContent = await readFile(resolve(root, "my-app/src/Endpoints/Chat.ts"), "utf8");
+    expect(wsContent).toContain("WebSocketPair");
+  });
 });

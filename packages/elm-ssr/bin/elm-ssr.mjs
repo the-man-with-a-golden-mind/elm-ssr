@@ -3,7 +3,7 @@
 import { readFile, stat } from "node:fs/promises";
 import { watch } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { createAppScaffold } from "../lib/scaffold.mjs";
+import { createAppScaffold, createRouteScaffold } from "../lib/scaffold.mjs";
 import { readWorkspaceConfig } from "../lib/workspace.mjs";
 import { build } from "../lib/build.mjs";
 import { migrate } from "../lib/migrate.mjs";
@@ -79,6 +79,7 @@ const printHelp = () => {
   new <name>    Create a new app at <workspace>/<name>/ (or <workspace>/<subdir>/<name>/
                 with --in <subdir>) and register it in elm-ssr.config.json
   routes        Print configured apps and their public modules
+  route <path>  Scaffold a new route (standard HTML, --api JSON, --ws WebSocket, or --sse EventSource)
   info          Print current workspace package and configured app names
   migrate ...   Apply / revert / inspect SQL migrations (see: elm-ssr migrate --help)
 `);
@@ -224,6 +225,44 @@ switch (command) {
       console.log(`${app.name}: root=${app.root} module=${app.module} routes=src/${app.module.split(".").join("/")}/Routes`);
     }
     break;
+
+  case "route": {
+    requireConfig();
+    const routePath = args[1];
+    if (!routePath) {
+      console.error("Usage: elm-ssr route <path> [--app <app-name>] [--api] [--ws] [--sse]");
+      process.exit(1);
+    }
+    
+    const appName = findFlagValue("--app");
+    let appConfig;
+    if (appName) {
+      appConfig = config.apps.find(a => a.name === appName);
+      if (!appConfig) {
+        console.error(`Error: App "${appName}" not found in elm-ssr.config.json`);
+        process.exit(1);
+      }
+    } else {
+      if (config.apps.length === 1) {
+        appConfig = config.apps[0];
+      } else {
+        console.error("Error: Multiple apps found in workspace config. Please specify which app to add the route to using --app <app-name>");
+        console.error("Available apps:", config.apps.map(a => a.name).join(", "));
+        process.exit(1);
+      }
+    }
+
+    const isApi = args.includes("--api");
+    const isWs = args.includes("--ws") || args.includes("--websocket");
+    const isSse = args.includes("--sse");
+
+    const result = await createRouteScaffold(rootPath, appConfig, routePath, { isApi, isWs, isSse });
+    console.log(`Scaffolded ${result.type} route at ${result.path}`);
+    if (result.instructions) {
+      console.log("\nInstructions to wire it up:\n" + result.instructions);
+    }
+    break;
+  }
 
   case "info":
     requireConfig();
