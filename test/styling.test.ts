@@ -122,4 +122,64 @@ describe("Zero-Config Tailwind & CSS Styling Pipeline", () => {
     // Verify that Tailwind compiled the font-extrabold class used in the Elm file
     expect(stylesContent).toContain("font-extrabold");
   }, 60000);
+
+  it("behaves correctly on border cases: empty css, missing css, and symbol escaping", async () => {
+    const root = await mkdtemp(join(tmpdir(), "elm-ssr-styling-border-"));
+    tempRoots.push(root);
+
+    await writeFile(
+      resolve(root, "elm-ssr.config.json"),
+      JSON.stringify({ apps: [] }, null, 2),
+      "utf8"
+    );
+
+    // Scaffold a new app
+    const scaffoldCmd = Bun.spawn(
+      ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "new", "border-app", "--root", root],
+      { cwd: "/Users/michalmajchrzak/Projects/elmssr" }
+    );
+    expect(await scaffoldCmd.exited).toBe(0);
+
+    // Case 1: missing app.css. Build should succeed but styles.ts should NOT exist.
+    const stylesPath = resolve(root, "border-app/styles.ts");
+    await rm(stylesPath); // Delete scaffolded default styles.ts
+
+    const buildCmd1 = Bun.spawn(
+      ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "build", "--root", root],
+      { cwd: "/Users/michalmajchrzak/Projects/elmssr" }
+    );
+    expect(await buildCmd1.exited).toBe(0);
+    let stylesExist = true;
+    try {
+      await stat(stylesPath);
+    } catch {
+      stylesExist = false;
+    }
+    expect(stylesExist).toBe(false);
+
+    // Case 2: empty app.css. styles.ts should exist with empty stylesheet export.
+    await writeFile(resolve(root, "border-app/src/app.css"), "", "utf8");
+    const buildCmd2 = Bun.spawn(
+      ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "build", "--root", root],
+      { cwd: "/Users/michalmajchrzak/Projects/elmssr" }
+    );
+    expect(await buildCmd2.exited).toBe(0);
+    const stylesContent2 = await readFile(stylesPath, "utf8");
+    expect(stylesContent2).toBe("export const stylesheet = ``;\n");
+
+    // Case 3: app.css with backticks and dollar signs. They should be escaped correctly.
+    const trickyCss = `
+      .tricky::before {
+        content: "\`hello\` \${world}";
+      }
+    `;
+    await writeFile(resolve(root, "border-app/src/app.css"), trickyCss, "utf8");
+    const buildCmd3 = Bun.spawn(
+      ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "build", "--root", root],
+      { cwd: "/Users/michalmajchrzak/Projects/elmssr" }
+    );
+    expect(await buildCmd3.exited).toBe(0);
+    const stylesContent3 = await readFile(stylesPath, "utf8");
+    expect(stylesContent3).toContain("export const stylesheet = `.tricky::before { content: \"\\`hello\\` \\${world}\"; }`;\n");
+  }, 60000);
 });
