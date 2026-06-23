@@ -3,6 +3,15 @@
 All notable changes to the `elm-ssr` package. Dates are ISO; "Unreleased" lives
 at the top until a version is cut.
 
+## 0.11.0 — 2026-06-23
+
+### Added
+
+- **Type-Safe SQL Query DSL & Schema Generation (`elm-ssr query`)**:
+  - Implemented `ElmSsr.Db.Dsl` providing type-safe query construction, operators (`eq`, `gt`, `like`, `isNull`, `inList`, etc.), logical operators (`and`, `or`), and edge loader executions.
+  - Updates `elm-ssr query` CLI generator to parse schemas and generate table and column descriptors alongside types, record decoders, and parameter encoders.
+  - Unit and integration tests for query DSL generation.
+
 ## 0.10.0 — 2026-06-23
 
 ### Added
