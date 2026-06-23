@@ -98,8 +98,10 @@ If you came here to find "how do I do X", start here:
 # both apps build into generated/<name>/
 bun run build
 
-# bun + wrangler:
+# Cloudflare-like local dev for this repo:
 bun run dev
+
+# For other hosts, build and run an entrypoint that calls worker.fetch.
 
 # tests cover every route end-to-end through worker.fetch:
 bun run test:unit          # fast, no docker

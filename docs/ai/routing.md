@@ -78,4 +78,4 @@ action _ =
 - Dynamic segment is a **trailing** underscore on the module file: `Slug_.elm`, NOT `_Slug.elm`.
 - `action` must exist even if route is GET-only — return `Action.fail 405`. Build fails if missing.
 - `params` is empty for static routes; `Route.param` returns `Nothing` then.
-- Adding a new route requires re-running `bun elm-ssr build` (or `bun run dev` which builds).
+- Adding a new route requires re-running `bunx elm-ssr build` (or `bun run dev` in this repo, which builds).

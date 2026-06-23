@@ -21,8 +21,8 @@ In order (outermost first):
    `x-response-time: …ms` based on `performance.now() - context.startedAt`.
 4. **`loggingMiddleware`** — after the response is built, logs a JSON line
    `{ event: "request_completed", requestId, method, path, status, durationMs }`.
-   On Cloudflare the logging is scheduled via `ctx.waitUntil` so it doesn't
-   block the response.
+   If the host provides `ctx.waitUntil`, logging is scheduled there so it
+   doesn't block the response; otherwise it runs detached.
 5. **`headMiddleware`** — for `HEAD` requests, strips the response body while
    preserving status + headers.
 
@@ -65,7 +65,8 @@ handler → c → b → a`.
 If you want to customize the **default** stack used by `createWorkerApp`,
 you can't drop middlewares from it directly — pass your own `log` to override
 the logger, or build your own `WorkerHandler` from scratch with
-`composeMiddleware` if you need different ordering.
+`composeMiddleware` if you need different ordering. The type name
+`WorkerHandler` means "Fetch-style handler"; it is not tied to Cloudflare.
 
 ## `AppContext`
 
@@ -77,14 +78,14 @@ interface AppContext {
   url: URL;
   requestId: string;        // set by requestIdMiddleware (empty before)
   startedAt: number;        // performance.now() at request start
-  executionCtx?: WorkerExecutionContext;  // present on Cloudflare; has waitUntil
-  env?: Record<string, unknown>;          // Cloudflare bindings
+  executionCtx?: WorkerExecutionContext;  // optional host context with waitUntil
+  env?: Record<string, unknown>;          // provider env/bindings/secrets
 }
 ```
 
 `executionCtx?.waitUntil(promise)` is how the logging and task adapters
-schedule work after the response. If absent (Bun, tests), middlewares fall
-back to fire-and-forget.
+schedule work after the response. If absent, middlewares fall back to
+fire-and-forget.
 
 ## Source
 

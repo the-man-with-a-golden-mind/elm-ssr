@@ -68,8 +68,8 @@ page request =
 
 1. **Submit.** `Loader.startJob { kind, payload }` emits a `startJob`
    effect. `withJobs` generates an id (UUID v4), persists a `queued`
-   record, and schedules the handler via `ctx.waitUntil` (Cloudflare) or
-   fire-and-forget (Bun). The effect returns the id synchronously to the
+   record, and schedules the handler via `ctx.waitUntil` when the host provides
+   it, or fire-and-forget otherwise. The effect returns the id synchronously to the
    loader.
 2. **Execute.** The handler runs in the background. It receives
    `(payload, { jobId, reportProgress, signal })`. The store transitions
@@ -157,24 +157,23 @@ interface JobContext {
 - **`reportProgress(value)`** is fire-and-forget — call as often as you
   like, last value wins. Useful for percentage bars, phase indicators,
   current-record markers.
-- **`signal`** fires when the request context is gone (Worker isolate
-  teardown). For long handlers, check `signal.aborted` between expensive
-  steps and bail out cleanly.
+- **`signal`** fires when the request context is gone, if the host exposes that
+  lifecycle. For long handlers, check `signal.aborted` between expensive steps
+  and bail out cleanly.
 
 ## Run-time semantics
 
 | Where it runs | What keeps it alive |
 | ------------- | -------------------- |
-| Cloudflare Workers (have `ctx.waitUntil`) | `ctx.waitUntil(work)` keeps the isolate alive past the response. Subject to CF's CPU budget. |
-| Bun / Node (no `waitUntil`) | Fire-and-forget. Stays alive as long as the process does. |
-| Tests | Same as Bun. The framework's own tests poll the store directly. |
+| Host provides `ctx.waitUntil` | `ctx.waitUntil(work)` keeps work alive past the response, subject to the host's limits. |
+| Long-lived server process without `waitUntil` | Fire-and-forget. Stays alive as long as the process does. |
+| Tests | Same as a long-lived process. The framework's own tests poll the store directly. |
 
-**For jobs that must survive a Worker restart**, use a durable store
-(`cacheJobStore` over Redis / Cloudflare KV) and a long-enough TTL. The
-in-flight execution can still be lost (CF can rotate isolates) — for that
-you need queue-backed handlers, which is a separate adapter on the
-roadmap. The store at minimum lets a polling client see the
-last-known-good state.
+**For jobs that must survive process or isolate restart**, use a durable store
+(`cacheJobStore` over Redis / provider KV) and a long-enough TTL. The in-flight
+execution can still be lost if the host stops the worker. For that, use a
+provider queue or write a queue-backed job adapter. The store at minimum lets a
+polling client see the last-known-good state.
 
 ## End-to-end demo
 
@@ -205,8 +204,8 @@ done, missing; 5 tests).
 
 ## What's not in here yet
 
-- **Queue-backed durability.** Cloudflare Queues integration as a
-  separate adapter (would survive isolate restarts mid-execution).
+- **Queue-backed durability for every provider.** Cloudflare Queues exist for
+  `enqueue`; a provider-neutral job queue adapter is still future work.
 - **Cancellation by id.** A `cancelJob jobId` would set
   `signal.aborted = true` for an in-flight handler.
 - **Retry policies.** The handler currently either succeeds or fails;

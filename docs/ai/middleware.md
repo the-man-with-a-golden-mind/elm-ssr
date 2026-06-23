@@ -89,6 +89,6 @@ const handler = composeMiddleware(routeHandler, [
 - Outermost middleware runs FIRST going in, LAST going out. `errorMiddleware` is outermost so it catches everything downstream.
 - `headMiddleware` strips the body — must be innermost (last in array, closest to handler) so other middlewares still see status/headers.
 - `ctx.requestId` is empty BEFORE `requestIdMiddleware`. Don't read it in middlewares above it.
-- `executionCtx?.waitUntil` is only available on CF; check `if (ctx.executionCtx) ...`. On Bun/tests it's `undefined`.
+- `executionCtx?.waitUntil` is host-provided and optional; check `if (ctx.executionCtx) ...`. In Bun/tests it is usually `undefined`.
 - `withHeaders` creates a new Response; the original is consumed.
 - The default stack is opinionated — you can't remove middlewares from it via `createWorkerApp` opts. To customize, build your own with `composeMiddleware`.

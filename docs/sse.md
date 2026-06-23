@@ -1,8 +1,8 @@
 # Server-Sent Events (SSE)
 
-The third server→client seam, after **props at render** and **client-initiated
-effects**. An island opens an `EventSource` against a Worker endpoint; the
-Worker streams `text/event-stream`; the island re-renders in place as events
+The third server→client path, after **props at render** and **client-initiated
+effects**. An island opens an `EventSource` against a server endpoint; the
+server streams `text/event-stream`; the island re-renders in place as events
 arrive.
 
 Two pieces, both in this release:
@@ -14,8 +14,9 @@ Two pieces, both in this release:
   to a URL, decode events, route them.
 
 This is a **per-connection** model — every `EventSource` is its own stream
-from the handler. For fan-out (one event, many subscribers) wire a Durable
-Object in your handler; that's planned as a higher-level adapter in 0.4.
+from the handler. For fan-out (one event, many subscribers), wire your
+provider's broadcast primitive, durable object, pub/sub service, or message bus
+inside the handler.
 
 ## Server side (`elm-ssr/sse`)
 
@@ -44,7 +45,7 @@ The handler receives:
 Returning from the handler closes the stream. Throwing closes it with the
 error logged (`elm-ssr: SSE handler threw`).
 
-### Wiring it into your Worker
+### Wiring it into your runtime
 
 SSE endpoints live outside the Elm router. Dispatch yourself and fall
 through to `worker.fetch` for everything else:
@@ -190,9 +191,8 @@ hydrates and subscribes.
 
 ## Caveats
 
-- **Cloudflare Workers + SSE:** works on the standard Worker runtime; the
-  isolate stays alive while the `ReadableStream` is open. For very
-  long-lived streams (>30s without traffic), consider sending a keepalive
+- **Runtime support:** your host must support streaming `Response` bodies.
+  For very long-lived streams with quiet periods, consider sending a keepalive
   comment `: ping\n\n` every few seconds (no Elm-visible side effect).
 - **Behind a load balancer / CDN:** some proxies buffer responses by
   default. `X-Accel-Buffering: no` covers nginx; Cloudflare honours

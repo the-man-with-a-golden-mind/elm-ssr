@@ -25,10 +25,7 @@ interface EffectContext {
 // Returns 502 for any non-default kind (fetchJson + cookie handled here).
 const defaultEffectRunner: EffectRunner;
 
-// Cloudflare: KV (cacheGet/Put), D1 (query/queryOne/execute), env, cookie, fetchJson.
-cloudflareEffects(config?: { cacheBinding?: string; dbBinding?: string }): EffectRunner;
-
-// Local / tests: Map cache + env map + pluggable sql.
+// Portable / tests: Map cache + env map + pluggable sql.
 interface InMemoryEffectsOptions {
   env?: Record<string, string>;
   cache?: Map<string, { value: unknown; expiresAt?: number }>;
@@ -37,6 +34,9 @@ interface InMemoryEffectsOptions {
   now?: () => number;
 }
 inMemoryEffects(options?: InMemoryEffectsOptions): EffectRunner;
+
+// Cloudflare-specific: KV (cacheGet/Put), D1 (query/queryOne/execute), env, cookie, fetchJson.
+cloudflareEffects(config?: { cacheBinding?: string; dbBinding?: string }): EffectRunner;
 ```
 
 ## Composable adapters (`elm-ssr/backends`)
@@ -55,19 +55,30 @@ interface SqlClient { run(sql: string, params: unknown[]): Promise<{ rows: unkno
 postgresSql(client: SqlClient): (q: SqlQuery) => Promise<unknown>;
 ```
 
-## Minimal example: prod stack
+## Minimal example: portable server stack
 
 ```ts
-import { cloudflareEffects } from "elm-ssr/effects";
-import { withCache, redisCache } from "elm-ssr/backends";
+import { inMemoryEffects } from "elm-ssr/effects";
+import { postgresSql, redisCache, withCache } from "elm-ssr/backends";
 
 const effects = withCache(
-  cloudflareEffects({ dbBinding: "DB" }),  // D1 for query/queryOne/execute, env
-  redisCache({                              // Redis overrides KV for cache
+  inMemoryEffects({ sql: postgresSql(pg), env: process.env }),
+  redisCache({
     get: (k) => myRedis.get(k),
     set: (k, v, ttl) => ttl ? myRedis.set(k, v, "EX", ttl) : myRedis.set(k, v),
   })
 );
+```
+
+## Minimal example: Cloudflare bindings
+
+```ts
+import { cloudflareEffects } from "elm-ssr/effects";
+
+const effects = cloudflareEffects({
+  cacheBinding: "CACHE", // KV
+  dbBinding: "DB"        // D1
+});
 ```
 
 ## Minimal example: dev stack with Postgres
@@ -101,6 +112,6 @@ const effects = inMemoryEffects({
 
 - `withCache` only intercepts cache effects — sql/env/fetchJson still go through the wrapped runner. Don't double-wrap.
 - `inMemoryEffects` without `sql` → query effects fail with `"sql" handler is not configured`.
-- `cloudflareEffects` defaults: `cacheBinding="CACHE"`, `dbBinding="DB"`. If your bindings differ, set them or every cache/sql effect fails with `Missing KV/D1 binding`.
+- `cloudflareEffects` is Cloudflare-specific. Defaults: `cacheBinding="CACHE"`, `dbBinding="DB"`. If your bindings differ, set them or every cache/sql effect fails with `Missing KV/D1 binding`.
 - `inMemoryEffects`'s in-memory `Map` is **per process / per isolate** — not shared across requests on different isolates. Use `withCache(... , redisCache(...))` for cross-isolate state.
 - The `SqlClient` interface uses `?` placeholders (Bun.sql / SQLite style). For node-pg you may need to translate to `$1, $2`.

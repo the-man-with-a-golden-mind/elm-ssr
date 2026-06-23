@@ -1,10 +1,10 @@
 # Effects
 
 Effects are the **single, backend-neutral vocabulary** that loaders and
-actions speak. Elm describes what it needs (`{ kind, payload }`); the Worker's
-configured adapter executes it against a real backend (KV/D1, Redis/Postgres,
-in-memory map, …). This is what lets the same Elm code run on Cloudflare and
-locally without change.
+actions speak. Elm describes what it needs (`{ kind, payload }`); the
+configured TypeScript adapter executes it against a real backend (in-memory
+map, Redis/Postgres/SQLite, Cloudflare KV/D1, or your own provider adapter).
+This is what lets the same Elm code run on different hosts without change.
 
 ## The vocabulary
 
@@ -45,7 +45,7 @@ Failures are turned into HTTP responses (5xx page or JSON for `/api/`).
 
 ## How a `kind` resolves to a backend
 
-The Worker uses an `EffectRunner` you supply (or the default if you supply
+The runtime uses an `EffectRunner` you supply (or the default if you supply
 none). Adapters are composable functions of type
 `EffectRunner -> EffectRunner` that intercept the kinds they care about and
 forward everything else.
@@ -55,18 +55,18 @@ import { inMemoryEffects, cloudflareEffects } from "elm-ssr/effects";
 import { withCache, redisCache, postgresSql } from "elm-ssr/backends";
 import { withTasks } from "elm-ssr/tasks";
 
-// Cloudflare: KV (cacheGet/Put), D1 (query/queryOne/execute), env, cookie, fetchJson.
-const effects = withTasks(
-  cloudflareEffects({ cacheBinding: "CACHE", dbBinding: "DB" }),
-  { sendEmail, warmCache }
-);
-
-// Local: in-memory cache + env + fetchJson, Redis cache, Postgres SQL.
+// Bun/Node/other server runtimes: Redis cache + Postgres SQL.
 const effects = withTasks(
   withCache(
     inMemoryEffects({ sql: postgresSql(pg), env: { /* … */ } }),
     redisCache(redis)
   ),
+  { sendEmail, warmCache }
+);
+
+// Cloudflare: KV (cacheGet/Put), D1 (query/queryOne/execute), env, cookie, fetchJson.
+const cloudflare = withTasks(
+  cloudflareEffects({ cacheBinding: "CACHE", dbBinding: "DB" }),
   { sendEmail, warmCache }
 );
 ```

@@ -22,11 +22,14 @@ go deeper, one concern at a time.
 
 ## Runtime
 
+- [Deployment](deployment.md) — run the same Fetch-compatible app on Bun,
+  worker/edge hosts, Cloudflare Workers, or another provider with a small
+  entrypoint adapter.
 - [Backends](backends.md) — composing effect adapters (`inMemoryEffects`,
   `cloudflareEffects`, `withCache`, `redisCache`, `postgresSql`).
 - [Tasks and queues](tasks.md) — background work with `withTasks`
-  (`waitUntil`) or Cloudflare Queues (`withQueueProducer` /
-  `createQueueConsumer`).
+  (`waitUntil` when available, detached locally) or Cloudflare Queues
+  (`withQueueProducer` / `createQueueConsumer`).
 - [Migrations](migrations.md) — SQL-file migrations (`runMigrations`,
   `revertMigrations`, `listMigrations`); transactional per-migration.
 - [Middleware](middleware.md) — the standard middleware stack and

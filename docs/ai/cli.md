@@ -6,14 +6,14 @@
 ## Commands
 
 ```sh
-elm-ssr build                              # scan Routes/+Islands/, generate Main.elm + manifest, run elm make
-elm-ssr compress                           # same as build + gzip generated bundles
-elm-ssr dev                                # build + wrangler dev
-elm-ssr new <name> [--in <subdir>]         # scaffold app at <workspace>/<name>/ (or <workspace>/<subdir>/<name>/)
-elm-ssr routes                             # list configured apps + their public modules
-elm-ssr info                               # workspace package name + configured app names
-elm-ssr migrate <up|down|status> [opts]    # see migrations.md
-elm-ssr help                               # default
+bunx elm-ssr build                              # scan Routes/+Islands/, generate Main.elm + manifest, run elm make
+bunx elm-ssr compress                           # same as build + gzip generated bundles
+bunx elm-ssr dev                                # build + wrangler dev (Cloudflare-oriented convenience)
+bunx elm-ssr new <name> [--in <subdir>]         # scaffold app at <workspace>/<name>/ (or <workspace>/<subdir>/<name>/)
+bunx elm-ssr routes                             # list configured apps + their public modules
+bunx elm-ssr info                               # workspace package name + configured app names
+bunx elm-ssr migrate <up|down|status> [opts]    # see migrations.md
+bunx elm-ssr help                               # default
 ```
 
 ## Global flag
@@ -38,8 +38,8 @@ elm-ssr help                               # default
 ## `elm-ssr new`
 
 ```sh
-elm-ssr new my-app                # → <workspace>/my-app/, namespace MyApp
-elm-ssr new billing --in apps     # → <workspace>/apps/billing/, namespace Billing
+bunx elm-ssr new my-app                # → <workspace>/my-app/, namespace MyApp
+bunx elm-ssr new billing --in apps     # → <workspace>/apps/billing/, namespace Billing
 ```
 
 Generates:
@@ -65,9 +65,9 @@ For each configured app:
 
 ## Patterns
 
-- **Watch + rebuild during dev**: use `bun elm-ssr dev` (build + wrangler dev). For non-wrangler dev, re-run `bun elm-ssr build` in a watcher.
+- **Watch + rebuild during dev**: use `bunx elm-ssr dev` for Cloudflare-like local dev. For other hosts, re-run `bunx elm-ssr build` in a watcher and start your own server/entrypoint.
 - **Multi-app workspace**: each `apps[]` entry builds independently; manifest paths are namespaced.
-- **CI**: `bun elm-ssr build` + `bun test`. `--root` for scratch dirs.
+- **CI**: `bunx elm-ssr build` + `bun test`. `--root` for scratch dirs.
 
 ## Footguns
 

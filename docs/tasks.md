@@ -7,11 +7,11 @@ warming, webhooks, anything you don't want blocking the user.
 to that payload depends on which adapter you wrap the runner with:
 
 - **`withTasks(runner, handlers)`** — runs the task inline after the
-  response, kept alive by `ctx.waitUntil` on Cloudflare, fire-and-forget on
-  Bun. Best for fast, idempotent work.
+  response. If the host passes `waitUntil`, elm-ssr uses it; otherwise the task
+  is detached in the current process. Best for fast, idempotent work.
 - **`withQueueProducer(runner, { queueBinding })`** — sends the task to a
-  Cloudflare Queue (durable, retried on failure). A separate consumer Worker
-  picks it up with `createQueueConsumer(handlers)`.
+  Cloudflare Queue (durable, retried on failure). Other queue providers can use
+  the same `enqueue` effect by implementing a small custom runner.
 
 Both wrap any existing runner, so they compose with `withCache`,
 `cloudflareEffects`, `inMemoryEffects`, etc.
@@ -55,9 +55,9 @@ afterward (with `waitUntil`), so the user isn't waiting for SMTP.
 
 ```ts
 import { withTasks } from "elm-ssr/tasks";
-import { cloudflareEffects } from "elm-ssr/effects";
+import { inMemoryEffects } from "elm-ssr/effects";
 
-const effects = withTasks(cloudflareEffects(), {
+const effects = withTasks(inMemoryEffects({ env: process.env }), {
   sendEmail: async (payload, ctx) => {
     await fetch("https://api.sendgrid.com/v3/mail/send", {
       method: "POST",
@@ -75,20 +75,23 @@ Each handler receives `(payload, effectContext)`. The context has `env`,
 `request`, and `waitUntil` — same shape every effect sees.
 
 **Behavior:**
-- On Cloudflare: scheduled via `ctx.waitUntil(handler(...))`. The isolate
-  stays alive long enough to finish.
-- On Bun (no `waitUntil`): runs detached (`void promise`). Survives only as
-  long as the process does.
+- Host provides `waitUntil`: scheduled via `ctx.waitUntil(handler(...))`.
+- No `waitUntil`: runs detached (`void promise`). Survives only as long as the
+  process/request lifetime allows.
 - Handler throws → `console.error("elm-ssr: background task \"NAME\" failed",
   error)`; the request is unaffected.
 - Unknown task name → the **`enqueue`** effect fails (`No task handler
   registered for "NAME"`), so the action surfaces the error to the caller.
 
-## `withQueueProducer` + `createQueueConsumer` (durable)
+## `withQueueProducer` + `createQueueConsumer` (Cloudflare Queues)
 
-For work that **must** survive a Worker restart or retry on failure, use a
-Cloudflare Queue. The producer Worker enqueues; a separate consumer Worker
-(or the same Worker with a `queue` handler) processes the messages.
+For Cloudflare deployments where work **must** survive isolate restart or retry
+on failure, use Cloudflare Queues. The producer worker enqueues; a separate
+consumer worker (or the same worker with a `queue` handler) processes the
+messages.
+
+For another provider, keep the Elm code the same and write an `enqueue` runner
+that forwards `{ task, payload }` to that provider's queue.
 
 ### Producer
 
@@ -140,7 +143,8 @@ Bind the queue in `wrangler.jsonc`:
 | Need | Use |
 | ---- | --- |
 | Quick post-response work, fine to lose on crash | `withTasks` |
-| Durable jobs, retry on failure, backpressure | `withQueueProducer` + `createQueueConsumer` |
+| Durable jobs on Cloudflare, retry on failure, backpressure | `withQueueProducer` + `createQueueConsumer` |
+| Durable jobs on another provider | Custom runner for `enqueue` + that provider's queue |
 | Both (some inline, some durable) | Wrap the runner with **both** — `enqueue` is intercepted by the outermost matching adapter, so order matters. Put the more-specific one outside, or split task names cleanly. |
 
 ## Source

@@ -4,10 +4,12 @@
 
 Background work that runs **after the response goes out**. Two flavours:
 
-- **`withTasks(runner, handlers)`** — inline via `ctx.waitUntil`. Fast,
-  loses on crash.
+- **`withTasks(runner, handlers)`** — inline after response. Uses
+  `ctx.waitUntil` when the host provides it; otherwise detached. Fast, loses on
+  crash/process stop.
 - **`withQueueProducer + createQueueConsumer`** — durable via Cloudflare
-  Queues. Survives, retries.
+  Queues. Survives, retries. For other providers, implement a custom `enqueue`
+  runner that publishes to that provider's queue.
 
 ## Exports
 
@@ -23,7 +25,7 @@ withQueueProducer(runner: EffectRunner, config?: { queueBinding?: string }): Eff
 createQueueConsumer(tasks: TaskHandlers): (batch, env?, executionCtx?) => Promise<void>;
 ```
 
-## Minimal example: inline (Cloudflare or Bun)
+## Minimal example: inline (portable)
 
 ```elm
 -- Elm
@@ -47,7 +49,7 @@ const effects = withTasks(baseEffects, {
 });
 ```
 
-## Minimal example: durable (CF Queues)
+## Minimal example: durable (Cloudflare Queues)
 
 ```ts
 // Producer worker (your main worker)
@@ -76,9 +78,9 @@ export default {
 
 ## Behavior
 
-- Inline (`withTasks`): on CF uses `ctx.waitUntil(handler())`; on Bun
-  fire-and-forget (`void`). Handler exception is `console.error`-logged;
-  request unaffected.
+- Inline (`withTasks`): uses `ctx.waitUntil(handler())` when present;
+  otherwise fire-and-forget (`void`). Handler exception is
+  `console.error`-logged; request unaffected.
 - Durable (`withQueueProducer`): publishes `{ task, payload }` to
   `env[binding].send(...)`. Consumer dispatches by task name; `ack()` on
   success, `retry()` on error or missing handler.
@@ -88,7 +90,8 @@ export default {
 ## Patterns
 
 - Fire-and-forget non-critical work → `withTasks`.
-- Must-not-lose work → `withQueueProducer` + DLQ in wrangler.
+- Must-not-lose work on Cloudflare → `withQueueProducer` + DLQ in wrangler.
+- Must-not-lose work elsewhere → custom `enqueue` runner + provider queue.
 - Both, by task name: layer `withTasks` (handles e.g. "log") then
   `withQueueProducer` (catches everything else). Outermost intercepts.
 
@@ -96,7 +99,7 @@ export default {
 
 - `withTasks` handler exception is swallowed — only `console.error`. Use
   `withQueueProducer` if you need delivery guarantees.
-- `createQueueConsumer` requires a `queue` handler on your CF Worker —
+- `createQueueConsumer` is for Cloudflare Queues and requires a `queue` handler,
   not a `fetch` route. Wire it via the consumer worker's `default export`.
 - `ctx.env` may be undefined in tests; consumer handlers must `ctx.env?.X`.
 - `enqueue` from Elm returns `()` — caller doesn't know if it succeeded

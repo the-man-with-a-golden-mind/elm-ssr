@@ -191,7 +191,7 @@ downstream route handler can still read it.
 
 - **Secret rotation.** The HMAC secret signs every cookie. Rotating it
   invalidates all existing sessions (next request mints a new one). Treat as
-  a Cloudflare secret binding, never commit.
+  a provider secret, never commit.
 - **Cookie attributes.** Defaults are `HttpOnly` + `Secure` + `SameSite=Lax`
   + 7-day Max-Age + `Path=/`. Override `secure: false` only when developing
   on plain HTTP (`http://localhost`).

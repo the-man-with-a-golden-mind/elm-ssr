@@ -1,11 +1,11 @@
 # elm-ssr
 
-Elm-first SSR library and framework for Cloudflare Workers (and Bun locally).
+Elm-first SSR library and framework for Fetch-compatible runtimes.
 One package, three pieces:
 
 - A **CLI** (`elm-ssr build|new|migrate|dev`) that scans your routes/islands,
   generates the router + manifest, and runs `elm make`.
-- A **Worker runtime** (`createWorkerApp`, `renderApp`, effect adapters,
+- A **Fetch-compatible runtime** (`createWorkerApp`, `renderApp`, effect adapters,
   background tasks, SQL migrations, middleware) exported via subpaths.
 - A set of **Elm authoring modules** under `elm-src/ElmSsr/` (Route, Loader,
   Action, Html, Svg, Island, Page, Document, Runtime) which the build syncs
@@ -17,8 +17,12 @@ One package, three pieces:
 bun add elm-ssr
 ```
 
-Then use the CLI as `elm-ssr <command>` (or `bun elm-ssr <command>` in a
-workspace) and import the runtime via subpaths.
+Then import the runtime via subpaths and run the CLI with `bunx`:
+
+```sh
+bunx elm-ssr new my-app
+bunx elm-ssr build
+```
 
 ## CLI commands
 
@@ -29,7 +33,9 @@ workspace) and import the runtime via subpaths.
   (one combined island bundle exposing `Elm.<App>.Islands.<Name>`).
 - **`elm-ssr new <name>`** — scaffold a new app and register it in
   `elm-ssr.config.json`.
-- **`elm-ssr dev`** — `build` then `wrangler dev`.
+- **`elm-ssr dev`** — `build` then `wrangler dev` for Cloudflare-like local
+  development. For other hosts, build with `elm-ssr build` and adapt
+  `worker.fetch` in your own server/entrypoint.
 - **`elm-ssr compress`** — pre-compress generated bundles with gzip.
 - **`elm-ssr migrate <up|down|status>`** — apply / revert / inspect SQL-file
   migrations. `--db postgres://…`, `sqlite://path`, or a plain SQLite file path;

@@ -27,6 +27,8 @@ for code generation, then cross-link to the human docs when the user asks
   `createQueueConsumer`.
 - [islands.md](islands.md) — `Browser.element` islands, `Island.embed`,
   cross-island bus, SSE subscription.
+- [deployment.md](deployment.md) — Fetch-compatible runtime shape, Bun,
+  worker/edge, Cloudflare, and provider-specific adapter boundaries.
 - [sessions.md](sessions.md) — `sessionMiddleware` + `csrfMiddleware`,
   stores, `sessionEffects`.
 - [sse.md](sse.md) — `createSseStream`, `ElmSsr.Island.Sse`.

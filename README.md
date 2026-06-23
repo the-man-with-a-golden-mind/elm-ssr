@@ -1,22 +1,24 @@
 # elm-ssr
 
-Elm-first SSR library and framework for Cloudflare Workers (and Bun locally).
+Elm-first SSR library and framework for Fetch-compatible runtimes.
 
 Two execution worlds, glued by a marker element:
 
 - **Pages** are SSR-only Elm. They use a custom serialisable AST (`ElmSsr.Html`,
-  `ElmSsr.Svg`) because Cloudflare Workers has no DOM — `elm/html`'s virtual-dom
-  kernel can't run server-side.
+  `ElmSsr.Svg`) because server and edge runtimes usually have no DOM —
+  `elm/html`'s virtual-dom kernel can't run server-side.
 - **Islands** are *standard* `Browser.element` programs using stock `elm/html`,
   `elm/svg`, `elm/http`, `Html.Keyed`, `elm/time`, … They mount client-side into
   `<elm-ssr-island>` markers the page emits.
 
-The Worker exposes a **backend-neutral** effect surface (cache, sql, env,
-cookie, fetchJson, enqueue) that Elm `Loader`/`Action` describe; pluggable TS
-adapters execute them — KV/D1 on Cloudflare, Redis/Postgres/SQLite locally —
-without any change to the Elm code. Background jobs run after the response via
-`ctx.waitUntil` or Cloudflare Queues. A built-in SQL migration runner brings the
-schema with it.
+The runtime exposes a **backend-neutral** effect surface (cache, sql, env,
+cookie, fetchJson, enqueue) that Elm `Loader`/`Action` describe. Pluggable TS
+adapters execute those effects against whatever your host gives you: in-memory
+maps for tests, Redis/Postgres/SQLite in app servers, KV/D1 on Cloudflare, or
+your own adapter for another provider. Background work can run through
+`waitUntil` when a host supports it, fire-and-forget in a long-lived process, or
+a durable queue adapter. A built-in SQL migration runner brings the schema with
+it.
 
 ## Why it exists
 
@@ -24,27 +26,37 @@ Stock Elm SSR is awkward because `elm/html` is opaque and DOM-bound. Other
 frameworks fake hydration by replaying the whole tree. This project takes the
 other fork:
 
-- **Real SSR for pages** via a serialisable, library-owned AST → works on
-  Cloudflare Workers with no DOM, real HTML per request.
+- **Real SSR for pages** via a serialisable, library-owned AST → works in
+  DOM-free server and edge runtimes, real HTML per request.
 - **No fake hydration** — islands are mounted with normal Elm browser runtime,
   so you get unmodified `elm/html`/`Html.Keyed`/`elm/http`/`elm/svg` inside them.
-- **Backend-neutral effects** so the same Elm runs against Cloudflare KV/D1 or
-  local Redis/Postgres/SQLite by swapping the runner adapter — useful for
-  parity between local dev and production.
+- **Backend-neutral effects** so the same Elm runs against different providers
+  by swapping the runner adapter — useful for parity between local dev,
+  staging, and production.
 
 ## Quickstart
+
+Use the package in your own workspace:
+
+```bash
+bun add elm-ssr
+bunx elm-ssr new my-app
+bunx elm-ssr build
+```
+
+Work on this repository:
 
 ```bash
 bun install
 bun run build         # CLI scans Routes/ + Islands/, generates Main.elm + islands bundle
 bun run test          # 100+ tests, including end-to-end worker.fetch coverage
-bun run dev           # wrangler dev
+bun run dev           # repo convenience script; starts wrangler dev for the examples
 ```
 
-Scaffold a new app:
+Scaffold another example app from this repository checkout:
 
 ```bash
-bun run ssr:new my-app
+bun run ssr:new -- my-app
 ```
 
 Optional — run integration tests against real Postgres + Redis:
@@ -55,8 +67,8 @@ bun run test:integration
 docker compose down
 ```
 
-The default `bun test` skips the integration suites when `DATABASE_URL` /
-`REDIS_URL` aren't set, so machines without Docker stay clean.
+`bun run test:unit` is the Docker-free loop. `bun run test` and
+`bun run test:integration` start Postgres + Redis through Docker.
 
 ## Repository layout
 
@@ -71,6 +83,35 @@ examples/
 docker-compose.yml               # postgres + redis for integration tests
 AGENTS.md                        # Orientation for AI agents working on this repo
 ```
+
+## Runtime model
+
+`createWorkerApp(...)` returns an object with a Fetch-style
+`fetch(request, env?, executionCtx?)` method. Any host that can call a function
+with a standard `Request` and receive a standard `Response` can run the same app
+behind a small adapter. Cloudflare Workers happens to match this shape directly,
+but the shape itself is not Cloudflare-specific.
+
+```ts
+import { worker } from "./my-app/runtime";
+
+// Bun / long-lived server process
+Bun.serve({
+  fetch: (request) => worker.fetch(request, process.env)
+});
+
+// Edge/worker-style hosts
+export default {
+  fetch: (request, env, ctx) => worker.fetch(request, env, ctx)
+};
+```
+
+Provider-specific code belongs at the edge of the app: the effect runner,
+session store, queue implementation, and deployment entrypoint. Your route Elm
+modules and island Elm modules do not change when those adapters change.
+
+See [docs/deployment.md](docs/deployment.md) for Bun, generic edge/worker, and
+Cloudflare examples.
 
 ## Authoring
 
@@ -103,7 +144,7 @@ action _ =
 
 ### Loaders + effects
 
-Loaders are pure descriptions; the Worker pumps their effects:
+Loaders are pure descriptions; the TypeScript runtime pumps their effects:
 
 ```elm
 cachedStatus : Loader Status
@@ -200,20 +241,14 @@ CustomEvent bus).
 
 ## Effect adapters
 
-Compose the worker's `effects` from small adapters:
+Compose the app's `effects` from small adapters:
 
 ```ts
 import { inMemoryEffects, cloudflareEffects } from "elm-ssr/effects";
 import { withCache, redisCache, postgresSql } from "elm-ssr/backends";
 import { withTasks, withQueueProducer } from "elm-ssr/tasks";
 
-// Cloudflare deploy:
-const effects = withTasks(cloudflareEffects({ cacheBinding: "CACHE", dbBinding: "DB" }), {
-  sendEmail,
-  warmCache
-});
-
-// Local dev / tests:
+// Bun, Node, or other server runtimes:
 const effects = withTasks(
   withCache(
     inMemoryEffects({ sql: postgresSql(myPgClient), env: { /* … */ } }),
@@ -221,11 +256,19 @@ const effects = withTasks(
   ),
   { sendEmail, warmCache }
 );
+
+// Cloudflare deploy (KV + D1 bindings):
+const cloudflare = withTasks(cloudflareEffects({ cacheBinding: "CACHE", dbBinding: "DB" }), {
+  sendEmail,
+  warmCache
+});
 ```
 
 The Elm code is identical on both. `redisCache(client)` and `postgresSql(client)`
 take minimal client interfaces (see `packages/elm-ssr/src/backends.ts`) so
 they work with `Bun.redis`/`Bun.sql`, `ioredis`, `node-postgres`, SQLite, etc.
+Other providers use the same pattern: implement the small cache/sql/task
+interfaces, then compose them into the effect runner.
 
 For durable background jobs (instead of `waitUntil`), swap `withTasks` for
 `withQueueProducer({ queueBinding })` and wire `createQueueConsumer(handlers)`
@@ -284,12 +327,12 @@ transaction scopes (`sql.begin` / `pool.connect`) — or Cloudflare D1.
 bun install
 bun run build              # generate Main.elm, compile app + islands bundle, write generated/
 bun run check              # build + tsc --noEmit
-bun run test               # build + bun test (skips integration when env unset)
+bun run test:unit          # build + non-Docker unit/e2e tests
+bun run test               # Docker-managed full suite
 bun run test:integration   # bun test test/integration/ (needs DATABASE_URL + REDIS_URL)
-bun run test:docker        # docker compose up --wait; bun run test; docker compose down
-bun run dev                # build + wrangler dev
-bun run deploy             # build + wrangler deploy
-bun run ssr:new <name>     # scaffold a new example app
+bun run dev                # build + wrangler dev for this repo's examples
+bun run deploy             # build + wrangler deploy for this repo's examples
+bun run ssr:new -- <name>  # scaffold a new app in this repo
 bun run ssr:routes         # print configured app modules
 
 # Migration CLI (any directory + any backend)
@@ -318,21 +361,23 @@ elm-ssr migrate down   --dir ./migrations --db ./app.db [--count N]
 - **Phase 2** — Effectful `Action` (free monad like Loader), `fromLoader`, form
   actions, PRG redirects.
 - **Phase 3** — Backend-neutral effects (`cacheGet`/`cachePut`, `query`/`queryOne`/
-  `execute`, `env`), Cloudflare + in-memory adapters, composable
-  `withCache`/`postgresSql`/`redisCache` over driver-agnostic client interfaces.
-- **Phase 4** — Background tasks (`enqueue`) via `withTasks` (`waitUntil`) or
-  `withQueueProducer` + `createQueueConsumer` (CF Queues).
+  `execute`, `env`), portable in-memory/SQL/cache adapters, Cloudflare
+  KV/D1 adapter, and composable `withCache`/`postgresSql`/`redisCache` over
+  driver-agnostic client interfaces.
+- **Phase 4** — Background tasks (`enqueue`) via portable `withTasks`
+  (`waitUntil` when the host provides it) or `withQueueProducer` +
+  `createQueueConsumer` for Cloudflare Queues.
 - **Migrations** — file-based SQL with transactional per-migration safety.
 
 ## Tradeoffs
 
-- Pages use a library-specific SSR HTML tree, not stock `elm/html`. (Workers has
-  no DOM.) Islands use stock Elm.
+- Pages use a library-specific SSR HTML tree, not stock `elm/html`. Server and
+  edge runtimes normally have no DOM. Islands use stock Elm.
 - No "fake full hydration" for arbitrary `elm/html` apps.
 - Islands ship one combined bundle per app (no per-route code splitting — Elm
   has no lazy loading).
-- The default `withTasks` keeps the isolate alive via `waitUntil`; durable jobs
-  need Queues (an adapter swap, no Elm change).
+- The default `withTasks` uses `waitUntil` when available; durable jobs need a
+  durable queue or store adapter (no Elm change).
 
 ## Guarantees
 
@@ -343,7 +388,7 @@ elm-ssr migrate down   --dir ./migrations --db ./app.db [--count N]
 - `Html.Keyed` works through Elm's own runtime inside islands.
 - Each SQL migration runs inside a transaction; tracking is updated only on
   successful commit.
-- Worker concerns (middleware, REST, asset serving) stay outside the
+- Runtime concerns (middleware, REST, asset serving) stay outside the
   author-facing Elm modules.
 
 ## More

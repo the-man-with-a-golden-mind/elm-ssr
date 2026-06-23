@@ -4,8 +4,8 @@
 
 Per-connection Server-Sent Events. Server emits `text/event-stream`;
 island consumes via `EventSource`. **One stream per client connection** —
-for fan-out (one event → many subscribers) wire a Durable Object yourself
-(not in framework yet).
+for fan-out (one event → many subscribers), wire your provider's broadcast,
+durable object, pub/sub, or message-bus primitive yourself.
 
 ## Exports
 
@@ -80,9 +80,9 @@ update msg model =
 
 ## Footguns
 
-- SSE endpoint lives OUTSIDE the Elm router. Dispatch yourself in your worker's fetch handler; fall through to `base.fetch` for everything else.
+- SSE endpoint lives OUTSIDE the Elm router. Dispatch yourself in your fetch handler; fall through to `base.fetch` for everything else.
 - `createSseStream(request, ...)` — first arg is the `Request`, not options. `request.signal` is the disconnect source.
-- Long-running streams on CF Workers can hit CPU budget; consider keepalive `: ping\n\n` comments + bounded duration.
+- Host must support streaming `Response` bodies. Long-running streams can hit provider limits; consider keepalive `: ping\n\n` comments + bounded duration.
 - The client EventSource auto-reconnects on transient drop. `Sse.errors` is informational; don't tear down state on error.
 - Browser per-origin EventSource limit on HTTP/1.1 is ~6. Share channels when you can.
 - `Sse.events` fires for ALL open streams in the island — filter by `event.url` (use `Sse.match`).

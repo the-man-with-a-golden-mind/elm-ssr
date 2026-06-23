@@ -121,8 +121,8 @@ embed : String -> Config flags pageMsg -> flags -> Node pageMsg
 This is the load-bearing convention in this repo:
 
 - A **page** returns `Document Never` and is serialised on the server to
-  HTML. It uses `ElmSsr.Html` because Cloudflare Workers has no DOM, and
-  `elm/html`'s virtual-DOM kernel can't run server-side.
+  HTML. It uses `ElmSsr.Html` because server and edge runtimes normally have no
+  DOM, and `elm/html`'s virtual-DOM kernel can't run server-side.
 - An **island** is a normal browser Elm program. Its `view : Model -> Html Msg`
   uses `Html exposing (...)` from `elm/html`. `ElmSsr.Html` only shows up
   inside the island module for the `fallback` markup (which is part of the

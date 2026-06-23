@@ -7,14 +7,14 @@ Flat table of every effect `kind` that `Loader` (and via `Action.fromLoader`,
 | Elm function | `kind` | Handled by | Payload | Returns |
 |---|---|---|---|---|
 | `Loader.fetchJson { url, decoder }` | `fetchJson` | `defaultEffectRunner`, `cloudflareEffects`, `inMemoryEffects` | `{ url }` | decoded JSON or 502 |
-| `Loader.cacheGet { key, decoder }` | `cacheGet` | `cloudflareEffects(KV)`, `inMemoryEffects(Map)`, `withCache(backend)` | `{ key }` | `Maybe a` (null on miss) |
+| `Loader.cacheGet { key, decoder }` | `cacheGet` | `inMemoryEffects(Map)`, `withCache(backend)`, `cloudflareEffects(KV)` | `{ key }` | `Maybe a` (null on miss) |
 | `Loader.cachePut { key, value, ttlSeconds }` | `cachePut` | same as cacheGet | `{ key, value, ttlSeconds? }` | `()` |
-| `Loader.query { sql, params, decoder }` | `query` | `cloudflareEffects(D1)`, `inMemoryEffects({ sql })`, `postgresSql(client)` | `{ sql, params }` | `List a` |
+| `Loader.query { sql, params, decoder }` | `query` | `inMemoryEffects({ sql })`, `postgresSql(client)`, `cloudflareEffects(D1)` | `{ sql, params }` | `List a` |
 | `Loader.queryOne { sql, params, decoder }` | `queryOne` | same as query | `{ sql, params }` | `Maybe a` |
 | `Loader.execute { sql, params }` | `execute` | same as query | `{ sql, params }` | `{ rowsAffected }` |
-| `Loader.env name` | `env` | `cloudflareEffects(env)`, `inMemoryEffects({ env })` | `{ name }` | `Maybe String` |
+| `Loader.env name` | `env` | `inMemoryEffects({ env })`, `cloudflareEffects(env)`, custom provider runner | `{ name }` | `Maybe String` |
 | `Loader.getCookie name` | `cookie` | `defaultEffectRunner`, `cloudflareEffects`, `inMemoryEffects` (reads `context.request.headers.cookie`) | `{ name }` | `Maybe String` |
-| `Loader.enqueue { task, payload }` | `enqueue` | `withTasks(handlers)` → `ctx.waitUntil`, or `withQueueProducer({ queueBinding })` → CF Queue | `{ task, payload }` | `()` |
+| `Loader.enqueue { task, payload }` | `enqueue` | `withTasks(handlers)` → `ctx.waitUntil` when available/detached otherwise; `withQueueProducer({ queueBinding })` → Cloudflare Queue; custom provider queue runner | `{ task, payload }` | `()` |
 | `Loader.session decoder` | `session` | `sessionEffects(runner)` (requires `sessionMiddleware`) | `{}` | `Maybe a` |
 | `Loader.csrfToken` | `csrfToken` | `sessionEffects` | `{}` | `Maybe String` |
 | `Loader.setSession value` | `setSession` | `sessionEffects` (marks session dirty) | `{ value }` | `()` |

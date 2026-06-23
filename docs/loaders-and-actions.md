@@ -1,7 +1,7 @@
 # Loaders and Actions
 
 `Loader` and `Action` are **descriptions of work**, not side effects. The
-author composes them; the runtime pumps the actual IO through the Worker's
+author composes them; the runtime pumps the actual IO through the configured
 effect adapter and feeds the results back until each one terminates.
 
 This keeps Elm pure end-to-end — no manual ports, no flag-shaped JSON
@@ -229,8 +229,8 @@ Action.redirect "/onboarding/step-2"
 ### Local dev gotcha
 
 `Secure` cookies are rejected by modern browsers on plain `http://`. If
-you're hitting your app on `http://localhost`, either run it over HTTPS
-(wrangler dev does, by default) or override `secure = False` on the cookie.
+you're hitting your app on `http://localhost`, either run it over HTTPS or
+override `secure = False` on the cookie.
 See [examples/basic/src/Example/Basic/Routes/Session.elm](../examples/basic/src/Example/Basic/Routes/Session.elm)
 for the pattern.
 

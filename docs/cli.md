@@ -1,7 +1,7 @@
 # CLI
 
-The `elm-ssr` command. Installed when you `bun add elm-ssr`, run as
-`bun elm-ssr <command>` in a workspace or `npx elm-ssr <command>`.
+The `elm-ssr` command. Install it with `bun add elm-ssr`, then run it with
+`bunx elm-ssr <command>` from the workspace root.
 
 ## Commands
 
@@ -18,7 +18,9 @@ Reads `elm-ssr.config.json`, then for each configured app:
 4. Runs `elm make` to compile the page program + one combined island bundle
    (`Elm.<App>.Islands.<Name>` per island).
 
-Outputs land in `generated/<app-name>/` (gitignored).
+Outputs land in `generated/<app-root>/` (gitignored), matching the configured
+`root` value. For example, `root: "apps/admin"` writes under
+`generated/apps/admin/`.
 
 ### `elm-ssr compress`
 
@@ -32,7 +34,8 @@ elm-ssr dev
 ```
 
 Runs `build` then `wrangler dev`. Use this for local Cloudflare-flavoured
-development.
+development. For other providers or a plain Bun server, run `elm-ssr build`
+and start your own entrypoint that calls `worker.fetch`.
 
 ### `elm-ssr new <name>`
 
@@ -40,10 +43,12 @@ development.
 elm-ssr new my-app
 ```
 
-Scaffolds a new app under `examples/<name>/` and registers it in
-`elm-ssr.config.json`. Generates `Routes/Index.elm`, `Routes/Counter.elm`,
-`Routes/NotFound.elm`, `Islands/Counter.elm`, `View/Shared.elm`, plus the
-TypeScript `runtime.ts`, `worker.ts`, `styles.ts`, and `elm.json`.
+Scaffolds a new app under `<workspace>/<name>/` and registers it in
+`elm-ssr.config.json`. Use `--in apps` to create
+`<workspace>/apps/<name>/`. Generates `Routes/Index.elm`,
+`Routes/Counter.elm`, `Routes/NotFound.elm`, `Islands/Counter.elm`,
+`View/Shared.elm`, plus the TypeScript `runtime.ts`, `worker.ts`,
+`styles.ts`, and `elm.json`.
 
 Name must match `^[a-z0-9-]+$` (lowercase letters, digits, dashes).
 
