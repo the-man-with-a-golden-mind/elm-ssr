@@ -299,9 +299,9 @@ all =
 
   // Helpers: byId
   if (pk) {
-    const pkEncoder = getEncoderExpr(pk, pk.elmName);
+    const pkEncoder = getEncoderExpr(pk, pk.elmName + "Val");
     code += `byId : ${pk.elmType} -> Loader (Maybe ${recordName})
-byId ${pk.elmName} =
+byId ${pk.elmName}Val =
     Loader.queryOne
         { sql = "SELECT ${selectFields} FROM ${tableName} WHERE ${pk.dbName} = ?"
         , params = [ ${pkEncoder} ]
@@ -353,9 +353,9 @@ insert =
 
   // Helpers: delete
   if (pk) {
-    const pkEncoder = getEncoderExpr(pk, pk.elmName);
+    const pkEncoder = getEncoderExpr(pk, pk.elmName + "Val");
     code += `delete : ${pk.elmType} -> Loader { rowsAffected : Int }
-delete ${pk.elmName} =
+delete ${pk.elmName}Val =
     Loader.execute
         { sql = "DELETE FROM ${tableName} WHERE ${pk.dbName} = ?"
         , params = [ ${pkEncoder} ]
@@ -375,7 +375,7 @@ delete ${pk.elmName} =
       });
       const updateSets = updateParams.map(c => `${c.dbName} = ?`).join(", ");
       const updateEncoders = updateParams.map(c => getEncoderExpr(c, `params.${c.elmName}`));
-      const pkEncoder = getEncoderExpr(pk, pk.elmName);
+      const pkEncoder = getEncoderExpr(pk, pk.elmName + "Val");
       
       const encoderLines = [
         ...updateEncoders,
@@ -386,7 +386,7 @@ delete ${pk.elmName} =
       });
       
       code += `update : ${pk.elmType} -> { ${updateTypes.join(", ")} } -> Loader { rowsAffected : Int }
-update ${pk.elmName} params =
+update ${pk.elmName}Val params =
     Loader.execute
         { sql = "UPDATE ${tableName} SET ${updateSets} WHERE ${pk.dbName} = ?"
         , params =

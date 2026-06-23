@@ -41,7 +41,7 @@ describe("server effects: env", () => {
 describe("server effects: sql + background tasks (Phase 3 + 4)", () => {
   const sqlBackend = () => {
     const db = new Database(":memory:");
-    db.run("CREATE TABLE entries (id INTEGER PRIMARY KEY AUTOINCREMENT, message TEXT NOT NULL)");
+    db.run("CREATE TABLE entries (id INTEGER PRIMARY KEY AUTOINCREMENT, message TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP))");
 
     return ({ sql, params, mode }: SqlQuery) => {
       const statement = db.query(sql);

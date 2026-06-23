@@ -361,4 +361,92 @@ describe("elm-ssr CLI", () => {
     const wsContent = await readFile(resolve(root, "my-app/src/Endpoints/Chat.ts"), "utf8");
     expect(wsContent).toContain("WebSocketPair");
   });
+
+  it("scaffolds a new app with --db option", async () => {
+    const root = await mkdtemp(join(tmpdir(), "elm-ssr-cli-"));
+    tempRoots.push(root);
+
+    await writeFile(
+      resolve(root, "elm-ssr.config.json"),
+      JSON.stringify({ apps: [] }, null, 2),
+      "utf8"
+    );
+
+    const command = Bun.spawn(
+      ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "new", "db-app", "--db", "--root", root],
+      {
+        cwd: "/Users/michalmajchrzak/Projects/elmssr",
+        stdout: "pipe",
+        stderr: "pipe"
+      }
+    );
+
+    expect(await command.exited).toBe(0);
+
+    // Verify database files & migrations
+    await stat(resolve(root, "db-app/migrations/0001_init.sql"));
+    await stat(resolve(root, "db-app/.dev.vars"));
+    await stat(resolve(root, ".env"));
+
+    const devVars = await readFile(resolve(root, "db-app/.dev.vars"), "utf8");
+    expect(devVars).toContain("GREETING=");
+    expect(devVars).toContain("SESSION_SECRET=");
+
+    const envFile = await readFile(resolve(root, ".env"), "utf8");
+    expect(envFile).toContain("GREETING=");
+    expect(envFile).toContain("SESSION_SECRET=");
+
+    const runtime = await readFile(resolve(root, "db-app/runtime.ts"), "utf8");
+    expect(runtime).toContain("Database");
+    expect(runtime).toContain("inMemoryEffects");
+  });
+
+  it("scaffolds a new app with --auth option (betterAuth & invalid check)", async () => {
+    const root = await mkdtemp(join(tmpdir(), "elm-ssr-cli-"));
+    tempRoots.push(root);
+
+    await writeFile(
+      resolve(root, "elm-ssr.config.json"),
+      JSON.stringify({ apps: [] }, null, 2),
+      "utf8"
+    );
+
+    // 1. Valid provider: betterAuth
+    const command = Bun.spawn(
+      ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "new", "auth-app", "--auth", "betterAuth", "--root", root],
+      {
+        cwd: "/Users/michalmajchrzak/Projects/elmssr",
+        stdout: "pipe",
+        stderr: "pipe"
+      }
+    );
+
+    expect(await command.exited).toBe(0);
+
+    // Verify auth pages & TS endpoint
+    await stat(resolve(root, "auth-app/migrations/0001_init.sql")); // Auth automatically enables DB setup
+    await stat(resolve(root, "auth-app/src/AuthApp/Routes/Login.elm"));
+    await stat(resolve(root, "auth-app/src/AuthApp/Routes/Profile.elm"));
+    await stat(resolve(root, "auth-app/src/Endpoints/Auth.ts"));
+    await stat(resolve(root, "auth-app/.dev.vars"));
+    
+    const runtime = await readFile(resolve(root, "auth-app/runtime.ts"), "utf8");
+    expect(runtime).toContain("sessions:");
+    expect(runtime).toContain("csrf: true");
+    expect(runtime).toContain("handleAuth");
+
+    // 2. Invalid provider
+    const badCommand = Bun.spawn(
+      ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "new", "bad-app", "--auth", "invalid-auth-provider", "--root", root],
+      {
+        cwd: "/Users/michalmajchrzak/Projects/elmssr",
+        stdout: "pipe",
+        stderr: "pipe"
+      }
+    );
+
+    expect(await badCommand.exited).toBe(1);
+    const stderr = await new Response(badCommand.stderr).text();
+    expect(stderr).toContain("Error: --auth only supports 'betterAuth' or 'auth0'");
+  });
 });

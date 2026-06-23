@@ -27,7 +27,26 @@ function createIslandsRuntime(deps) {
 
     if (app.ports.broadcastOut) {
       app.ports.broadcastOut.subscribe((event) => {
-        window.dispatchEvent(new window.CustomEvent("elm-ssr-broadcast", { detail: event }));
+        const detail = {
+          ...event,
+          __elmssr_origin: {
+            name: marker.getAttribute("data-elmssr-island"),
+            id: marker.getAttribute("data-elmssr-id")
+          }
+        };
+        window.dispatchEvent(new window.CustomEvent("elm-ssr-broadcast", { detail }));
+      });
+    }
+
+    if (app.ports.stateOut) {
+      app.ports.stateOut.subscribe((state) => {
+        window.dispatchEvent(new window.CustomEvent("elm-ssr-state-update", {
+          detail: {
+            name: marker.getAttribute("data-elmssr-island"),
+            id: marker.getAttribute("data-elmssr-id"),
+            state
+          }
+        }));
       });
     }
 
@@ -259,6 +278,10 @@ function createIslandsRuntime(deps) {
         headers: options.headers
       });
       const result = await response.json();
+
+      if (result.debug) {
+        window.dispatchEvent(new window.CustomEvent("elm-ssr-debug-update", { detail: result.debug }));
+      }
 
       if (result.redirect) {
         const redirectUrl = new URL(result.redirect, window.location.href);

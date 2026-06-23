@@ -6,7 +6,7 @@ import type { RequestSession, SessionStore } from "./types";
 
 export interface SessionMiddlewareOptions {
   /** HMAC-SHA256 secret used to sign the session cookie. Must not leak. */
-  secret: string;
+  secret: string | ((env: any) => string);
   /** Where to persist sessions. Use `memorySessionStore()` in dev, `cacheStore(...)` in prod. */
   store: SessionStore;
   /** Cookie name. Default `"session"`. */
@@ -87,9 +87,18 @@ export const sessionMiddleware = (options: SessionMiddlewareOptions): Middleware
     sameSite: options.sameSite ?? "lax" as const
   };
 
+  const resolveSecret = (env: any): string => {
+    if (typeof options.secret === "function") {
+      return options.secret(env);
+    }
+    return options.secret;
+  };
+
   return async (context, next) => {
+    const env = context.env ?? {};
+    const secret = resolveSecret(env);
     const cookieHeader = context.request.headers.get("cookie");
-    const sessionId = await readSignedCookie(cookieHeader, cookieName, options.secret);
+    const sessionId = await readSignedCookie(cookieHeader, cookieName, secret);
 
     let session: RequestSession;
     if (sessionId) {
@@ -125,7 +134,7 @@ export const sessionMiddleware = (options: SessionMiddlewareOptions): Middleware
         csrf: session.csrf,
         expiresAt: Date.now() + maxAge * 1000
       });
-      const signed = await signValue(options.secret, session.id);
+      const signed = await signValue(secret, session.id);
       return appendSetCookie(response, buildSetCookie(cookieName, signed, maxAge, cookieOptions));
     }
 

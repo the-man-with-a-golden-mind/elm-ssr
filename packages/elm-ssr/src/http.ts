@@ -3,6 +3,7 @@ export interface RenderFlagsContext {
   url: URL;
   path: string;
   formData?: Record<string, string>;
+  env?: Record<string, unknown>;
 }
 
 export interface WorkerExecutionContext {

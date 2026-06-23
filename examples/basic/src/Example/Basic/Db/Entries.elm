@@ -55,10 +55,10 @@ all =
 
 
 byId : Int -> Loader (Maybe Entry)
-byId id =
+byId idVal =
     Loader.queryOne
         { sql = "SELECT id, message, created_at FROM entries WHERE id = ?"
-        , params = [ Encode.int id ]
+        , params = [ Encode.int idVal ]
         , decoder = decoder
         }
 
@@ -74,21 +74,21 @@ insert params =
 
 
 delete : Int -> Loader { rowsAffected : Int }
-delete id =
+delete idVal =
     Loader.execute
         { sql = "DELETE FROM entries WHERE id = ?"
-        , params = [ Encode.int id ]
+        , params = [ Encode.int idVal ]
         }
 
 
 update : Int -> { message : String, createdAt : String } -> Loader { rowsAffected : Int }
-update id params =
+update idVal params =
     Loader.execute
         { sql = "UPDATE entries SET message = ?, created_at = ? WHERE id = ?"
         , params =
             [ Encode.string params.message
             , Encode.string params.createdAt
-            , Encode.int id
+            , Encode.int idVal
             ]
         }
 

@@ -37,18 +37,30 @@ Runs `build` then `wrangler dev`. Use this for local Cloudflare-flavoured
 development. For other providers or a plain Bun server, run `elm-ssr build`
 and start your own entrypoint that calls `worker.fetch`.
 
+### `elm-ssr init <name>`
+
+```sh
+elm-ssr init my-app [--db] [--auth betterAuth|auth0]
+```
+
+Initializes a self-contained, single-app project directly in the current directory. It creates `elm-ssr.config.json` registering the root as `.` and module as `PascalCase(name)`. It also scaffolds basic routes, a styles helper, and configurations.
+
+Options:
+- `--db`: Starts the app with SQLite configured (via `bun:sqlite`), generating an initial database schema migration `migrations/0001_init.sql` and registering `inMemoryEffects` in the TS runtime.
+- `--auth <betterAuth|auth0>`: Generates authentication structures (on demand). This scaffolds signed session cookies/CSRF middleware, the route modules `Login.elm` and `Profile.elm`, and an Auth callback TS interceptor/mock under `src/Endpoints/Auth.ts`. Specifying `--auth` automatically activates the `--db` setup since query persistence is required.
+
 ### `elm-ssr new <name>`
 
 ```sh
-elm-ssr new my-app
+elm-ssr new my-app [--in <subdir>] [--db] [--auth betterAuth|auth0]
 ```
 
-Scaffolds a new app under `<workspace>/<name>/` and registers it in
-`elm-ssr.config.json`. Use `--in apps` to create
-`<workspace>/apps/<name>/`. Generates `Routes/Index.elm`,
-`Routes/Counter.elm`, `Routes/NotFound.elm`, `Islands/Counter.elm`,
-`View/Shared.elm`, plus the TypeScript `runtime.ts`, `worker.ts`,
-`styles.ts`, and `elm.json`.
+Scaffolds a new app under `<workspace>/<name>/` (or `<workspace>/<subdir>/<name>/` if `--in <subdir>` is provided) and registers it in `elm-ssr.config.json`.
+
+Options:
+- `--in <subdir>`: Nested subdirectory (e.g. `--in apps` places the app under `<workspace>/apps/<name>/`).
+- `--db`: Configures local SQLite database support and an initial migration schema `migrations/0001_init.sql`.
+- `--auth <betterAuth|auth0>`: Scaffolds on-demand authentication middleware, pages (`Login.elm`, `Profile.elm`), and handler intercepts. Automatically enables database/migrations.
 
 Name must match `^[a-z0-9-]+$` (lowercase letters, digits, dashes).
 
@@ -81,6 +93,39 @@ Prints each configured app with its module + routes directory.
 $ elm-ssr routes
 basic: root=examples/basic module=Example.Basic routes=src/Example/Basic/Routes
 ```
+
+### `elm-ssr route <path>`
+
+Scaffolds a new route or endpoint in the selected app. Supports standard Elm page routes, Elm JSON API routes, WebSockets, or Server-Sent Events (SSE).
+
+```sh
+elm-ssr route blog/post                  # scaffolds standard Elm Page route
+elm-ssr route api/users --api            # scaffolds Elm JSON API route
+elm-ssr route chat --ws                  # scaffolds WebSocket TS endpoint under src/Endpoints/
+elm-ssr route feed --sse                 # scaffolds Server-Sent Events TS endpoint under src/Endpoints/
+
+elm-ssr route contact --app my-app       # specifies app in a multi-app workspace
+```
+
+- `--app <app-name>`: Specify which app to add the route to (required if there are multiple apps in the workspace).
+- `--api`: Scaffolds a JSON API route with an action returning a JSON structure.
+- `--ws` or `--websocket`: Scaffolds a TypeScript WebSocket handler in `src/Endpoints/<route>.ts`.
+- `--sse`: Scaffolds a TypeScript Server-Sent Events (SSE) stream handler in `src/Endpoints/<route>.ts`.
+
+### `elm-ssr query`
+
+Generates type-safe Elm Db modules and schemas from raw SQL table definitions in your migrations directory.
+
+```sh
+elm-ssr query                            # generates Db modules from migrations
+elm-ssr query --app my-app               # specifies app in a multi-app workspace
+elm-ssr query --dir ./db/migrations      # overrides migrations path (default: <app_root>/migrations)
+elm-ssr query --output ./src/Database    # overrides Elm output folder (default: <app_root>/src/<Module>/Db)
+```
+
+- `--app <app-name>`: Specify which app to run the query generator on (required if there are multiple apps).
+- `--dir <migrations-dir>`: Overrides the directory scanned for SQL migration files.
+- `--output <output-dir>`: Overrides the directory where generated Elm modules are written.
 
 ### `elm-ssr info`
 

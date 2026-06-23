@@ -85,7 +85,10 @@ import ${namespace}.View.Shared as Shared
 
 page : Request -> Loader (Document Never)
 page _ =
-    Loader.succeed view
+    Loader.env "GREETING"
+        |> Loader.map (\\maybeGreeting ->
+            view (Maybe.withDefault "Hello from default env!" maybeGreeting)
+        )
 
 
 action : Request -> Action (Document Never)
@@ -93,14 +96,15 @@ action _ =
     Action.fail 405 "Method not allowed"
 
 
-view : Document Never
-view =
+view : String -> Document Never
+view greeting =
     Page.page
         { title = "Starter | elm-ssr"
         , head = Shared.head
         , body =
             [ Shared.shell "elm-ssr starter"
-                [ p [] [ text "This page is stateless and renders on the edge with no client runtime." ]
+                [ p [] [ text ("Greeting from environment: " ++ greeting) ]
+                , p [] [ text "This page is stateless and renders on the edge with no client runtime." ]
                 , p [] [ a [ class "link", href "/counter" ] [ text "Open the interactive counter" ] ]
                 ]
             ]
@@ -272,19 +276,210 @@ view =
         }
 `;
 
-const runtimeTemplate = (appRoot) => {
+const loginRouteTemplate = (namespace, authProvider) => `module ${namespace}.Routes.Login exposing (page, action)
+
+import ElmSsr.Action as Action exposing (Action)
+import ElmSsr.Document exposing (Document)
+import ElmSsr.Html exposing (a, div, p, text)
+import ElmSsr.Html.Attributes as Attr
+import ElmSsr.Loader as Loader exposing (Loader)
+import ElmSsr.Page as Page
+import ElmSsr.Route exposing (Request)
+import ${namespace}.View.Shared as Shared
+
+page : Request -> Loader (Document Never)
+page _ =
+    Loader.succeed view
+
+action : Request -> Action (Document Never)
+action _ =
+    Action.fail 405 "Method not allowed"
+
+view : Document Never
+view =
+    Page.page
+        { title = "Login | elm-ssr"
+        , head = Shared.head
+        , body =
+            [ Shared.shell "Sign In"
+                [ div [ Attr.class "login-container" ]
+                    [ p [] [ text "Access user authentication example (${authProvider})." ]
+                    , div [ Attr.style "margin-top" "20px" ]
+                        [ a 
+                            [ Attr.class "button primary"
+                            , Attr.href "/api/auth/login"
+                            ] 
+                            [ text "Sign In with Auth Provider" ]
+                        ]
+                    ]
+                ]
+            ]
+        }
+`;
+
+const profileRouteTemplate = (namespace) => `module ${namespace}.Routes.Profile exposing (page, action)
+
+import ElmSsr.Action as Action exposing (Action)
+import ElmSsr.Document exposing (Document)
+import ElmSsr.Html exposing (a, div, h2, p, text)
+import ElmSsr.Html.Attributes as Attr
+import ElmSsr.Loader as Loader exposing (Loader)
+import ElmSsr.Page as Page
+import ElmSsr.Route as Route exposing (Request)
+import ${namespace}.View.Shared as Shared
+import Json.Decode as Decode
+
+type alias UserProfile =
+    { email : String
+    , name : Maybe String
+    }
+
+userDecoder : Decode.Decoder UserProfile
+userDecoder =
+    Decode.map2 UserProfile
+        (Decode.field "email" Decode.string)
+        (Decode.maybe (Decode.field "name" Decode.string))
+
+page : Request -> Loader (Document Never)
+page request =
+    Loader.requireUser userDecoder "/login" request
+        |> Loader.map view
+
+action : Request -> Action (Document Never)
+action _ =
+    Action.fail 405 "Method not allowed"
+
+view : UserProfile -> Document Never
+view user =
+    Page.page
+        { title = "Profile | elm-ssr"
+        , head = Shared.head
+        , body =
+            [ Shared.shell "User Profile"
+                [ div []
+                    [ h2 [] [ text ("Welcome, " ++ (Maybe.withDefault user.email user.name)) ]
+                    , p [] [ text ("Email: " ++ user.email) ]
+                    , p [ Attr.style "margin-top" "20px" ]
+                        [ a [ Attr.class "button", Attr.href "/api/auth/logout" ] [ text "Sign Out" ] ]
+                    ]
+                ]
+            ]
+        }
+`;
+
+const authEndpointTemplate = (authProvider) => `export const handleAuth = async (request: Request, env: any): Promise<Response> => {
+  const url = new URL(request.url);
+
+  if (url.pathname === "/api/auth/login") {
+    // Mock login session update for ${authProvider}
+    return new Response(null, {
+      status: 302,
+      headers: {
+        "Location": "/profile",
+        "Set-Cookie": "__elm_ssr_session=" + encodeURIComponent(JSON.stringify({
+          user: { email: "user@example.com", name: "${authProvider === "better-auth" ? "BetterAuth User" : "Auth0 User"}" }
+        })) + "; Path=/; HttpOnly; SameSite=Lax"
+      }
+    });
+  }
+
+  if (url.pathname === "/api/auth/logout") {
+    return new Response(null, {
+      status: 302,
+      headers: {
+        "Location": "/login",
+        "Set-Cookie": "__elm_ssr_session=; Path=/; Max-Age=0; HttpOnly"
+      }
+    });
+  }
+
+  return new Response("${authProvider} Endpoint API Mock", { status: 200 });
+};
+`;
+
+const runtimeTemplate = (appRoot, db = false, auth = undefined) => {
   // appRoot is a slash-separated path like "my-app" or "apps/my-app".
   // The generated bundles live at <workspaceRoot>/generated/<appRoot>/. From
   // <workspaceRoot>/<appRoot>/runtime.ts, we climb out by one ".." per segment.
   const upToRoot = appRoot === "." ? "." : appRoot.split("/").map(() => "..").join("/");
   const generatedPrefix = `${upToRoot}/generated/${appRoot === "." ? "" : appRoot}`.replace(/\/+$/, "");
-  return `import { createWorkerApp } from "elm-ssr";
-import { renderApp, type CompiledElmModule } from "elm-ssr/render";
-import type { RouteCatalog } from "elm-ssr/http";
-import { islands, bundleSource } from "${generatedPrefix}/islands-manifest";
-import { stylesheet } from "./styles";
-// @ts-expect-error Generated at build time.
-import ElmRuntime from "${generatedPrefix}/app.mjs";
+
+  const imports = [
+    `import { createWorkerApp } from "elm-ssr";`,
+    `import { renderApp, type CompiledElmModule } from "elm-ssr/render";`,
+    `import type { RouteCatalog } from "elm-ssr/http";`,
+    `import { islands, bundleSource } from "${generatedPrefix}/islands-manifest";`,
+    `import { stylesheet } from "./styles";`,
+    `// @ts-expect-error Generated at build time.`,
+    `import ElmRuntime from "${generatedPrefix}/app.mjs";`
+  ];
+
+  if (db) {
+    imports.push(`import { Database } from "bun:sqlite";`);
+    imports.push(`import { inMemoryEffects } from "elm-ssr/effects";`);
+  }
+  if (auth) {
+    imports.push(`import { handleAuth } from "./src/Endpoints/Auth";`);
+  }
+
+  let dbInit = '';
+  if (db) {
+    dbInit = `\nconst db = new Database("app.db");\n`;
+  }
+
+  let routeAuthAdditions = '';
+  if (auth) {
+    routeAuthAdditions = `
+    {
+      path: "/login",
+      methods: ["GET"],
+      description: "User authentication login page."
+    },
+    {
+      path: "/profile",
+      methods: ["GET"],
+      description: "Authenticated user profile."
+    },`;
+  }
+
+  let effectsConfig = '';
+  if (db) {
+    effectsConfig = `,
+  effects: inMemoryEffects({
+    env: process.env as any,
+    sql: (sql, params) => {
+      const query = db.prepare(sql);
+      return query.all(...params);
+    }
+  })`;
+  }
+
+  let sessionsConfig = '';
+  if (auth) {
+    sessionsConfig = `,
+  sessions: {
+    secret: (env) => (env?.SESSION_SECRET as string) || "change-me-to-a-secure-random-hmac-secret-key-that-is-at-least-32-chars",
+    secure: false
+  },
+  csrf: true`;
+  }
+
+  let authIntercept = '';
+  if (auth) {
+    authIntercept = `
+// Intercept Auth Provider requests
+const baseWorkerFetch = worker.fetch;
+worker.fetch = async (request, env, ctx) => {
+  const url = new URL(request.url);
+  if (url.pathname.startsWith("/api/auth/")) {
+    return handleAuth(request, env);
+  }
+  return baseWorkerFetch(request, env, ctx);
+};
+`;
+  }
+
+  return `${imports.join("\n")}
 
 const elmModule = ElmRuntime as CompiledElmModule;
 
@@ -299,7 +494,7 @@ export const routes: RouteCatalog = {
       path: "/counter",
       methods: ["GET", "HEAD"],
       description: "Interactive counter route rendered from Elm."
-    }
+    },${routeAuthAdditions}
   ],
   assets: [
     {
@@ -344,28 +539,39 @@ export const routes: RouteCatalog = {
   ]
 };
 
-export const createFlags = ({ request, path, formData }: { request?: Request; url?: URL; path: string; formData?: Record<string, string> }) => {
+export const createFlags = ({ request, path, formData, env }: { request?: Request; url?: URL; path: string; formData?: Record<string, string>; env?: Record<string, unknown> }) => {
   const [pathname, search = ""] = path.split("?");
+
+  const envVars: Record<string, string | number | boolean> = {};
+  if (env) {
+    for (const [key, value] of Object.entries(env)) {
+      if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+        envVars[key] = value;
+      }
+    }
+  }
 
   return {
     method: request?.method ?? "GET",
     path: pathname,
     query: Object.fromEntries(new URLSearchParams(search)),
-    formData: formData ?? {}
+    formData: formData ?? {},
+    env: envVars
   };
 };
 
 export const renderPath = async (path: string) =>
   renderApp(elmModule, createFlags({ path }));
-
+${dbInit}
 export const worker = createWorkerApp({
   elmModule,
   islands,
   islandsBundle: bundleSource,
   stylesheet,
   routes,
-  createFlags
+  createFlags${sessionsConfig}${effectsConfig}
 });
+${authIntercept}
 `;
 };
 
@@ -433,8 +639,56 @@ body {
 \`;
 `;
 
-const filesForApp = (name, appRoot) => {
+const filesForApp = (name, appRoot, options = {}) => {
   const namespace = toPascalCase(name);
+  const db = options.db || !!options.auth;
+  const auth = options.auth;
+
+  const files = [
+    { path: `${appRoot}/elm.json`, content: JSON.stringify(elmJsonTemplate(), null, 2) + "\n" },
+    { path: `${appRoot}/runtime.ts`, content: runtimeTemplate(appRoot, db, auth) },
+    { path: `${appRoot}/worker.ts`, content: workerTemplate() },
+    { path: `${appRoot}/styles.ts`, content: stylesTemplate() },
+    { path: `${appRoot}/src/${namespace}/View/Shared.elm`, content: sharedTemplate(namespace) },
+    { path: `${appRoot}/src/${namespace}/Routes/Index.elm`, content: indexRouteTemplate(namespace) },
+    { path: `${appRoot}/src/${namespace}/Routes/Counter.elm`, content: counterRouteTemplate(namespace) },
+    { path: `${appRoot}/src/${namespace}/Routes/NotFound.elm`, content: notFoundRouteTemplate(namespace) },
+    { path: `${appRoot}/src/${namespace}/Islands/Counter.elm`, content: counterIslandTemplate(namespace) },
+    {
+      path: `${appRoot}/.dev.vars`,
+      content: `GREETING="Hello from your local .dev.vars file!"
+SESSION_SECRET="change-me-to-a-secure-random-hmac-secret-key-that-is-at-least-32-chars"
+`
+    }
+  ];
+
+  if (db) {
+    files.push({
+      path: `${appRoot}/migrations/0001_init.sql`,
+      content: `CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL UNIQUE,
+    name TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+`
+    });
+  }
+
+  if (auth) {
+    files.push({
+      path: `${appRoot}/src/${namespace}/Routes/Login.elm`,
+      content: loginRouteTemplate(namespace, auth)
+    });
+    files.push({
+      path: `${appRoot}/src/${namespace}/Routes/Profile.elm`,
+      content: profileRouteTemplate(namespace)
+    });
+    files.push({
+      path: `${appRoot}/src/Endpoints/Auth.ts`,
+      content: authEndpointTemplate(auth)
+    });
+  }
 
   return {
     configEntry: {
@@ -442,17 +696,7 @@ const filesForApp = (name, appRoot) => {
       root: appRoot,
       module: namespace
     },
-    files: [
-      { path: `${appRoot}/elm.json`, content: JSON.stringify(elmJsonTemplate(), null, 2) + "\n" },
-      { path: `${appRoot}/runtime.ts`, content: runtimeTemplate(appRoot) },
-      { path: `${appRoot}/worker.ts`, content: workerTemplate() },
-      { path: `${appRoot}/styles.ts`, content: stylesTemplate() },
-      { path: `${appRoot}/src/${namespace}/View/Shared.elm`, content: sharedTemplate(namespace) },
-      { path: `${appRoot}/src/${namespace}/Routes/Index.elm`, content: indexRouteTemplate(namespace) },
-      { path: `${appRoot}/src/${namespace}/Routes/Counter.elm`, content: counterRouteTemplate(namespace) },
-      { path: `${appRoot}/src/${namespace}/Routes/NotFound.elm`, content: notFoundRouteTemplate(namespace) },
-      { path: `${appRoot}/src/${namespace}/Islands/Counter.elm`, content: counterIslandTemplate(namespace) }
-    ]
+    files
   };
 };
 
@@ -521,12 +765,26 @@ export const createAppScaffold = async (rootPath, name, options = {}) => {
 
   const appRoot = normalizeAppRoot(options.root, name);
 
-  const { configEntry, files } = filesForApp(name, appRoot);
+  const { configEntry, files } = filesForApp(name, appRoot, options);
 
   for (const file of files) {
     const filePath = resolve(rootPath, file.path);
     await mkdir(dirname(filePath), { recursive: true });
     await writeFile(filePath, file.content, "utf8");
+  }
+
+  // Create .env at workspace root if it doesn't exist
+  const envPath = resolve(rootPath, ".env");
+  let envExists = false;
+  try {
+    await stat(envPath);
+    envExists = true;
+  } catch {}
+
+  if (!envExists) {
+    await writeFile(envPath, `GREETING="Hello from your local .env file!"
+SESSION_SECRET="change-me-to-a-secure-random-hmac-secret-key-that-is-at-least-32-chars"
+`, "utf8");
   }
 
   await writeWorkspaceConfig(rootPath, {

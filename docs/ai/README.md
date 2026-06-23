@@ -39,6 +39,9 @@ for code generation, then cross-link to the human docs when the user asks
 - [migrations.md](migrations.md) — `runMigrations`,
   `revertMigrations`, `listMigrations`, `MigrationsAdapter`.
 - [cli.md](cli.md) — `elm-ssr build|new|migrate|dev`.
+- [configuration.md](configuration.md) — environment files, context mapping, dynamic secrets, Elm flags/loaders.
+- [query-dsl.md](query-dsl.md) — type-safe database DSL, CLI generation, column wrapping.
+- [debugger.md](debugger.md) — visual debugger panel instrumentation, events, SPA update.
 - [testing.md](testing.md) — `bun run test:unit|test|test:integration`,
   patterns.
 

@@ -8,8 +8,10 @@
 ```sh
 bunx elm-ssr build                              # scan Routes/+Islands/, generate Main.elm + manifest, run elm make
 bunx elm-ssr compress                           # same as build + gzip generated bundles
-bunx elm-ssr dev                                # build + wrangler dev (Cloudflare-oriented convenience)
-bunx elm-ssr new <name> [--in <subdir>]         # scaffold app at <workspace>/<name>/ (or <workspace>/<subdir>/<name>/)
+bunx elm-ssr init <name> [--db] [--auth betterAuth|auth0] # scaffold single-app project in cwd
+bunx elm-ssr new <name> [--in <subdir>] [--db] [--auth betterAuth|auth0] # scaffold app under workspace
+bunx elm-ssr route <path> [opts]                # scaffold Elm page/API route, or TS WS/SSE endpoint
+bunx elm-ssr query [opts]                       # generate type-safe Elm Db modules from SQL migrations
 bunx elm-ssr routes                             # list configured apps + their public modules
 bunx elm-ssr info                               # workspace package name + configured app names
 bunx elm-ssr migrate <up|down|status> [opts]    # see migrations.md
@@ -35,24 +37,34 @@ bunx elm-ssr help                               # default
 - `root` → app directory (relative to workspace root).
 - `module` → root Elm namespace. `My.App` expects `src/My/App/Routes/`, `src/My/App/Islands/`, etc.
 
-## `elm-ssr new`
+## `elm-ssr init` and `elm-ssr new`
 
 ```sh
-bunx elm-ssr new my-app                # → <workspace>/my-app/, namespace MyApp
-bunx elm-ssr new billing --in apps     # → <workspace>/apps/billing/, namespace Billing
+bunx elm-ssr init my-app [--db] [--auth betterAuth|auth0]
+bunx elm-ssr new my-app [--in <subdir>] [--db] [--auth betterAuth|auth0]
 ```
 
-Generates:
+Scaffolds a new project (`init` in current working directory with `root: "."`) or app (`new` under `<workspace>/<name>/` or with subdirectory via `--in`).
+
+Generates standard structure:
 - `<root>/elm.json`
-- `<root>/runtime.ts` (createWorkerApp wiring; `../generated/<root>/...` import paths computed by directory depth)
+- `<root>/runtime.ts` (createWorkerApp wiring; import paths computed relative to depth)
 - `<root>/worker.ts` (re-exports `worker`)
 - `<root>/styles.ts`
 - `<root>/src/<Namespace>/Routes/{Index,Counter,NotFound}.elm`
 - `<root>/src/<Namespace>/Islands/Counter.elm`
 - `<root>/src/<Namespace>/View/Shared.elm`
 
-And appends a `{ name, root, module }` entry to `elm-ssr.config.json`.
+If `--db` is specified (or enabled automatically via `--auth`):
+- `<root>/migrations/0001_init.sql` (initial users schema)
+- SQLite support via `bun:sqlite` and `inMemoryEffects` registered in `runtime.ts`
 
+If `--auth <betterAuth|auth0>` is specified:
+- `<root>/src/<Namespace>/Routes/{Login,Profile}.elm` (authenticated views)
+- `<root>/src/Endpoints/Auth.ts` (mock auth callback endpoint interceptor)
+- Session / CSRF middleware configured in `runtime.ts`
+
+Appends entry to `elm-ssr.config.json`.
 Name validation: `^[a-z0-9-]+$` (lowercase letters, digits, dashes). PascalCase'd for the Elm namespace.
 
 ## `elm-ssr build`
@@ -62,6 +74,34 @@ For each configured app:
 2. Generates `<root>/.elm-ssr/Main.elm` (the router) + `<root>/.elm-ssr/islands.manifest.json`.
 3. Syncs `packages/elm-ssr/elm-src/ElmSsr/*.elm` → `<root>/.elm-ssr/src/ElmSsr/`.
 4. Runs `elm make` → `generated/<root>/app.mjs` + `generated/<root>/islands.mjs`.
+
+## `elm-ssr route`
+
+```sh
+bunx elm-ssr route blog/post                  # standard Elm page route
+bunx elm-ssr route api/users --api            # Elm JSON API route
+bunx elm-ssr route chat --ws                  # TS WebSocket endpoint
+bunx elm-ssr route feed --sse                 # TS Server-Sent Events stream
+```
+
+- **Arguments**:
+  - `path`: Relative route path (e.g. `blog/post_` for dynamic segments).
+- **Flags**:
+  - `--app <app-name>`: Scaffolds in a specific app (required if multiple configured apps exist).
+  - `--api`: Generates an Elm route module returning a JSON payload from the action.
+  - `--ws` / `--websocket`: Generates a TypeScript WebSocket handler in `src/Endpoints/<path>.ts`.
+  - `--sse`: Generates a TypeScript Server-Sent Events stream handler in `src/Endpoints/<path>.ts`.
+
+## `elm-ssr query`
+
+```sh
+bunx elm-ssr query                            # run in default app
+bunx elm-ssr query --app my-app               # run in specific app
+bunx elm-ssr query --dir ./custom-migrations  # override migrations dir
+bunx elm-ssr query --output ./src/Db          # override generated modules output path
+```
+
+- **Behavior**: Scans the migrations folder (defaults to `<app_root>/migrations`) for `.sql` files (excluding `.down.sql`). Parses `CREATE TABLE` structures to automatically generate matching type-safe Elm Db modules exposing Elm records, decoders, and CRUD helper loaders/actions (e.g., `byId`, `insert`, `update`, `delete`, `all`).
 
 ## Patterns
 

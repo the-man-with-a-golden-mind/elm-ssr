@@ -50,6 +50,7 @@ export interface WorkerAppOptions {
    * skip paths.
    */
   csrf?: CsrfMiddlewareOptions | boolean;
+  debug?: boolean;
 }
 
 export const createWorkerApp = ({
@@ -62,8 +63,12 @@ export const createWorkerApp = ({
   effects,
   log,
   sessions,
-  csrf
+  csrf,
+  debug
 }: WorkerAppOptions): WorkerHandler => {
+  const isDev = typeof process !== "undefined" && process.env ? (process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test") : false;
+  const enableDebug = debug ?? isDev;
+
   const runner: EffectRunner = effects ?? defaultEffectRunner;
   const effectsWithSessions = sessions ? sessionEffects(runner) : runner;
 
@@ -74,7 +79,8 @@ export const createWorkerApp = ({
     stylesheet,
     routes,
     createFlags,
-    effects: effectsWithSessions
+    effects: effectsWithSessions,
+    debug: enableDebug
   });
 
   const middlewares = [
@@ -101,7 +107,7 @@ export const createWorkerApp = ({
         requestId: "",
         startedAt: performance.now(),
         executionCtx,
-        env: (env ?? undefined) as Record<string, unknown> | undefined
+        env: (env ?? (typeof process !== "undefined" ? process.env : undefined)) as Record<string, unknown> | undefined
       });
     }
   };

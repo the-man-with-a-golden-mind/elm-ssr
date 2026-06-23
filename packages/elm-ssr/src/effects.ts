@@ -19,6 +19,14 @@ export interface EffectContext {
   waitUntil?: (promise: Promise<unknown>) => void;
   /** Populated by `sessionMiddleware`; consumed by `sessionEffects`. */
   session?: import("./sessions/types").RequestSession;
+  debugLogs?: Array<{
+    kind: string;
+    payload: Record<string, unknown>;
+    ok: boolean;
+    value?: unknown;
+    error?: string;
+    durationMs: number;
+  }>;
 }
 
 /**

@@ -3,10 +3,11 @@ import type { IslandMetadata } from "./app";
 import { createIslandsRuntimeSource } from "./client-runtime/islands";
 import type { AppContext, AppHandler, RenderFlagsFactory, RouteCatalog } from "./http";
 import { json, text } from "./http";
-import { type EffectRunner } from "./effects";
+import { defaultEffectRunner, type EffectRunner } from "./effects";
 import { renderApp, type CompiledElmModule, type SetCookieDirective } from "./render";
 import { renderHtmlDocument } from "./serialize";
 import { assetHeaders, cssHeaders, htmlHeaders, jsonHeaders } from "./response-headers";
+import { instrumentEffects, injectDebugger } from "./debugger";
 
 const formatCookie = (cookie: SetCookieDirective): string =>
   serializeCookie(cookie.name, cookie.value, {
@@ -96,7 +97,8 @@ const createFlagsFromContext = async (
     request: context.request,
     url: context.url,
     path,
-    formData
+    formData,
+    env: context.env
   });
 };
 
@@ -108,6 +110,7 @@ export interface RequestHandlerOptions {
   routes: RouteCatalog;
   createFlags: RenderFlagsFactory;
   effects?: EffectRunner;
+  debug?: boolean;
 }
 
 export const createRequestHandler = ({
@@ -117,7 +120,8 @@ export const createRequestHandler = ({
   stylesheet,
   routes,
   createFlags,
-  effects
+  effects,
+  debug
 }: RequestHandlerOptions): AppHandler =>
   async (context) => {
     if (!isSupportedMethod(context.request.method)) {
@@ -182,13 +186,16 @@ export const createRequestHandler = ({
       }
 
       const flags = await createFlagsFromContext(context, targetPath, createFlags);
+      const debugLogs: any[] = [];
+      const activeRunner = debug ? instrumentEffects(effects ?? defaultEffectRunner) : effects;
       const rendered = await renderApp(elmModule, flags, {
-        effects,
+        effects: activeRunner,
         effectContext: {
           env: context.env,
           request: context.request,
           session: context.session,
-          waitUntil: context.executionCtx ? (promise) => context.executionCtx?.waitUntil(promise) : undefined
+          waitUntil: context.executionCtx ? (promise) => context.executionCtx?.waitUntil(promise) : undefined,
+          debugLogs: debug ? debugLogs : undefined
         }
       });
 
@@ -203,12 +210,22 @@ export const createRequestHandler = ({
         return withSetCookies(json(rendered.json, { status: 200, headers: jsonHeaders }), rendered.cookies);
       }
 
+      const debugPayload = debug ? {
+        url: context.url.href,
+        method: context.request.method,
+        status: rendered.status,
+        durationMs: performance.now() - context.startedAt,
+        effects: debugLogs,
+        session: context.session?.data ?? null
+      } : undefined;
+
       return withSetCookies(
         json(
           {
             path: targetPath,
             status: rendered.status,
-            html: renderHtmlDocument(rendered.document)
+            html: renderHtmlDocument(rendered.document),
+            debug: debugPayload
           },
           { status: 200, headers: jsonHeaders }
         ),
@@ -217,13 +234,16 @@ export const createRequestHandler = ({
     }
 
     const flags = await createFlagsFromContext(context, context.url.pathname + context.url.search, createFlags);
+    const debugLogs: any[] = [];
+    const activeRunner = debug ? instrumentEffects(effects ?? defaultEffectRunner) : effects;
     const rendered = await renderApp(elmModule, flags, {
-      effects,
+      effects: activeRunner,
       effectContext: {
         env: context.env,
         request: context.request,
         session: context.session,
-        waitUntil: context.executionCtx ? (promise) => context.executionCtx?.waitUntil(promise) : undefined
+        waitUntil: context.executionCtx ? (promise) => context.executionCtx?.waitUntil(promise) : undefined,
+        debugLogs: debug ? debugLogs : undefined
       }
     });
 
@@ -241,7 +261,18 @@ export const createRequestHandler = ({
       return withSetCookies(json(rendered.json, { status: 200, headers: jsonHeaders }), rendered.cookies);
     }
 
-    const html = renderHtmlDocument(rendered.document);
+    let html = renderHtmlDocument(rendered.document);
+    if (debug) {
+      const debugPayload = {
+        url: context.url.href,
+        method: context.request.method,
+        status: rendered.status,
+        durationMs: performance.now() - context.startedAt,
+        effects: debugLogs,
+        session: context.session?.data ?? null
+      };
+      html = injectDebugger(html, debugPayload);
+    }
 
     return withSetCookies(
       new Response(html, {

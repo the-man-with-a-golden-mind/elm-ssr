@@ -8,6 +8,7 @@ go deeper, one concern at a time.
 
 - [Getting started](getting-started.md) — install, scaffold an app, build it,
   run it locally.
+- [Configuration & Environment Variables](configuration.md) — config secrets, local `.env` and Wrangler `.dev.vars` alignment, Elm flag validation.
 
 ## Authoring
 
@@ -19,6 +20,7 @@ go deeper, one concern at a time.
   `enqueue`).
 - [Islands](islands.md) — interactive `Browser.element` islands, embedding,
   cross-island bus, persistence across SPA navigation.
+- [Type-Safe SQL Query DSL & Schema Generation](query-dsl.md) — write database queries in a fluent, compile-time checked Elm API instead of raw SQL strings.
 
 ## Runtime
 
@@ -49,6 +51,10 @@ go deeper, one concern at a time.
   `Promise.all` in the adapter for fan-out workloads (3 queries in one
   effect call).
 
+## Tutorials
+
+- [Building a Trello Board](tutorials/trello-board.md) — step-by-step walkthrough creating a database-backed Kanban board with interactive drag/drop islands and persistence actions.
+
 ## Examples gallery
 
 - [Examples](examples.md) — every demo route and island in
@@ -59,6 +65,7 @@ go deeper, one concern at a time.
 
 - [CLI](cli.md) — `elm-ssr build|new|migrate|dev|compress|routes|info`.
 - [Testing](testing.md) — unit/integration test loops, Docker-managed PG+Redis.
+- [Development Debugger Panel (DevTools)](debugger.md) — built-in interactive visual debugger for profiling renders, inspecting islands, logging SQL queries, and tracking bridges.
 
 ## See also
 

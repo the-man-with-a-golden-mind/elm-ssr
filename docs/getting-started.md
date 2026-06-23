@@ -13,24 +13,28 @@ bun add elm-ssr
 
 Make sure Bun ≥ 1.3 (`engines.bun` in the package).
 
-## Scaffold a new app
+## Scaffold a new project
 
-In a fresh workspace, create `elm-ssr.config.json`:
+The quickest way to start a new single-app project is to run `init` in an empty directory:
 
-```jsonc
-{
-  "apps": []
-}
+```sh
+bunx elm-ssr init my-app
 ```
 
-Then:
+This automatically generates `package.json`, `elm-ssr.config.json` (with `root: "."`), TypeScript entrypoints, and initial Elm routes.
+
+If you are building a multi-app workspace, you can scaffold new apps using the `new` command:
 
 ```sh
 bunx elm-ssr new my-app
 ```
 
-This creates `my-app/` under the current workspace. To put it under a subdir,
-use `bunx elm-ssr new my-app --in apps`.
+Use `--in apps` to group under a subdirectory: `bunx elm-ssr new my-app --in apps`.
+
+### Options (On-Demand DB and Auth)
+For both `init` and `new`, you can specify:
+- `--db` to configure local SQLite database support and a `migrations/` folder.
+- `--auth betterAuth|auth0` to configure session and CSRF middleware, authed routes (`Login.elm`, `Profile.elm`), and handler callbacks (automatically enables `--db` too).
 
 The scaffold contains:
 - `elm.json` — Elm package manifest
@@ -40,8 +44,6 @@ The scaffold contains:
 - `src/<Namespace>/Routes/Index.elm`, `Counter.elm`, `NotFound.elm`
 - `src/<Namespace>/Islands/Counter.elm`
 - `src/<Namespace>/View/Shared.elm`
-
-It also adds the app to `elm-ssr.config.json`.
 
 ## Build
 

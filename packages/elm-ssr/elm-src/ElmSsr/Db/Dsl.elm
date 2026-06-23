@@ -1,6 +1,7 @@
 module ElmSsr.Db.Dsl exposing
     ( Table, table
     , Column, column
+    , AnyColumn, col
     , Expression
     , Query
     , select, selectAll
@@ -9,6 +10,7 @@ module ElmSsr.Db.Dsl exposing
     , isNull, isNotNull
     , and, or
     , toLoader, toLoaderOne
+    , compileQuery
     )
 
 import Json.Decode as Decode exposing (Decoder)
@@ -34,6 +36,15 @@ column name encoder =
     Column name encoder
 
 
+type AnyColumn table
+    = AnyColumn String
+
+
+col : Column table val -> AnyColumn table
+col (Column name _) =
+    AnyColumn name
+
+
 type Expression table
     = Expression String (List Encode.Value)
 
@@ -48,43 +59,43 @@ type Query table a
         }
 
 
-eq : Column table val -> val -> Expression table
-eq (Column colName encoder) val =
+eq : val -> Column table val -> Expression table
+eq val (Column colName encoder) =
     Expression (colName ++ " = ?") [ encoder val ]
 
 
-neq : Column table val -> val -> Expression table
-neq (Column colName encoder) val =
+neq : val -> Column table val -> Expression table
+neq val (Column colName encoder) =
     Expression (colName ++ " != ?") [ encoder val ]
 
 
-gt : Column table val -> val -> Expression table
-gt (Column colName encoder) val =
+gt : val -> Column table val -> Expression table
+gt val (Column colName encoder) =
     Expression (colName ++ " > ?") [ encoder val ]
 
 
-gte : Column table val -> val -> Expression table
-gte (Column colName encoder) val =
+gte : val -> Column table val -> Expression table
+gte val (Column colName encoder) =
     Expression (colName ++ " >= ?") [ encoder val ]
 
 
-lt : Column table val -> val -> Expression table
-lt (Column colName encoder) val =
+lt : val -> Column table val -> Expression table
+lt val (Column colName encoder) =
     Expression (colName ++ " < ?") [ encoder val ]
 
 
-lte : Column table val -> val -> Expression table
-lte (Column colName encoder) val =
+lte : val -> Column table val -> Expression table
+lte val (Column colName encoder) =
     Expression (colName ++ " <= ?") [ encoder val ]
 
 
-like : Column table val -> String -> Expression table
-like (Column colName _) search =
+like : String -> Column table val -> Expression table
+like search (Column colName _) =
     Expression (colName ++ " LIKE ?") [ Encode.string search ]
 
 
-inList : Column table val -> List val -> Expression table
-inList (Column colName encoder) values =
+inList : List val -> Column table val -> Expression table
+inList values (Column colName encoder) =
     let
         placeholders =
             List.map (\_ -> "?") values |> String.join ", "
@@ -123,11 +134,11 @@ selectAll (Table tableName) dec =
         }
 
 
-select : Table table -> List (Column table any) -> Decoder a -> Query table a
+select : Table table -> List (AnyColumn table) -> Decoder a -> Query table a
 select (Table tableName) columns dec =
     let
         selects =
-            List.map (\(Column colName _) -> colName) columns
+            List.map (\(AnyColumn colName) -> colName) columns
     in
     Query
         { tableName = tableName
