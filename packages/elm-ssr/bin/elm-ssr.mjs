@@ -56,15 +56,32 @@ const printHelp = () => {
 `);
 };
 
-const config = await readWorkspaceConfig(rootPath);
+let config = null;
+try {
+  config = await readWorkspaceConfig(rootPath);
+} catch (err) {
+  if (!err || typeof err !== "object" || !("code" in err) || err.code !== "ENOENT") {
+    throw err;
+  }
+}
+
+const requireConfig = () => {
+  if (!config) {
+    console.error(`Error: elm-ssr.config.json not found at ${rootPath}`);
+    console.error("Please run 'elm-ssr new <name>' to create a new workspace and app.");
+    process.exit(1);
+  }
+};
 
 switch (command) {
   case "build":
   case "compress":
+    requireConfig();
     await build({ rootPath, config });
     break;
 
   case "dev":
+    requireConfig();
     await run("bun", ["run", "build"], rootPath);
     await run("./node_modules/.bin/wrangler", ["dev"], rootPath);
     break;
@@ -87,12 +104,14 @@ switch (command) {
   }
 
   case "routes":
+    requireConfig();
     for (const app of config.apps) {
       console.log(`${app.name}: root=${app.root} module=${app.module} routes=src/${app.module.split(".").join("/")}/Routes`);
     }
     break;
 
   case "info":
+    requireConfig();
     console.log(`workspace: ${packageJson.name}`);
     console.log(`apps: ${config.apps.map((app) => app.name).join(", ")}`);
     break;

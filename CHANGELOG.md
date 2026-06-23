@@ -3,6 +3,12 @@
 All notable changes to the `elm-ssr` package. Dates are ISO; "Unreleased" lives
 at the top until a version is cut.
 
+## 0.5.1 — 2026-06-23
+
+### Fixed
+
+- Gracefully handle missing `elm-ssr.config.json` configuration file in CLI commands. Running `new` now automatically initializes a workspace configuration, and other workspace-dependent commands print a friendly error message instead of an unhandled `ENOENT` exception.
+
 ## 0.5.0 — 2026-05-31
 
 First piece of the "heavy compute" stack: a first-class background-job

@@ -475,7 +475,16 @@ const normalizeAppRoot = (rawRoot, name) => {
 export const createAppScaffold = async (rootPath, name, options = {}) => {
   ensureValidName(name);
 
-  const config = await readWorkspaceConfig(rootPath);
+  let config;
+  try {
+    config = await readWorkspaceConfig(rootPath);
+  } catch (err) {
+    if (err && typeof err === "object" && "code" in err && err.code === "ENOENT") {
+      config = { apps: [] };
+    } else {
+      throw err;
+    }
+  }
   ensureAppMissing(config, name);
 
   const appRoot = normalizeAppRoot(options.root, name);
