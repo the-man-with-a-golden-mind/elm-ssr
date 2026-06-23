@@ -3,6 +3,17 @@
 All notable changes to the `elm-ssr` package. Dates are ISO; "Unreleased" lives
 at the top until a version is cut.
 
+## 0.10.0 — 2026-06-23
+
+### Added
+
+- **Zero-Config Tailwind & CSS Styling Pipeline**:
+  - Automatically compiles and minifies `src/app.css` if it exists in the application root.
+  - Supports full Tailwind CSS compilation by scanning Elm views (`src/**/*.elm`) and TS/JS files for utility classes when `"tailwind": true` is specified in `elm-ssr.config.json`.
+  - Output CSS is bundled as a TypeScript module (`styles.ts`), preserving 100% backward compatibility for routes importing `./styles`.
+  - Watcher in `dev` mode recursively tracks `.css` files to trigger automatic rebuilds and browser reloads.
+  - Unit tests validating plain CSS minification and Tailwind utility class compilation.
+
 ## 0.9.0 — 2026-06-23
 
 ### Added
