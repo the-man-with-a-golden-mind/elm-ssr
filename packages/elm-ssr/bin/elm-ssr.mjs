@@ -7,6 +7,7 @@ import { createAppScaffold, createRouteScaffold } from "../lib/scaffold.mjs";
 import { readWorkspaceConfig } from "../lib/workspace.mjs";
 import { build } from "../lib/build.mjs";
 import { migrate } from "../lib/migrate.mjs";
+import { generateQueries } from "../lib/query.mjs";
 
 const defaultRootPath = process.cwd();
 const args = process.argv.slice(2);
@@ -80,6 +81,7 @@ const printHelp = () => {
                 with --in <subdir>) and register it in elm-ssr.config.json
   routes        Print configured apps and their public modules
   route <path>  Scaffold a new route (standard HTML, --api JSON, --ws WebSocket, or --sse EventSource)
+  query         Generate type-safe Elm Db modules from SQL table definitions
   info          Print current workspace package and configured app names
   migrate ...   Apply / revert / inspect SQL migrations (see: elm-ssr migrate --help)
 `);
@@ -269,6 +271,38 @@ switch (command) {
     console.log(`workspace: ${packageJson.name}`);
     console.log(`apps: ${config.apps.map((app) => app.name).join(", ")}`);
     break;
+
+  case "query": {
+    requireConfig();
+    const appName = findFlagValue("--app");
+    let appConfig;
+    if (appName) {
+      appConfig = config.apps.find(a => a.name === appName);
+      if (!appConfig) {
+        console.error(`Error: App "${appName}" not found in elm-ssr.config.json`);
+        process.exit(1);
+      }
+    } else {
+      if (config.apps.length === 1) {
+        appConfig = config.apps[0];
+      } else {
+        console.error("Error: Multiple apps found in workspace config. Please specify which app to query using --app <app-name>");
+        console.error("Available apps:", config.apps.map(a => a.name).join(", "));
+        process.exit(1);
+      }
+    }
+
+    const migrationsDir = findFlagValue("--dir");
+    const outputDir = findFlagValue("--output");
+
+    try {
+      await generateQueries({ rootPath, appConfig, migrationsDir, outputDir });
+    } catch (err) {
+      console.error(`Error generating query modules: ${err.message}`);
+      process.exit(1);
+    }
+    break;
+  }
 
   case "migrate":
     await migrate(args.slice(1));
