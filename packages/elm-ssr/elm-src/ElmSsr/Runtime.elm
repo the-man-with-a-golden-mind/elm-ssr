@@ -122,6 +122,9 @@ advance config loader =
         Loader.Errored status message ->
             ( Aborted status message, renderError config status message )
 
+        Loader.Moved url ->
+            ( Rendered, config.ports.rendered (Action.encodeStep [] (always Json.null) (Action.Moved url)) )
+
         Loader.Await effect continue ->
             ( LoadingPage continue, config.ports.effectRequest (Loader.encodeEffect effect) )
 

@@ -250,13 +250,23 @@ function createIslandsRuntime(deps) {
     syncCollection(metaNodes(document.head), metaNodes(sourceDoc.head), metaKey);
   };
 
-  const navigate = async (url, push = true) => {
+  const navigate = async (url, push = true, options = {}) => {
     try {
-      const response = await window.fetch("/api/render?path=" + encodeURIComponent(url.pathname + url.search));
+      const renderUrl = "/api/render?path=" + encodeURIComponent(url.pathname + url.search);
+      const response = await window.fetch(renderUrl, {
+        method: options.method || "GET",
+        body: options.body,
+        headers: options.headers
+      });
       const result = await response.json();
 
       if (result.redirect) {
-        window.location.href = result.redirect;
+        const redirectUrl = new URL(result.redirect, window.location.href);
+        if (redirectUrl.origin === window.location.origin) {
+          navigate(redirectUrl, push);
+        } else {
+          window.location.href = result.redirect;
+        }
         return;
       }
 
@@ -322,7 +332,59 @@ function createIslandsRuntime(deps) {
     navigate(url);
   };
 
-  return { bootIslands, navigate, handleLinkClick, persistentIslands, cleanups };
+  const handleFormSubmit = (event) => {
+    const target = event.target;
+    let form = target && target.nodeType === 1 ? target : null;
+
+    while (form && form.tagName !== "FORM") {
+      form = form.parentElement;
+    }
+
+    if (!form) {
+      return;
+    }
+
+    const action = form.getAttribute("action") || window.location.pathname + window.location.search;
+    const actionUrl = new URL(action, window.location.href);
+
+    if (actionUrl.origin !== window.location.origin) {
+      return;
+    }
+
+    if (form.getAttribute("target") === "_blank" || form.getAttribute("download") !== null) {
+      return;
+    }
+
+    event.preventDefault();
+
+    const method = (form.getAttribute("method") || "GET").toUpperCase();
+    const formData = new window.FormData(form);
+
+    if (method === "GET") {
+      const params = new window.URLSearchParams(formData);
+      actionUrl.search = params.toString();
+      navigate(actionUrl);
+    } else {
+      const enctype = form.getAttribute("enctype") || "application/x-www-form-urlencoded";
+      let body;
+      let headers = {};
+
+      if (enctype === "multipart/form-data") {
+        body = formData;
+      } else {
+        body = new window.URLSearchParams(formData);
+        headers["Content-Type"] = "application/x-www-form-urlencoded";
+      }
+
+      navigate(actionUrl, true, {
+        method: "POST",
+        body,
+        headers
+      });
+    }
+  };
+
+  return { bootIslands, navigate, handleLinkClick, handleFormSubmit, persistentIslands, cleanups };
 }
 `;
 
@@ -339,6 +401,7 @@ const runtime = createIslandsRuntime({
 });
 
 window.addEventListener("click", runtime.handleLinkClick);
+window.addEventListener("submit", runtime.handleFormSubmit);
 window.addEventListener("popstate", () => runtime.navigate(new URL(window.location.href), false));
 
 runtime.bootIslands();

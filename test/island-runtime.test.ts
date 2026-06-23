@@ -106,6 +106,30 @@ const newRuntime = async (loadBundle?: () => Promise<unknown>): Promise<IslandRu
 
 beforeEach(() => {
   window = new Window({ url: "https://example.com/" });
+  window.FormData = class MockFormData {
+    private data = new Map<string, string>();
+    constructor(form: any) {
+      const inputs = Array.from(form.getElementsByTagName("input"));
+      for (const input of inputs) {
+        const name = (input as any).getAttribute("name");
+        if (name) {
+          if ((input as any).getAttribute("type") === "checkbox") {
+            const isChecked = (input as any).checked ?? (input as any).hasAttribute("checked");
+            if (isChecked) {
+              this.data.set(name, (input as any).getAttribute("value") || "on");
+            }
+          } else {
+            this.data.set(name, (input as any).value || "");
+          }
+        }
+      }
+    }
+    *[Symbol.iterator]() {
+      for (const entry of this.data.entries()) {
+        yield entry;
+      }
+    }
+  } as any;
   installGlobals(window);
 });
 
@@ -286,5 +310,84 @@ describe("island client runtime", () => {
 
     expect(prevented).toBe(false);
     expect(fetched).toBe(false);
+  });
+
+  it("intercepts same-origin form submissions and POSTs progressively", async () => {
+    window.document.body.innerHTML = '<div id="elm-ssr-root"><form action="/submit-here" method="POST"><input name="message" value="hello"></form></div>';
+    const form = window.document.getElementsByTagName("form")[0];
+
+    let fetchUrl = "";
+    let fetchMethod = "";
+    let fetchBody: any = null;
+
+    window.fetch = (async (url: string, init: any) => {
+      fetchUrl = url;
+      fetchMethod = init?.method || "GET";
+      fetchBody = init?.body;
+      return {
+        json: async () => ({
+          html: '<!doctype html><html><body><div id="elm-ssr-root"><p>Success POST</p></div></body></html>'
+        })
+      };
+    }) as unknown as typeof window.fetch;
+
+    const runtime = await newRuntime();
+    let prevented = false;
+
+    runtime.handleFormSubmit({
+      target: form,
+      preventDefault: () => {
+        prevented = true;
+      }
+    });
+    await tick();
+
+    expect(prevented).toBe(true);
+    expect(fetchUrl).toContain("/api/render?path=%2Fsubmit-here");
+    expect(fetchMethod).toBe("POST");
+    expect(fetchBody?.toString()).toContain("message=hello");
+    expect(window.document.body.innerHTML).toContain("Success POST");
+  });
+
+  it("handles same-origin redirects from progressive forms progressively", async () => {
+    window.document.body.innerHTML = '<div id="elm-ssr-root"><form action="/submit-redirect" method="POST"></form></div>';
+    const form = window.document.getElementsByTagName("form")[0];
+
+    const fetchUrls: string[] = [];
+
+    window.fetch = (async (url: string, init: any) => {
+      fetchUrls.push(url);
+      if (init?.method === "POST") {
+        return {
+          json: async () => ({
+            redirect: "/success-target"
+          })
+        };
+      } else {
+        return {
+          json: async () => ({
+            html: '<!doctype html><html><body><div id="elm-ssr-root"><p>Redirected Content</p></div></body></html>'
+          })
+        };
+      }
+    }) as unknown as typeof window.fetch;
+
+    const runtime = await newRuntime();
+    let prevented = false;
+
+    runtime.handleFormSubmit({
+      target: form,
+      preventDefault: () => {
+        prevented = true;
+      }
+    });
+    await tick();
+
+    expect(prevented).toBe(true);
+    expect(fetchUrls).toEqual([
+      "/api/render?path=%2Fsubmit-redirect",
+      "/api/render?path=%2Fsuccess-target"
+    ]);
+    expect(window.document.body.innerHTML).toContain("Redirected Content");
   });
 });

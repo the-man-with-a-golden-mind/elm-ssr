@@ -1,6 +1,6 @@
 module ElmSsr.Loader exposing
     ( Loader
-    , succeed, fail
+    , succeed, fail, redirect, requireUser
     , map, map2, andThen
     , fetchJson
     , cacheGet, cachePut
@@ -89,6 +89,7 @@ import Json.Encode as Encode
 type Loader a
     = Done a
     | Failed Int String
+    | Redirect String
     | Pending Effect (Decode.Value -> Loader a)
 
 
@@ -113,6 +114,27 @@ fail status message =
     Failed status message
 
 
+{-| Redirect the browser progressively to a same-origin or external URL. -}
+redirect : String -> Loader a
+redirect url =
+    Redirect url
+
+
+{-| Require a user session. If missing, redirect to the login path. -}
+requireUser : Decoder user -> String -> (user -> Loader a) -> Loader a
+requireUser userDecoder loginPath toLoader =
+    session userDecoder
+        |> andThen
+            (\maybeUser ->
+                case maybeUser of
+                    Just user ->
+                        toLoader user
+
+                    Nothing ->
+                        redirect loginPath
+            )
+
+
 {-| Transform the value a loader resolves to. -}
 map : (a -> b) -> Loader a -> Loader b
 map fn loader =
@@ -122,6 +144,9 @@ map fn loader =
 
         Failed status message ->
             Failed status message
+
+        Redirect url ->
+            Redirect url
 
         Pending effect continue ->
             Pending effect (\value -> map fn (continue value))
@@ -138,6 +163,9 @@ andThen fn loader =
 
         Failed status message ->
             Failed status message
+
+        Redirect url ->
+            Redirect url
 
         Pending effect continue ->
             Pending effect (\value -> andThen fn (continue value))
@@ -537,6 +565,7 @@ the effect result.
 type Step a
     = Resolved a
     | Errored Int String
+    | Moved String
     | Await Effect (Decode.Value -> Loader a)
 
 
@@ -549,6 +578,9 @@ step loader =
 
         Failed status message ->
             Errored status message
+
+        Redirect url ->
+            Moved url
 
         Pending effect continue ->
             Await effect continue

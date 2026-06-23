@@ -3,6 +3,18 @@
 All notable changes to the `elm-ssr` package. Dates are ISO; "Unreleased" lives
 at the top until a version is cut.
 
+## 0.9.0 — 2026-06-23
+
+### Added
+
+- **Declarative GET Redirects & Auth Guards (`Loader.redirect` / `requireUser`)**:
+  - Implemented `Loader.redirect` allowing GET loaders to trigger progressive browser redirection on the server.
+  - Implemented `Loader.requireUser` and `Action.requireUser` route guard helpers, simplifying authorization checks for authenticated sessions.
+  - Handled `Loader.Moved` routing step in the edge runtime and updated the compiler.
+  - Added new integration demo route (`/dashboard`) and end-to-end integration tests.
+- **Client-Side Progressive Form Enhancement**:
+  - Automatically intercepts standard same-origin form submissions (`GET`/`POST`) and performs progressive submissions, updating page content dynamically while preserving active client-side islands.
+
 ## 0.8.0 — 2026-06-23
 
 ### Added

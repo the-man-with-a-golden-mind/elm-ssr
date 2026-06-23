@@ -1,6 +1,6 @@
 module ElmSsr.Action exposing
     ( Action
-    , succeed, fail, redirect, json
+    , succeed, fail, redirect, json, requireUser
     , map, andThen, fromLoader
     , Cookie, SameSite(..), setCookie, clearCookie, defaultCookie, sessionCookie
     , Effect, Step(..), step, collectCookies, encodeStep, encodeCookies
@@ -225,6 +225,21 @@ json =
     JsonResult
 
 
+{-| Require a user session for an action. If missing, redirect to the login path. -}
+requireUser : Decode.Decoder user -> String -> (user -> Action a) -> Action a
+requireUser userDecoder loginPath toAction =
+    fromLoader (Loader.session userDecoder)
+        |> andThen
+            (\maybeUser ->
+                case maybeUser of
+                    Just user ->
+                        toAction user
+
+                    Nothing ->
+                        redirect loginPath
+            )
+
+
 {-| Transform the value an action resolves to. -}
 map : (a -> b) -> Action a -> Action b
 map fn action =
@@ -283,6 +298,9 @@ fromLoader loader =
 
         Loader.Errored status message ->
             Failed status message
+
+        Loader.Moved url ->
+            Redirect url
 
         Loader.Await effect continue ->
             Pending effect (\value -> fromLoader (continue value))
