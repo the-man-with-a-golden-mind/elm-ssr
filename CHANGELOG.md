@@ -3,6 +3,15 @@
 All notable changes to the `elm-ssr` package. Dates are ISO; "Unreleased" lives
 at the top until a version is cut.
 
+## 0.6.0 — 2026-06-23
+
+### Added
+
+- **Workspace Root Auto-discovery**: The CLI will now walk up the directory tree to find `elm-ssr.config.json`, allowing you to run `dev`, `build`, and other commands from inside app subdirectories (like `my-app`).
+- **Elm File Watcher in `dev` Mode**: Rebuilds the Elm project automatically when source files change. Changes trigger browser reload seamlessly.
+- **Single-App Scaffolding (`elm-ssr init`)**: Adds an `init` command to scaffold a single-app project directly in the current directory (`root: "."`).
+- **Automatic `package.json` Setup**: Automatically generates or updates `package.json` with scripts (`dev`, `build`, etc.) and dependencies (`elm-ssr`, `wrangler`) during project scaffolding.
+
 ## 0.5.2 — 2026-06-23
 
 ### Fixed

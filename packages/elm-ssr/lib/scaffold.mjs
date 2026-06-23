@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { readWorkspaceConfig, writeWorkspaceConfig } from "./workspace.mjs";
 
@@ -276,8 +276,8 @@ const runtimeTemplate = (appRoot) => {
   // appRoot is a slash-separated path like "my-app" or "apps/my-app".
   // The generated bundles live at <workspaceRoot>/generated/<appRoot>/. From
   // <workspaceRoot>/<appRoot>/runtime.ts, we climb out by one ".." per segment.
-  const upToRoot = appRoot.split("/").map(() => "..").join("/");
-  const generatedPrefix = `${upToRoot}/generated/${appRoot}`;
+  const upToRoot = appRoot === "." ? "." : appRoot.split("/").map(() => "..").join("/");
+  const generatedPrefix = `${upToRoot}/generated/${appRoot === "." ? "" : appRoot}`.replace(/\/+$/, "");
   return `import { createWorkerApp } from "elm-ssr";
 import { renderApp, type CompiledElmModule } from "elm-ssr/render";
 import type { RouteCatalog } from "elm-ssr/http";
@@ -467,6 +467,38 @@ const normalizeAppRoot = (rawRoot, name) => {
   return candidate;
 };
 
+const ensurePackageJson = async (rootPath, appName) => {
+  const packageJsonPath = resolve(rootPath, "package.json");
+  let packageJson = {};
+  try {
+    packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
+  } catch {
+    packageJson = {
+      name: appName,
+      version: "0.1.0",
+      type: "module",
+      scripts: {},
+      devDependencies: {}
+    };
+  }
+
+  packageJson.scripts = {
+    build: "elm-ssr build",
+    dev: "elm-ssr dev",
+    routes: "elm-ssr routes",
+    migrate: "elm-ssr migrate",
+    ...packageJson.scripts
+  };
+
+  packageJson.devDependencies = {
+    "elm-ssr": "latest",
+    wrangler: "^4.0.0",
+    ...packageJson.devDependencies
+  };
+
+  await writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2) + "\n", "utf8");
+};
+
 /**
  * Scaffold a new elm-ssr app under `<rootPath>/<appRoot>/` and register it in
  * elm-ssr.config.json. `appRoot` defaults to the app's `name`; pass an
@@ -501,6 +533,8 @@ export const createAppScaffold = async (rootPath, name, options = {}) => {
     ...config,
     apps: [...config.apps, configEntry]
   });
+
+  await ensurePackageJson(rootPath, name);
 
   return configEntry;
 };

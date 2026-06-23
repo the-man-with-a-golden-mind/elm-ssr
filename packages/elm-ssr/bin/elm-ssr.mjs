@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
 
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { readFile, stat } from "node:fs/promises";
+import { watch } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { createAppScaffold } from "../lib/scaffold.mjs";
 import { readWorkspaceConfig } from "../lib/workspace.mjs";
 import { build } from "../lib/build.mjs";
@@ -16,7 +17,26 @@ const findFlagValue = (flagName) => {
   return index >= 0 ? args[index + 1] : undefined;
 };
 
-const rootPath = resolve(findFlagValue("--root") ?? defaultRootPath);
+const findWorkspaceRoot = async (startPath) => {
+  let current = startPath;
+  while (true) {
+    try {
+      const configPath = resolve(current, "elm-ssr.config.json");
+      await stat(configPath);
+      return current;
+    } catch {
+      const parent = dirname(current);
+      if (parent === current) {
+        break;
+      }
+      current = parent;
+    }
+  }
+  return startPath;
+};
+
+const userRoot = findFlagValue("--root");
+const rootPath = resolve(userRoot ?? await findWorkspaceRoot(defaultRootPath));
 const packageJsonPath = resolve(rootPath, "package.json");
 
 let packageJson = { name: "unknown" };
@@ -48,6 +68,7 @@ const printHelp = () => {
   build         Generate wrapper modules and compile configured Elm SSR apps
   compress      Pre-compress island and app bundles using Gzip for faster edge delivery
   dev           Build and start wrangler dev using the current workspace config
+  init <name>   Initialize a self-contained single-app project in the current directory
   new <name>    Create a new app at <workspace>/<name>/ (or <workspace>/<subdir>/<name>/
                 with --in <subdir>) and register it in elm-ssr.config.json
   routes        Print configured apps and their public modules
@@ -88,6 +109,42 @@ switch (command) {
       await build({ rootPath, config });
     }
 
+    let buildTimeout = null;
+    const triggerBuild = () => {
+      if (buildTimeout) clearTimeout(buildTimeout);
+      buildTimeout = setTimeout(async () => {
+        console.log("\n[elm-ssr] File change detected. Rebuilding...");
+        try {
+          await build({ rootPath, config });
+          console.log("[elm-ssr] Rebuild successful.");
+        } catch (err) {
+          console.error("[elm-ssr] Rebuild failed:", err);
+        }
+      }, 100);
+    };
+
+    const watchers = [];
+    for (const app of config.apps) {
+      const srcDir = resolve(rootPath, app.root, "src");
+      try {
+        const watcher = watch(srcDir, { recursive: true }, (eventType, filename) => {
+          if (filename && filename.endsWith(".elm")) {
+            triggerBuild();
+          }
+        });
+        watchers.push(watcher);
+      } catch (err) {
+        console.warn(`[elm-ssr] Could not watch directory ${srcDir}:`, err);
+      }
+    }
+
+    const cleanup = () => {
+      for (const w of watchers) w.close();
+    };
+
+    process.on("SIGINT", cleanup);
+    process.on("exit", cleanup);
+
     let wranglerCmd = "./node_modules/.bin/wrangler";
     let wranglerArgs = ["dev"];
     try {
@@ -116,7 +173,24 @@ switch (command) {
       }
     }
 
-    await run(wranglerCmd, wranglerArgs, rootPath);
+    try {
+      await run(wranglerCmd, wranglerArgs, rootPath);
+    } finally {
+      cleanup();
+    }
+    break;
+  }
+
+  case "init": {
+    const name = args[1];
+
+    if (!name) {
+      console.error("Usage: elm-ssr init <name>");
+      process.exit(1);
+    }
+
+    const created = await createAppScaffold(rootPath, name, { root: "." });
+    console.log(`Initialized ${created.name} in current directory`);
     break;
   }
 
