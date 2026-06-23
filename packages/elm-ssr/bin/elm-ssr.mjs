@@ -8,14 +8,6 @@ import { build } from "../lib/build.mjs";
 import { migrate } from "../lib/migrate.mjs";
 
 const defaultRootPath = process.cwd();
-const packageJsonPath = resolve(defaultRootPath, "package.json");
-
-let packageJson = { name: "unknown" };
-try {
-  packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
-} catch {
-  // Not in a package root, that's okay for some commands
-}
 const args = process.argv.slice(2);
 const command = args[0] ?? "help";
 
@@ -25,6 +17,14 @@ const findFlagValue = (flagName) => {
 };
 
 const rootPath = resolve(findFlagValue("--root") ?? defaultRootPath);
+const packageJsonPath = resolve(rootPath, "package.json");
+
+let packageJson = { name: "unknown" };
+try {
+  packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
+} catch {
+  // Not in a package root, that's okay for some commands
+}
 
 const run = async (cmd, cmdArgs, cwd = rootPath) => {
   const child = Bun.spawn([cmd, ...cmdArgs], {
@@ -80,11 +80,45 @@ switch (command) {
     await build({ rootPath, config });
     break;
 
-  case "dev":
+  case "dev": {
     requireConfig();
-    await run("bun", ["run", "build"], rootPath);
-    await run("./node_modules/.bin/wrangler", ["dev"], rootPath);
+    if (packageJson && packageJson.scripts && packageJson.scripts.build) {
+      await run("bun", ["run", "build"], rootPath);
+    } else {
+      await build({ rootPath, config });
+    }
+
+    let wranglerCmd = "./node_modules/.bin/wrangler";
+    let wranglerArgs = ["dev"];
+    try {
+      await readFile(resolve(rootPath, wranglerCmd));
+    } catch {
+      wranglerCmd = "bunx";
+      wranglerArgs = ["wrangler", "dev"];
+    }
+
+    let hasWranglerConfig = false;
+    try {
+      const tomlContent = await readFile(resolve(rootPath, "wrangler.toml"), "utf8");
+      if (tomlContent.trim().length > 0) hasWranglerConfig = true;
+    } catch {}
+    try {
+      const jsonContent = await readFile(resolve(rootPath, "wrangler.jsonc"), "utf8");
+      if (jsonContent.trim().length > 0) hasWranglerConfig = true;
+    } catch {}
+
+    if (!hasWranglerConfig) {
+      const app = config.apps[0];
+      if (app) {
+        wranglerArgs.push(`${app.root}/worker.ts`);
+        wranglerArgs.push("--compatibility-date", "2026-05-28");
+        wranglerArgs.push("--compatibility-flags", "nodejs_compat");
+      }
+    }
+
+    await run(wranglerCmd, wranglerArgs, rootPath);
     break;
+  }
 
   case "new": {
     const name = args[1];

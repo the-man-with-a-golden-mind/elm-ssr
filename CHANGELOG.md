@@ -3,6 +3,12 @@
 All notable changes to the `elm-ssr` package. Dates are ISO; "Unreleased" lives
 at the top until a version is cut.
 
+## 0.5.2 — 2026-06-23
+
+### Fixed
+
+- Improve robustness of the `dev` CLI command. It now runs the build directly and automatically falls back to utilizing `bunx wrangler` with a CLI entrypoint flag pointing to the first configured app (and required node compatibility settings) when no `package.json` build scripts or populated wrangler configuration files exist.
+
 ## 0.5.1 — 2026-06-23
 
 ### Fixed
