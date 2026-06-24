@@ -3,7 +3,7 @@
 All notable changes to the `elm-ssr` package. Dates are ISO; "Unreleased" lives
 at the top until a version is cut.
 
-## 0.91.7 — 2026-06-24
+## 0.92.0 — 2026-06-24
 
 ### Added
 
