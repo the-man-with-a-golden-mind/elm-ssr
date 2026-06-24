@@ -4,6 +4,8 @@
 
 Type-safe, edge-compatible SQL Query DSL & CLI code generator. Scans `.sql` migrations (excluding `.down.sql`), parses `CREATE TABLE` structures, and outputs type-safe Elm data access modules containing phantom types, encoders/decoders, and standard CRUD query builders.
 
+This file is for `ElmSsr.Db.Dsl`. For the newer Ecto-like `ElmSsr.Db.Elmto.*` API with joins, group-by, and aggregate projections, use [elmto.md](elmto.md).
+
 ## File layout
 
 Generated database access modules are outputted to your route's workspace:
@@ -112,5 +114,4 @@ page request =
    `Db.select Entries.table [ Db.col Entries.id, Db.col Entries.message ]`
 2. **Variable Shadowing**: Codegen defines local variable parameters inside functions like `byId` or `delete` as `idVal` instead of `id` (and similar names for other fields) to prevent Elm compiler variable shadowing errors against module-level column descriptors.
 3. **Curried Operators**: All comparison operators (`eq`, `neq`, etc.) take the comparison value first, and the column descriptor last. This aligns with pipelining: `Entries.id |> Db.gt 5` (which expands to `Db.gt 5 Entries.id`).
-4. **DSL Limitations (No JOINs/Aggregations)**: The DSL does NOT support JOINs, GROUP BY, aggregates (SUM/COUNT/MIN/MAX), ORDER BY, or CTEs. For these operations, fall back to raw SQL via `Loader.query` / `Loader.execute` (you can still reuse the generated decoders).
-
+4. **Generated DSL limitations**: `ElmSsr.Db.Dsl` does NOT support JOINs, GROUP BY, aggregates (SUM/COUNT/MIN/MAX), ORDER BY, or CTEs. Use Elmto for the supported join/group/aggregate surface; otherwise fall back to raw SQL via `Loader.query` / `Loader.execute` (you can still reuse generated decoders).

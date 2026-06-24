@@ -8,6 +8,13 @@ at the top until a version is cut.
 ### Added
 
 - **Release Merge**: Merged the remote `origin/master` branch containing `v0.91.3` (commit `585b705`) into local master branch cleanly with conflict resolution.
+- **Elmto (Ecto in ElmSSR)**: Implemented a type-safe, composable, Ecto-like SQL DSL under `ElmSsr.Db.Elmto` containing:
+  - **Schema mapping** (`ElmSsr.Db.Elmto`): Maps tables to Elm records with explicit encoders, decoders, and primitive fields (`string`, `int`, `float`, `bool`).
+  - **Changeset pipeline** (`ElmSsr.Db.Elmto.Changeset`): Supports casting inputs and checking validations (`validateRequired`, `validateLength`, `validateFormat`, `validateNumber`).
+  - **Composable Query builder** (`ElmSsr.Db.Elmto.Query`): Supports composable pipelines (`from`, `select`, `where_`, `limit`, `offset`, `orderBy`) and comparison operators (`eq`, `gt`, `like`, `isNull`, `inList`).
+  - **Dialect Compilers** (`ElmSsr.Db.Elmto.Compiler`): Compiles queries and changesets to PostgreSQL (`$1` positional, `RETURNING *`) and SQLite (`?` positional) SQL statements.
+  - **Repository execution bridge** (`ElmSsr.Db.Elmto.Repo`): Maps operations to standard `Loader` and `Action` monad commands.
+- **Elmto Test Suite**: Added a comprehensive unit test suite (`test/elmto.test.ts`) and database-backed E2E integration test suite (`test/integration/elmto-integration.test.ts`) verifying all DSL compilation and Repo writes against real SQLite and PostgreSQL databases.
 
 ## 0.91.6 — 2026-06-24
 

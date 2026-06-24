@@ -22,6 +22,12 @@ describe("Type-Safe Data Layer & Schema Generation (elm query)", () => {
       "dir"
     );
 
+    await symlink(
+      resolve(process.cwd(), ".elm-home"),
+      join(root, ".elm-home"),
+      "dir"
+    );
+
     await writeFile(
       resolve(root, "elm-ssr.config.json"),
       JSON.stringify({ apps: [] }, null, 2),

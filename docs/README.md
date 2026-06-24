@@ -21,6 +21,8 @@ go deeper, one concern at a time.
 - [Islands](islands.md) — interactive `Browser.element` islands, embedding,
   cross-island bus, persistence across SPA navigation.
 - [Type-Safe SQL Query DSL & Schema Generation](query-dsl.md) — write database queries in a fluent, compile-time checked Elm API instead of raw SQL strings.
+- [Elmto](elmto.md) — Ecto-like schemas, changesets, joins, group-by,
+  aggregate projections, and Repo execution.
 
 ## Runtime
 

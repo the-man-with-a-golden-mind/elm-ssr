@@ -2,6 +2,8 @@
 
 `elm-ssr` provides a built-in CLI command and a pure-Elm database DSL to generate type-safe Elm data modules directly from your SQL migrations. This gives you compile-time safety for your database interactions, preventing runtime decode mismatches and type mismatches.
 
+This page documents the generated `ElmSsr.Db.Dsl` layer. For the newer Ecto-like Elmto API with joins, group-by, and aggregate projections, see [Elmto](elmto.md).
+
 ---
 
 ## 1. Schema Generation via CLI
@@ -204,17 +206,16 @@ customSearch term =
 
 ## 6. DSL Limitations & When to Use Raw SQL
 
-While the Query DSL provides excellent type-safety for simple and high-frequency database lookups, it has clear design boundaries. To keep the framework runtime small and clean, the DSL is intentionally limited.
+While the generated Query DSL provides excellent type-safety for simple and high-frequency database lookups, it has clear design boundaries. To keep the framework runtime small and clean, this DSL is intentionally limited. Use [Elmto](elmto.md) when you want typed joins, group-by, and aggregate projections.
 
 ### What the DSL CANNOT Do
-* **No `JOIN` Support**: There are no primitives for joining tables. Relationships should be queried sequentially (map-and-combine) or using raw SQL.
-* **No Grouping or Aggregations**: Functions like `GROUP BY`, `HAVING`, `SUM`, `AVG`, `COUNT`, or `MIN`/`MAX` are not supported.
+* **No `JOIN` Support in `ElmSsr.Db.Dsl`**: There are no primitives for joining tables. Relationships should be queried sequentially, using Elmto, or using raw SQL.
+* **No Grouping or Aggregations in `ElmSsr.Db.Dsl`**: Functions like `GROUP BY`, `HAVING`, `SUM`, `AVG`, `COUNT`, or `MIN`/`MAX` are not supported in this generated DSL.
 * **No Complex Modifiers**: Primitives for `ORDER BY`, nested sub-queries, window functions, or complex CTEs (Common Table Expressions) do not exist.
 * **No Schema Migrations**: The DSL only reads schemas—it does not create, modify, or migrate database tables (use SQL migrations for schema changes).
 
 ### When to Fall Back to Raw SQL
 You should use the **Raw SQL Fallback** (via `Loader.query` / `Loader.execute`) whenever:
-1. You need to combine columns across multiple tables using a `JOIN`.
-2. You are executing analytical queries using aggregations or group-bys.
+1. You need SQL beyond Elmto's current join/group/aggregate surface.
+2. You are executing analytical queries that need `HAVING`, custom aliases, subqueries, window functions, or database-specific operators.
 3. You need specific database features (like Postgres JSON operators or SQLite full-text search).
-
