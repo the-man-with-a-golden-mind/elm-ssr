@@ -3,6 +3,12 @@
 All notable changes to the `elm-ssr` package. Dates are ISO; "Unreleased" lives
 at the top until a version is cut.
 
+## 0.91.2 — 2026-06-24
+
+### Fixed
+
+- **Wrangler / Cloudflare SQLite Bundling**: Resolved esbuild compilation failure (`Could not resolve "bun:sqlite"`) in Wrangler by dynamically requiring `bun:sqlite` using runtime reflection (to hide it from static analysis). Added D1 database check routing dynamically to `cloudflareEffects` when running under Wrangler/D1, and falling back to `bun:sqlite` locally under Bun.
+
 ## 0.91.1 — 2026-06-24
 
 ### Fixed

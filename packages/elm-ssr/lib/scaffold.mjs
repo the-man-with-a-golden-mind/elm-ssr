@@ -416,8 +416,7 @@ const runtimeTemplate = (appRoot, db = false, auth = undefined) => {
   ];
 
   if (db) {
-    imports.push(`import { Database } from "bun:sqlite";`);
-    imports.push(`import { inMemoryEffects } from "elm-ssr/effects";`);
+    imports.push(`import { inMemoryEffects, cloudflareEffects } from "elm-ssr/effects";`);
   }
   if (auth) {
     imports.push(`import { handleAuth } from "./src/Endpoints/Auth";`);
@@ -425,7 +424,29 @@ const runtimeTemplate = (appRoot, db = false, auth = undefined) => {
 
   let dbInit = '';
   if (db) {
-    dbInit = `\nconst db = new Database("app.db");\n`;
+    dbInit = `
+let sqlHandler: any = undefined;
+if (typeof Bun !== "undefined") {
+  try {
+    const sqliteModule = "bun" + ":sqlite";
+    const { Database } = require(sqliteModule);
+    const db = new Database("app.db");
+    sqlHandler = (query: any) => {
+      const statement = db.query(query.sql);
+      if (query.mode === "all") {
+        return statement.all(...query.params);
+      }
+      if (query.mode === "first") {
+        return statement.get(...query.params) ?? null;
+      }
+      const info = statement.run(...query.params);
+      return { rowsAffected: info.changes };
+    };
+  } catch (err) {
+    console.error("Failed to initialize bun:sqlite:", err);
+  }
+}
+`;
   }
 
   let routeAuthAdditions = '';
@@ -446,13 +467,15 @@ const runtimeTemplate = (appRoot, db = false, auth = undefined) => {
   let effectsConfig = '';
   if (db) {
     effectsConfig = `,
-  effects: inMemoryEffects({
-    env: process.env as any,
-    sql: (sql, params) => {
-      const query = db.prepare(sql);
-      return query.all(...params);
+  effects: (effect, context) => {
+    if (context.env && context.env.DB) {
+      return cloudflareEffects({ dbBinding: "DB" })(effect, context);
     }
-  })`;
+    return inMemoryEffects({
+      env: process.env as any,
+      sql: sqlHandler
+    })(effect, context);
+  }`;
   }
 
   let sessionsConfig = '';
