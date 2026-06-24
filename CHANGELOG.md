@@ -3,6 +3,16 @@
 All notable changes to the `elm-ssr` package. Dates are ISO; "Unreleased" lives
 at the top until a version is cut.
 
+## 0.91.4 — 2026-06-24
+
+### Fixed
+
+- **Mock Authentication Flow**: Fixed a redirection loop in the scaffolded auth example where clicking the login button resulted in the user being redirected to `/profile` but instantly sent back to `/login` due to unsigned cookie mismatches. Added full E2E testing of the login request and session validation.
+
+### Added
+
+- **Tailwind CLI Scaffolding Flag**: Added support for the `--tailwind` option to the `init` and `new` commands. This configures `"tailwind": true` in the application config and scaffolds a starter `src/app.css` containing Tailwind CSS directives.
+
 ## 0.91.3 — 2026-06-24
 
 ### Fixed

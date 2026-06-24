@@ -77,9 +77,9 @@ const printHelp = () => {
   compress      Pre-compress island and app bundles using Gzip for faster edge delivery
   dev           Build and start wrangler dev using the current workspace config
   init <name>   Initialize a self-contained single-app project in the current directory
-                (use --db to wire SQLite/migrations, --auth betterAuth|auth0 for auth guards)
+                (use --db to wire SQLite/migrations, --auth betterAuth|auth0 for auth guards, --tailwind for Tailwind CSS)
   new <name>    Create a new app at <workspace>/<name>/ and register it in elm-ssr.config.json
-                (use --in <subdir> to group, --db for SQLite, --auth betterAuth|auth0 for auth)
+                (use --in <subdir> to group, --db for SQLite, --auth betterAuth|auth0 for auth, --tailwind for Tailwind)
   routes        Print configured apps and their public modules
   route <path>  Scaffold a new route (standard HTML, --api JSON, --ws WebSocket, or --sse EventSource)
   query         Generate type-safe Elm Db modules from SQL table definitions
@@ -196,11 +196,12 @@ switch (command) {
     const name = args[1];
 
     if (!name) {
-      console.error("Usage: elm-ssr init <name> [--db] [--auth betterAuth|auth0]");
+      console.error("Usage: elm-ssr init <name> [--db] [--auth betterAuth|auth0] [--tailwind]");
       process.exit(1);
     }
 
     const db = args.includes("--db");
+    const tailwind = args.includes("--tailwind");
     let auth = findFlagValue("--auth");
     if (auth) {
       if (auth === "better-auth" || auth === "betterAuth") {
@@ -211,7 +212,7 @@ switch (command) {
       }
     }
 
-    const created = await createAppScaffold(rootPath, name, { root: ".", db, auth });
+    const created = await createAppScaffold(rootPath, name, { root: ".", db, auth, tailwind });
     console.log(`Initialized ${created.name} in current directory`);
     break;
   }
@@ -220,7 +221,7 @@ switch (command) {
     const name = args[1];
 
     if (!name) {
-      console.error("Usage: elm-ssr new <name> [--in <subdir>] [--db] [--auth betterAuth|auth0]");
+      console.error("Usage: elm-ssr new <name> [--in <subdir>] [--db] [--auth betterAuth|auth0] [--tailwind]");
       console.error("  Default location: <workspace>/<name>/");
       console.error("  Use --in apps to place it under <workspace>/apps/<name>/, etc.");
       process.exit(1);
@@ -230,6 +231,7 @@ switch (command) {
     const appRoot = subdir ? `${subdir.replace(/\/+$/, "")}/${name}` : name;
     
     const db = args.includes("--db");
+    const tailwind = args.includes("--tailwind");
     let auth = findFlagValue("--auth");
     if (auth) {
       if (auth === "better-auth" || auth === "betterAuth") {
@@ -240,7 +242,7 @@ switch (command) {
       }
     }
 
-    const created = await createAppScaffold(rootPath, name, { root: appRoot, db, auth });
+    const created = await createAppScaffold(rootPath, name, { root: appRoot, db, auth, tailwind });
     console.log(`Created ${created.name} at ${created.root}`);
     break;
   }

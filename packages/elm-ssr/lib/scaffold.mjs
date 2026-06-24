@@ -688,6 +688,7 @@ const filesForApp = (name, appRoot, options = {}) => {
   const namespace = toPascalCase(name);
   const db = options.db || !!options.auth;
   const auth = options.auth;
+  const tailwind = options.tailwind;
 
   const files = [
     { path: `${appRoot}/elm.json`, content: JSON.stringify(elmJsonTemplate(), null, 2) + "\n" },
@@ -735,12 +736,27 @@ SESSION_SECRET="change-me-to-a-secure-random-hmac-secret-key-that-is-at-least-32
     });
   }
 
+  if (tailwind) {
+    files.push({
+      path: `${appRoot}/src/app.css`,
+      content: `@tailwind base;
+@tailwind components;
+@tailwind utilities;
+`
+    });
+  }
+
+  const configEntry = {
+    name,
+    root: appRoot,
+    module: namespace
+  };
+  if (tailwind) {
+    configEntry.tailwind = true;
+  }
+
   return {
-    configEntry: {
-      name,
-      root: appRoot,
-      module: namespace
-    },
+    configEntry,
     files
   };
 };

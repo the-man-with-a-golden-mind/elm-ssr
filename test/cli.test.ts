@@ -663,4 +663,38 @@ describe("elm-ssr CLI", () => {
     const res3 = await worker.fetch(new Request("http://localhost/profile"));
     expect(res3.status).toBe(302);
   }, 15000);
+
+  it("scaffolds a new app with --tailwind option and verifies config and file generation", async () => {
+    const root = await mkdtemp(join(tmpdir(), "elm-ssr-cli-tailwind-"));
+    tempRoots.push(root);
+    await linkNodeModules(root);
+
+    await writeFile(
+      resolve(root, "elm-ssr.config.json"),
+      JSON.stringify({ apps: [] }, null, 2),
+      "utf8"
+    );
+
+    const command = Bun.spawn(
+      ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "new", "tailwind-app", "--tailwind", "--root", root],
+      {
+        cwd: "/Users/michalmajchrzak/Projects/elmssr",
+        stdout: "pipe",
+        stderr: "pipe"
+      }
+    );
+    expect(await command.exited).toBe(0);
+
+    // Verify config entry contains tailwind: true
+    const configContent = await readFile(resolve(root, "elm-ssr.config.json"), "utf8");
+    const parsedConfig = JSON.parse(configContent);
+    expect(parsedConfig.apps[0].tailwind).toBe(true);
+
+    // Verify app.css was created with Tailwind directives
+    const appCss = await readFile(resolve(root, "tailwind-app/src/app.css"), "utf8");
+    expect(appCss).toContain("@tailwind base;");
+    expect(appCss).toContain("@tailwind components;");
+    expect(appCss).toContain("@tailwind utilities;");
+  });
 });
+
