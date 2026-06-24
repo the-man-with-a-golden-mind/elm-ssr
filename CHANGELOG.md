@@ -3,6 +3,12 @@
 All notable changes to the `elm-ssr` package. Dates are ISO; "Unreleased" lives
 at the top until a version is cut.
 
+## 0.91.7 — 2026-06-24
+
+### Added
+
+- **Release Merge**: Merged the remote `origin/master` branch containing `v0.91.3` (commit `585b705`) into local master branch cleanly with conflict resolution.
+
 ## 0.91.6 — 2026-06-24
 
 ### Added
