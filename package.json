@@ -1,6 +1,6 @@
 {
   "name": "elm-ssr",
-  "version": "0.91.2",
+  "version": "0.91.3",
   "private": true,
   "type": "module",
   "workspaces": [

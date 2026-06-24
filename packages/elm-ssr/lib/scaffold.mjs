@@ -368,28 +368,50 @@ view user =
         }
 `;
 
-const authEndpointTemplate = (authProvider) => `export const handleAuth = async (request: Request, env: any): Promise<Response> => {
+const authEndpointTemplate = (authProvider) => `import { generateSessionId, signValue, generateCsrfToken } from "elm-ssr/sessions";
+
+export const handleAuth = async (
+  request: Request,
+  env: any,
+  options?: { store?: any; secret?: string }
+): Promise<Response> => {
   const url = new URL(request.url);
 
   if (url.pathname === "/api/auth/login") {
     // Mock login session update for ${authProvider}
+    let cookieVal = "__elm_ssr_session=" + encodeURIComponent(JSON.stringify({
+      user: { email: "user@example.com", name: "${authProvider === "better-auth" ? "BetterAuth User" : "Auth0 User"}" }
+    })) + "; Path=/; HttpOnly; SameSite=Lax";
+
+    if (options?.store && options?.secret) {
+      const sessionId = generateSessionId();
+      await options.store.set(sessionId, {
+        data: { email: "user@example.com", name: "${authProvider === "better-auth" ? "BetterAuth User" : "Auth0 User"}" },
+        csrf: generateCsrfToken()
+      });
+      const signed = await signValue(options.secret, sessionId);
+      cookieVal = "session=" + signed + "; Path=/; HttpOnly; SameSite=Lax";
+    }
+
     return new Response(null, {
       status: 302,
       headers: {
         "Location": "/profile",
-        "Set-Cookie": "__elm_ssr_session=" + encodeURIComponent(JSON.stringify({
-          user: { email: "user@example.com", name: "${authProvider === "better-auth" ? "BetterAuth User" : "Auth0 User"}" }
-        })) + "; Path=/; HttpOnly; SameSite=Lax"
+        "Set-Cookie": cookieVal
       }
     });
   }
 
   if (url.pathname === "/api/auth/logout") {
+    let cookieVal = "__elm_ssr_session=; Path=/; Max-Age=0; HttpOnly";
+    if (options?.store && options?.secret) {
+      cookieVal = "session=; Path=/; Max-Age=0; HttpOnly";
+    }
     return new Response(null, {
       status: 302,
       headers: {
         "Location": "/login",
-        "Set-Cookie": "__elm_ssr_session=; Path=/; Max-Age=0; HttpOnly"
+        "Set-Cookie": cookieVal
       }
     });
   }
@@ -415,11 +437,10 @@ const runtimeTemplate = (appRoot, db = false, auth = undefined) => {
     `import ElmRuntime from "${generatedPrefix}/app.mjs";`
   ];
 
-  if (db) {
-    imports.push(`import { inMemoryEffects, cloudflareEffects } from "elm-ssr/effects";`);
-  }
+  imports.push(`import { inMemoryEffects, cloudflareEffects } from "elm-ssr/effects";`);
   if (auth) {
     imports.push(`import { handleAuth } from "./src/Endpoints/Auth";`);
+    imports.push(`import { memorySessionStore } from "elm-ssr/sessions";`);
   }
 
   let dbInit = '';
@@ -464,25 +485,24 @@ if (typeof Bun !== "undefined") {
     },`;
   }
 
-  let effectsConfig = '';
-  if (db) {
-    effectsConfig = `,
+  const effectsConfig = `,
   effects: (effect, context) => {
-    if (context.env && context.env.DB) {
-      return cloudflareEffects({ dbBinding: "DB" })(effect, context);
+    if (context.env) {
+      return cloudflareEffects(${db ? '{ dbBinding: "DB" }' : ''})(effect, context);
     }
     return inMemoryEffects({
-      env: process.env as any,
-      sql: sqlHandler
+      env: process.env as any${db ? ',\n      sql: sqlHandler' : ''}
     })(effect, context);
   }`;
-  }
 
   let sessionsConfig = '';
+  let authInit = '';
   if (auth) {
+    authInit = `\nconst sessionStore = memorySessionStore();\n`;
     sessionsConfig = `,
   sessions: {
     secret: (env) => (env?.SESSION_SECRET as string) || "change-me-to-a-secure-random-hmac-secret-key-that-is-at-least-32-chars",
+    store: sessionStore,
     secure: false
   },
   csrf: true`;
@@ -496,7 +516,8 @@ const baseWorkerFetch = worker.fetch;
 worker.fetch = async (request, env, ctx) => {
   const url = new URL(request.url);
   if (url.pathname.startsWith("/api/auth/")) {
-    return handleAuth(request, env);
+    const secret = (env?.SESSION_SECRET as string) || "change-me-to-a-secure-random-hmac-secret-key-that-is-at-least-32-chars";
+    return handleAuth(request, env, { store: sessionStore, secret });
   }
   return baseWorkerFetch(request, env, ctx);
 };
@@ -586,7 +607,7 @@ export const createFlags = ({ request, path, formData, env }: { request?: Reques
 
 export const renderPath = async (path: string) =>
   renderApp(elmModule, createFlags({ path }));
-${dbInit}
+${dbInit}${authInit}
 export const worker = createWorkerApp({
   elmModule,
   islands,

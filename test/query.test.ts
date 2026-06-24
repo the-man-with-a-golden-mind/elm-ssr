@@ -17,7 +17,7 @@ describe("Type-Safe Data Layer & Schema Generation (elm query)", () => {
     tempRoots.push(root);
 
     await symlink(
-      resolve("/Users/michalmajchrzak/Projects/elmssr/node_modules"),
+      resolve(process.cwd(), "node_modules"),
       join(root, "node_modules"),
       "dir"
     );
@@ -315,7 +315,12 @@ export const worker = createWorkerApp({
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "build", "--root", root],
       { cwd: "/Users/michalmajchrzak/Projects/elmssr" }
     );
-    expect(await buildCmd.exited).toBe(0);
+    const buildExitCode = await buildCmd.exited;
+    if (buildExitCode !== 0) {
+      console.log("Query test Build stdout:", await new Response(buildCmd.stdout).text());
+      console.error("Query test Build stderr:", await new Response(buildCmd.stderr).text());
+    }
+    expect(buildExitCode).toBe(0);
 
     // Dynamic import of the compiled worker to test E2E DSL rendering!
     const runtimePath = resolve(root, "db-app/runtime.ts");
