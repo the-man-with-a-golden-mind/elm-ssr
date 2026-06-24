@@ -3,6 +3,17 @@
 All notable changes to the `elm-ssr` package. Dates are ISO; "Unreleased" lives
 at the top until a version is cut.
 
+## 0.91.1 — 2026-06-24
+
+### Fixed
+
+- **Authentication Scaffolding**: Resolved an Elm type mismatch error and a syntax error in the scaffolded `Profile.elm` route template. It now correctly uses `Loader.requireUser` with an Elm lambda callback instead of passing the `request` variable directly, and escapes backslashes to prevent JavaScript Unicode escape errors.
+
+### Added
+
+- **Scaffolding E2E Compilation Tests**: Added automated compilation checks inside `test/cli.test.ts` to verify that all scaffolded output configurations (including DB setup, Auth handlers, HTML pages, JSON APIs, WebSockets, and Server-Sent Events) compile successfully under the Elm compiler.
+- **CLI Reference**: Updated the root and package READMEs to document all CLI commands and options in detail.
+
 ## 0.91.0 — 2026-06-24
 
 ### Added
