@@ -1,9 +1,18 @@
 import { afterAll, describe, expect, it } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 const tempRoots: string[] = [];
+
+async function linkNodeModules(root: string) {
+  await symlink(
+    resolve(process.cwd(), "node_modules"),
+    join(root, "node_modules"),
+    "dir"
+  );
+}
+
 
 afterAll(async () => {
   for (const root of tempRoots) {
@@ -189,6 +198,7 @@ describe("elm-ssr CLI", () => {
   it("scaffolds a single-app project directly in the current directory using 'init'", async () => {
     const root = await mkdtemp(join(tmpdir(), "elm-ssr-cli-"));
     tempRoots.push(root);
+    await linkNodeModules(root);
 
     const command = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "init", "single-app", "--root", root],
@@ -247,6 +257,16 @@ describe("elm-ssr CLI", () => {
       console.error("Build stderr:", await new Response(buildCommand.stderr).text());
     }
     expect(buildExitCode).toBe(0);
+
+    const runtimePath = resolve(root, "runtime.ts");
+    delete (globalThis as any).Elm;
+    const { worker } = (await import(runtimePath)) as { worker: any };
+    expect(worker).toBeDefined();
+
+    const res = await worker.fetch(new Request("http://localhost/"));
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("Hello from default env!");
   }, 15000);
 
   it("scaffolding commands (like 'init') do not climb parent directories", async () => {
@@ -401,6 +421,7 @@ describe("elm-ssr CLI", () => {
   it("scaffolds a new app with --db option", async () => {
     const root = await mkdtemp(join(tmpdir(), "elm-ssr-cli-"));
     tempRoots.push(root);
+    await linkNodeModules(root);
 
     await writeFile(
       resolve(root, "elm-ssr.config.json"),
@@ -452,11 +473,22 @@ describe("elm-ssr CLI", () => {
       console.error("Build stderr:", await new Response(buildCommand.stderr).text());
     }
     expect(buildExitCode).toBe(0);
+
+    const runtimePath = resolve(root, "db-app/runtime.ts");
+    delete (globalThis as any).Elm;
+    const { worker } = (await import(runtimePath)) as { worker: any };
+    expect(worker).toBeDefined();
+
+    const res = await worker.fetch(new Request("http://localhost/"));
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("Hello from default env!");
   }, 15000);
 
   it("scaffolds a new app with --auth option (betterAuth & invalid check)", async () => {
     const root = await mkdtemp(join(tmpdir(), "elm-ssr-cli-"));
     tempRoots.push(root);
+    await linkNodeModules(root);
 
     await writeFile(
       resolve(root, "elm-ssr.config.json"),
@@ -508,6 +540,29 @@ describe("elm-ssr CLI", () => {
     expect(runtime).toContain("csrf: true");
     expect(runtime).toContain("handleAuth");
 
+    // E2E Verification: load the worker and simulate requests to verify session middleware
+    const runtimePath = resolve(root, "auth-app/runtime.ts");
+    delete (globalThis as any).Elm;
+    const { worker } = (await import(runtimePath)) as { worker: any };
+    expect(worker).toBeDefined();
+
+    // 1. GET / should return 200 OK
+    const res1 = await worker.fetch(new Request("http://localhost/"));
+    expect(res1.status).toBe(200);
+    const html1 = await res1.text();
+    expect(html1).toContain("Hello from default env!");
+
+    // 2. GET /login should return 200 OK
+    const res2 = await worker.fetch(new Request("http://localhost/login"));
+    expect(res2.status).toBe(200);
+    const html2 = await res2.text();
+    expect(html2).toContain("Sign In with Auth Provider");
+
+    // 3. GET /profile should redirect to /login (requireUser route guard)
+    const res3 = await worker.fetch(new Request("http://localhost/profile"));
+    expect(res3.status).toBe(302);
+    expect(res3.headers.get("location")).toBe("/login");
+
     // 2. Invalid provider
     const badCommand = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "new", "bad-app", "--auth", "invalid-auth-provider", "--root", root],
@@ -521,5 +576,91 @@ describe("elm-ssr CLI", () => {
     expect(await badCommand.exited).toBe(1);
     const stderr = await new Response(badCommand.stderr).text();
     expect(stderr).toContain("Error: --auth only supports 'betterAuth' or 'auth0'");
+  }, 15000);
+
+  it("scaffolds a single-app project using 'init --auth betterAuth' and compiles/fetches successfully", async () => {
+    const root = await mkdtemp(join(tmpdir(), "elm-ssr-cli-"));
+    tempRoots.push(root);
+    await linkNodeModules(root);
+
+    const command = Bun.spawn(
+      ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "init", "single-auth", "--auth", "betterAuth", "--root", root],
+      {
+        cwd: "/Users/michalmajchrzak/Projects/elmssr",
+        stdout: "pipe",
+        stderr: "pipe"
+      }
+    );
+    expect(await command.exited).toBe(0);
+
+    const buildCommand = Bun.spawn(
+      ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "build", "--root", root],
+      {
+        cwd: "/Users/michalmajchrzak/Projects/elmssr",
+        stdout: "pipe",
+        stderr: "pipe"
+      }
+    );
+    expect(await buildCommand.exited).toBe(0);
+
+    const runtimePath = resolve(root, "runtime.ts");
+    delete (globalThis as any).Elm;
+    const { worker } = (await import(runtimePath)) as { worker: any };
+    expect(worker).toBeDefined();
+
+    const res1 = await worker.fetch(new Request("http://localhost/"));
+    expect(res1.status).toBe(200);
+
+    const res2 = await worker.fetch(new Request("http://localhost/login"));
+    expect(res2.status).toBe(200);
+
+    const res3 = await worker.fetch(new Request("http://localhost/profile"));
+    expect(res3.status).toBe(302);
+  }, 15000);
+
+  it("scaffolds a new app with --auth auth0 and compiles/fetches successfully", async () => {
+    const root = await mkdtemp(join(tmpdir(), "elm-ssr-cli-"));
+    tempRoots.push(root);
+    await linkNodeModules(root);
+
+    await writeFile(
+      resolve(root, "elm-ssr.config.json"),
+      JSON.stringify({ apps: [] }, null, 2),
+      "utf8"
+    );
+
+    const command = Bun.spawn(
+      ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "new", "auth0-app", "--auth", "auth0", "--root", root],
+      {
+        cwd: "/Users/michalmajchrzak/Projects/elmssr",
+        stdout: "pipe",
+        stderr: "pipe"
+      }
+    );
+    expect(await command.exited).toBe(0);
+
+    const buildCommand = Bun.spawn(
+      ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "build", "--root", root],
+      {
+        cwd: "/Users/michalmajchrzak/Projects/elmssr",
+        stdout: "pipe",
+        stderr: "pipe"
+      }
+    );
+    expect(await buildCommand.exited).toBe(0);
+
+    const runtimePath = resolve(root, "auth0-app/runtime.ts");
+    delete (globalThis as any).Elm;
+    const { worker } = (await import(runtimePath)) as { worker: any };
+    expect(worker).toBeDefined();
+
+    const res1 = await worker.fetch(new Request("http://localhost/"));
+    expect(res1.status).toBe(200);
+
+    const res2 = await worker.fetch(new Request("http://localhost/login"));
+    expect(res2.status).toBe(200);
+
+    const res3 = await worker.fetch(new Request("http://localhost/profile"));
+    expect(res3.status).toBe(302);
   }, 15000);
 });

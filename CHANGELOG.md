@@ -3,6 +3,18 @@
 All notable changes to the `elm-ssr` package. Dates are ISO; "Unreleased" lives
 at the top until a version is cut.
 
+## 0.91.3 — 2026-06-24
+
+### Fixed
+
+- **CLI Scaffolding Session Store Configuration**: Added missing session store configuration (`store: memorySessionStore()`) to the scaffolded `runtime.ts` options template, preventing runtime crashes under Wrangler dev when utilizing authenticated route guards.
+- **Scaffolding Index Page Effect Handling**: Configured the effects runner unconditionally in the scaffolded worker template to support standard baseline effects (like `env` and `cookie`) by default, resolving the `502 Bad Gateway` error on the index route of newly generated projects.
+- **E2E Scaffolding Test Resolution**: Configured dynamic workspace `node_modules` symlinking and Elm namespace cleanup inside unit and integration tests to resolve compilation imports and avoid dynamic namespace collisions (`hints/6.md`) during E2E requests fetches.
+
+### Added
+
+- **PostgreSQL E2E Integration Test**: Added a complete E2E integration test runner (`test/integration/cli-scaffold.test.ts`) that scaffolds a database app, executes its migrations against a real PostgreSQL Docker database using the CLI `migrate` tool, compiles it, and performs E2E HTTP requests using a real `postgresSql` adapter.
+
 ## 0.91.2 — 2026-06-24
 
 ### Fixed

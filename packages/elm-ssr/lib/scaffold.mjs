@@ -415,11 +415,10 @@ const runtimeTemplate = (appRoot, db = false, auth = undefined) => {
     `import ElmRuntime from "${generatedPrefix}/app.mjs";`
   ];
 
-  if (db) {
-    imports.push(`import { inMemoryEffects, cloudflareEffects } from "elm-ssr/effects";`);
-  }
+  imports.push(`import { inMemoryEffects, cloudflareEffects } from "elm-ssr/effects";`);
   if (auth) {
     imports.push(`import { handleAuth } from "./src/Endpoints/Auth";`);
+    imports.push(`import { memorySessionStore } from "elm-ssr/sessions";`);
   }
 
   let dbInit = '';
@@ -464,25 +463,22 @@ if (typeof Bun !== "undefined") {
     },`;
   }
 
-  let effectsConfig = '';
-  if (db) {
-    effectsConfig = `,
+  const effectsConfig = `,
   effects: (effect, context) => {
-    if (context.env && context.env.DB) {
-      return cloudflareEffects({ dbBinding: "DB" })(effect, context);
+    if (context.env) {
+      return cloudflareEffects(${db ? '{ dbBinding: "DB" }' : ''})(effect, context);
     }
     return inMemoryEffects({
-      env: process.env as any,
-      sql: sqlHandler
+      env: process.env as any${db ? ',\n      sql: sqlHandler' : ''}
     })(effect, context);
   }`;
-  }
 
   let sessionsConfig = '';
   if (auth) {
     sessionsConfig = `,
   sessions: {
     secret: (env) => (env?.SESSION_SECRET as string) || "change-me-to-a-secure-random-hmac-secret-key-that-is-at-least-32-chars",
+    store: memorySessionStore(),
     secure: false
   },
   csrf: true`;
