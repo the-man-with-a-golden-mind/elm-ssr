@@ -230,7 +230,24 @@ describe("elm-ssr CLI", () => {
     };
     expect(packageJson.scripts.dev).toBe("elm-ssr dev");
     expect(packageJson.devDependencies["elm-ssr"]).toBe("latest");
-  });
+
+    // Verify it compiles successfully
+    const buildCommand = Bun.spawn(
+      ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "build", "--root", root],
+      {
+        cwd: "/Users/michalmajchrzak/Projects/elmssr",
+        stdout: "pipe",
+        stderr: "pipe"
+      }
+    );
+
+    const buildExitCode = await buildCommand.exited;
+    if (buildExitCode !== 0) {
+      console.log("Build stdout:", await new Response(buildCommand.stdout).text());
+      console.error("Build stderr:", await new Response(buildCommand.stderr).text());
+    }
+    expect(buildExitCode).toBe(0);
+  }, 15000);
 
   it("scaffolding commands (like 'init') do not climb parent directories", async () => {
     const parentRoot = await mkdtemp(join(tmpdir(), "elm-ssr-cli-"));
@@ -297,13 +314,16 @@ describe("elm-ssr CLI", () => {
     const root = await mkdtemp(join(tmpdir(), "elm-ssr-cli-"));
     tempRoots.push(root);
 
-    // Initialize workspace and app first
-    await writeFile(
-      resolve(root, "elm-ssr.config.json"),
-      JSON.stringify({ apps: [{ name: "my-app", root: "my-app", module: "MyApp" }] }, null, 2),
-      "utf8"
+    // Initialize workspace and app first by calling 'new'
+    const newCmd = Bun.spawn(
+      ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "new", "my-app", "--root", root],
+      {
+        cwd: "/Users/michalmajchrzak/Projects/elmssr",
+        stdout: "pipe",
+        stderr: "pipe"
+      }
     );
-    await mkdir(resolve(root, "my-app"), { recursive: true });
+    expect(await newCmd.exited).toBe(0);
 
     const binPath = resolve(process.cwd(), "packages/elm-ssr/bin/elm-ssr.mjs");
 
@@ -360,7 +380,23 @@ describe("elm-ssr CLI", () => {
     await stat(resolve(root, "my-app/src/Endpoints/Chat.ts"));
     const wsContent = await readFile(resolve(root, "my-app/src/Endpoints/Chat.ts"), "utf8");
     expect(wsContent).toContain("WebSocketPair");
-  });
+
+    // 5. Verify the entire application compiles successfully with all the newly added routes
+    const buildCmd = Bun.spawn(
+      ["bun", binPath, "build", "--root", root],
+      {
+        cwd: "/Users/michalmajchrzak/Projects/elmssr",
+        stdout: "pipe",
+        stderr: "pipe"
+      }
+    );
+    const buildExitCode = await buildCmd.exited;
+    if (buildExitCode !== 0) {
+      console.log("Build stdout:", await new Response(buildCmd.stdout).text());
+      console.error("Build stderr:", await new Response(buildCmd.stderr).text());
+    }
+    expect(buildExitCode).toBe(0);
+  }, 15000);
 
   it("scaffolds a new app with --db option", async () => {
     const root = await mkdtemp(join(tmpdir(), "elm-ssr-cli-"));
@@ -399,7 +435,24 @@ describe("elm-ssr CLI", () => {
     const runtime = await readFile(resolve(root, "db-app/runtime.ts"), "utf8");
     expect(runtime).toContain("Database");
     expect(runtime).toContain("inMemoryEffects");
-  });
+
+    // Verify it compiles successfully
+    const buildCommand = Bun.spawn(
+      ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "build", "--root", root],
+      {
+        cwd: "/Users/michalmajchrzak/Projects/elmssr",
+        stdout: "pipe",
+        stderr: "pipe"
+      }
+    );
+
+    const buildExitCode = await buildCommand.exited;
+    if (buildExitCode !== 0) {
+      console.log("Build stdout:", await new Response(buildCommand.stdout).text());
+      console.error("Build stderr:", await new Response(buildCommand.stderr).text());
+    }
+    expect(buildExitCode).toBe(0);
+  }, 15000);
 
   it("scaffolds a new app with --auth option (betterAuth & invalid check)", async () => {
     const root = await mkdtemp(join(tmpdir(), "elm-ssr-cli-"));
@@ -422,6 +475,26 @@ describe("elm-ssr CLI", () => {
     );
 
     expect(await command.exited).toBe(0);
+
+    // 1.5. Compile the scaffolded auth app to guarantee it builds successfully without type errors
+    const buildCommand = Bun.spawn(
+      ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "build", "--root", root],
+      {
+        cwd: "/Users/michalmajchrzak/Projects/elmssr",
+        stdout: "pipe",
+        stderr: "pipe"
+      }
+    );
+
+    const buildExitCode = await buildCommand.exited;
+    const buildStdout = await new Response(buildCommand.stdout).text();
+    const buildStderr = await new Response(buildCommand.stderr).text();
+
+    if (buildExitCode !== 0) {
+      console.log("Build stdout:", buildStdout);
+      console.error("Build stderr:", buildStderr);
+    }
+    expect(buildExitCode).toBe(0);
 
     // Verify auth pages & TS endpoint
     await stat(resolve(root, "auth-app/migrations/0001_init.sql")); // Auth automatically enables DB setup
@@ -448,5 +521,5 @@ describe("elm-ssr CLI", () => {
     expect(await badCommand.exited).toBe(1);
     const stderr = await new Response(badCommand.stderr).text();
     expect(stderr).toContain("Error: --auth only supports 'betterAuth' or 'auth0'");
-  });
+  }, 15000);
 });

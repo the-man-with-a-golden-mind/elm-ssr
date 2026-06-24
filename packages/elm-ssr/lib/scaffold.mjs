@@ -341,9 +341,10 @@ userDecoder =
         (Decode.maybe (Decode.field "name" Decode.string))
 
 page : Request -> Loader (Document Never)
-page request =
-    Loader.requireUser userDecoder "/login" request
-        |> Loader.map view
+page _ =
+    Loader.requireUser userDecoder "/login" (\\user ->
+        Loader.succeed (view user)
+    )
 
 action : Request -> Action (Document Never)
 action _ =

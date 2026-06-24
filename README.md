@@ -321,7 +321,65 @@ The same `MigrationsAdapter` shape wires to Postgres (`Bun.sql`/`node-postgres`)
 — optionally with `runInTransaction(fn)` if the driver exposes native
 transaction scopes (`sql.begin` / `pool.connect`) — or Cloudflare D1.
 
-## Commands
+## CLI Commands & Options
+
+Run commands with `bunx elm-ssr <command>`.
+
+### `build`
+Generates `.elm-ssr/Main.elm` (the router) and the islands manifest for all configured apps, syncs Elm authoring modules, and runs `elm make` to compile the app and island bundles.
+
+### `compress`
+Runs the `build` pipeline and additionally pre-compresses generated CSS and JS assets using Gzip.
+
+### `dev`
+Rebuilds on file change (monitoring `.elm` and `.css` files) and starts `wrangler dev` locally.
+
+### `init <name> [--db] [--auth betterAuth|auth0]`
+Initializes a self-contained single-app project in the current directory.
+- `--db`: Enables local SQLite database support, generating an initial database schema migration under `migrations/0001_init.sql`.
+- `--auth <betterAuth|auth0>`: Scaffolds basic route modules (`Login.elm`, `Profile.elm`), signed cookie/CSRF middleware, and callback intercepts. (Automatically implies `--db`).
+
+### `new <name> [--in <subdir>] [--db] [--auth betterAuth|auth0]`
+Creates a new app under `<workspace>/<name>/` (or `<workspace>/<subdir>/<name>/` if `--in <subdir>` is provided) and registers it in `elm-ssr.config.json`.
+- `--in <subdir>`: Nest subdirectory under workspace root.
+- `--db`: Configures database support and initial migration.
+- `--auth <betterAuth|auth0>`: Scaffolds authentication views, cookies, and callback handlers.
+
+### `route <path> [--app <name>] [--api] [--ws] [--sse]`
+Scaffolds a new route or endpoint in the selected app:
+- `--app <app-name>`: Specify which app to add the route to (required if there are multiple apps).
+- `--api`: Scaffolds an Elm JSON API page/action route instead of an HTML page.
+- `--ws` or `--websocket`: Scaffolds a TypeScript WebSocket handler in `src/Endpoints/<route>.ts`.
+- `--sse`: Scaffolds a TypeScript Server-Sent Events (SSE) stream handler in `src/Endpoints/<route>.ts`.
+
+### `query [--app <name>] [--dir <path>] [--output <path>]`
+Generates type-safe Elm database schema and query helpers directly from raw SQL migrations.
+- `--app <app-name>`: Specify which app to query (required if there are multiple apps).
+- `--dir <path>`: Directory containing migrations (default: `<app_root>/migrations`).
+- `--output <path>`: Directory where Elm Db modules are written (default: `<app_root>/src/<Module>/Db`).
+
+### `migrate <up|down|status> [--db <conn>] [--dir <path>] [--count <n>] [--table <name>]`
+SQL migration runner.
+- `up`: Applies all pending migrations.
+- `down`: Reverts the last migration (or `n` migrations via `--count`).
+- `status`: Lists all applied and pending migrations.
+- `--db <conn>`: Database connection string (Postgres URL, SQLite URL, or plain file path). Reads `DATABASE_URL` if omitted.
+- `--dir <path>`: Path to migrations directory (default: `./migrations`).
+- `--count <n>`: Number of migrations to revert with `down` (default: 1).
+- `--table <name>`: Tracking database table name (default: `__elm_ssr_migrations`).
+
+### `routes`
+Prints configured apps and their route source directories.
+
+### `info`
+Prints workspace name and configured app names.
+
+## Global options
+- `--root <path>`: Overrides where the CLI looks for `elm-ssr.config.json` (defaults to current directory).
+
+## Development Commands
+
+For development of this monorepo itself, these scripts are available in the root:
 
 ```bash
 bun install
@@ -334,12 +392,8 @@ bun run dev                # build + wrangler dev for this repo's examples
 bun run deploy             # build + wrangler deploy for this repo's examples
 bun run ssr:new -- <name>  # scaffold a new app in this repo
 bun run ssr:routes         # print configured app modules
-
-# Migration CLI (any directory + any backend)
-elm-ssr migrate up     --dir ./migrations --db ./app.db
-elm-ssr migrate status --dir ./migrations --db ./app.db
-elm-ssr migrate down   --dir ./migrations --db ./app.db [--count N]
 ```
+
 
 ## Example routes (`examples/basic`)
 

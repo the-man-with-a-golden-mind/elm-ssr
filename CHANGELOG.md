@@ -3,6 +3,33 @@
 All notable changes to the `elm-ssr` package. Dates are ISO; "Unreleased" lives
 at the top until a version is cut.
 
+## 0.91.0 — 2026-06-24
+
+### Added
+
+- **On-Demand DB & Auth Scaffolding (`elm-ssr init` / `new`)**:
+  - Adds `--db` option to scaffold SQLite support (via `bun:sqlite`), generating an initial database schema migration and registering `inMemoryEffects` in the TS runtime.
+  - Adds `--auth <betterAuth|auth0>` option to scaffold session cookies and CSRF middleware, route modules (`Login.elm`, `Profile.elm`), and callback intercepts. Automatically enables database/migrations support.
+- **Environment Variables Support & Validation**:
+  - Automatically generates `.env` at the workspace root and `.dev.vars` inside the app directory with mock environment variables (`GREETING`, `SESSION_SECRET`).
+  - Request context falls back to `process.env` when undefined (e.g. locally or in unit tests) to align with Wrangler's `env` object.
+  - Runtime filters request environment context to serializable primitives (strings/numbers/booleans) to prevent Cloudflare bindings (like D1/KV) from failing JSON serialization when passed to Elm flags.
+  - Dynamic session secrets (`secret` functions) resolving at request time.
+  - Loader environment variables validation (`Loader.env` / `Action.env`).
+
+## 0.90.1 — 2026-06-24
+
+### Added
+
+- **Interactive DevTools Debugger Panel**:
+  - Injected request stats overlay showing path, method, and overall server-side render time.
+  - Interactive islands inspector highlighting element instances, flags, and DOM mutations count/timestamps via `MutationObserver`.
+  - Event Bus Monitor logging cross-island events.
+  - TIMINGS and effects logger panel split: dedicated "Database" tab for SQL query executions, timings, and variables.
+  - Zero-config DOM text preview fallback for active island state visualization.
+- **Trello Board E2E Tutorial**:
+  - Full narrative tutorial under `docs/tutorials/trello-board.md` detailing how to build a database-backed Kanban board with drag-and-drop islands and persistence.
+
 ## 0.11.0 — 2026-06-23
 
 ### Added
