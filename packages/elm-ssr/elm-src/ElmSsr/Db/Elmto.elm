@@ -4,7 +4,7 @@ module ElmSsr.Db.Elmto exposing
     , Column(..), column
     , field, optionalField
     , string, int, float, bool
-    , tableName, fields, decoder
+    , tableName, fields, decoder, columnName
     )
 
 import Json.Decode as Decode
@@ -108,6 +108,11 @@ optionalField name getter (FieldType dec enc) (Schema s) =
             }
     in
     Schema { s | fields = s.fields ++ [ newField ] }
+
+
+columnName : Column record a -> String
+columnName (Column name _) =
+    name
 
 
 tableName : Schema record -> String

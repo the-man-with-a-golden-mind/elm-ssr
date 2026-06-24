@@ -240,6 +240,42 @@ page req =
                     |> Query.orderBy [ Query.descJoined postSchema postTitleCol ]
                 )
 
+        notInListSqlite =
+            Compiler.compileSelect SQLite
+                (Query.from userSchema
+                    |> Query.where_ (Query.notInList [ 1, 2, 3 ] idCol)
+                )
+
+        notInListPostgres =
+            Compiler.compileSelect PostgreSQL
+                (Query.from userSchema
+                    |> Query.where_ (Query.notInList [ 1, 2, 3 ] idCol)
+                )
+
+        notInListEmpty =
+            Compiler.compileSelect SQLite
+                (Query.from userSchema
+                    |> Query.where_ (Query.notInList [] idCol)
+                )
+
+        betweenSqlite =
+            Compiler.compileSelect SQLite
+                (Query.from userSchema
+                    |> Query.where_ (Query.between 18 65 ageCol)
+                )
+
+        betweenPostgres =
+            Compiler.compileSelect PostgreSQL
+                (Query.from userSchema
+                    |> Query.where_ (Query.between 18 65 ageCol)
+                )
+
+        ilikeSqlite =
+            Compiler.compileSelect SQLite
+                (Query.from userSchema
+                    |> Query.where_ (Query.ilike "%alice%" nameCol)
+                )
+
         validAttrs =
             Dict.fromList
                 [ ( "id", Encode.int 0 )
@@ -325,6 +361,12 @@ page req =
                 , ( "update_postgres", case updatePostgres of
                                         Ok c -> Encode.string c.sql
                                         Err _ -> Encode.null )
+                , ( "not_in_list_sqlite", Encode.string notInListSqlite.sql )
+                , ( "not_in_list_postgres", Encode.string notInListPostgres.sql )
+                , ( "not_in_list_empty", Encode.string notInListEmpty.sql )
+                , ( "between_sqlite", Encode.string betweenSqlite.sql )
+                , ( "between_postgres", Encode.string betweenPostgres.sql )
+                , ( "ilike_sqlite", Encode.string ilikeSqlite.sql )
                 ]
     in
     Loader.succeed
@@ -407,5 +449,13 @@ action _ =
 
     expect(data.update_sqlite).toBe("UPDATE users SET name = ? WHERE id = ?");
     expect(data.update_postgres).toBe("UPDATE users SET name = $1 WHERE id = $2 RETURNING *");
+
+    // Assert new operators
+    expect(data.not_in_list_sqlite).toBe("SELECT id, name, email, age FROM users WHERE id NOT IN (?, ?, ?)");
+    expect(data.not_in_list_postgres).toBe("SELECT id, name, email, age FROM users WHERE id NOT IN ($1, $2, $3)");
+    expect(data.not_in_list_empty).toBe("SELECT id, name, email, age FROM users WHERE 1 = 1");
+    expect(data.between_sqlite).toBe("SELECT id, name, email, age FROM users WHERE age BETWEEN ? AND ?");
+    expect(data.between_postgres).toBe("SELECT id, name, email, age FROM users WHERE age BETWEEN $1 AND $2");
+    expect(data.ilike_sqlite).toBe("SELECT id, name, email, age FROM users WHERE name ILIKE ?");
   }, 15000);
 });

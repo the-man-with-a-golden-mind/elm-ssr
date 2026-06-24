@@ -135,15 +135,25 @@ getDialect =
                 _ -> SQLite
         )
 
+encodeUser : User -> Encode.Value
+encodeUser u =
+    Encode.object
+        [ ("id", Encode.int u.id)
+        , ("name", Encode.string u.name)
+        , ("email", Encode.string u.email)
+        , ("age", case u.age of
+                    Just a -> Encode.int a
+                    Nothing -> Encode.null
+          )
+        ]
+
 page : Request -> Loader (Document Never)
 page req =
     getDialect
         |> Loader.andThen (\\dialect ->
             let
                 queryMap = Dict.fromList req.query
-                query =
-                    Query.from userSchema
-                        |> Query.orderBy [ Query.asc nameCol ]
+                op = Dict.get "op" queryMap |> Maybe.withDefault ""
 
                 summaryQuery =
                     Query.from userSchema
@@ -158,53 +168,74 @@ page req =
                         |> Query.groupBy [ Query.groupByCol nameCol ]
                         |> Query.having (Query.havingGte 1 (Query.joinedCountOf postSchema postUserIdCol))
                         |> Query.orderBy [ Query.asc nameCol ]
+
+                resultPage val =
+                    Page.page
+                        { title = "Repo Test"
+                        , head = []
+                        , body = [ ElmSsr.Html.div [ ElmSsr.Html.Attributes.id "result" ] [ ElmSsr.Html.text (Encode.encode 0 val) ] ]
+                        }
             in
             if Dict.get "summary" queryMap == Just "1" then
                 Repo.all dialect summaryQuery
                     |> Loader.map (\\stats ->
-                        let
-                            statsJson =
-                                Encode.list (\\s ->
-                                    Encode.object
-                                        [ ("name", Encode.string s.name)
-                                        , ("postCount", Encode.int s.postCount)
-                                        , ("averageAge", case s.averageAge of
-                                                            Just avg -> Encode.float avg
-                                                            Nothing -> Encode.null
-                                          )
-                                        ]
-                                ) stats
-                        in
-                        Page.page
-                            { title = "Repo Test"
-                            , head = []
-                            , body = [ ElmSsr.Html.div [ ElmSsr.Html.Attributes.id "result" ] [ ElmSsr.Html.text (Encode.encode 0 statsJson) ] ]
-                            }
+                        resultPage (Encode.list (\\s ->
+                            Encode.object
+                                [ ("name", Encode.string s.name)
+                                , ("postCount", Encode.int s.postCount)
+                                , ("averageAge", case s.averageAge of
+                                                    Just avg -> Encode.float avg
+                                                    Nothing -> Encode.null
+                                  )
+                                ]
+                        ) stats)
                     )
 
-            else
-                Repo.all dialect query
-                    |> Loader.map (\\users ->
-                    let
-                        usersJson =
-                            Encode.list (\\u ->
-                                Encode.object
-                                    [ ("id", Encode.int u.id)
-                                    , ("name", Encode.string u.name)
-                                    , ("email", Encode.string u.email)
-                                    , ("age", case u.age of
-                                                Just a -> Encode.int a
-                                                Nothing -> Encode.null
-                                      )
-                                    ]
-                            ) users
-                    in
-                    Page.page
-                        { title = "Repo Test"
-                        , head = []
-                        , body = [ ElmSsr.Html.div [ ElmSsr.Html.Attributes.id "result" ] [ ElmSsr.Html.text (Encode.encode 0 usersJson) ] ]
-                        }
+            else if op == "get" then
+                let
+                    idVal = Dict.get "id" queryMap |> Maybe.andThen String.toInt |> Maybe.withDefault 0
+                in
+                Repo.get dialect userSchema idVal
+                    |> Loader.map (\\maybeUser ->
+                        resultPage (case maybeUser of
+                            Just u -> encodeUser u
+                            Nothing -> Encode.null
+                        )
                     )
+
+            else if op == "getby" then
+                let
+                    nameVal = Dict.get "name" queryMap |> Maybe.withDefault ""
+                in
+                Repo.getBy dialect userSchema (Query.eq nameVal nameCol)
+                    |> Loader.map (\\maybeUser ->
+                        resultPage (case maybeUser of
+                            Just u -> encodeUser u
+                            Nothing -> Encode.null
+                        )
+                    )
+
+            else if op == "count" then
+                Repo.count dialect userSchema
+                    |> Loader.map (\\n -> resultPage (Encode.int n))
+
+            else if op == "countwhere" then
+                let
+                    nameVal = Dict.get "name" queryMap |> Maybe.withDefault ""
+                in
+                Repo.countWhere dialect userSchema (Query.eq nameVal nameCol)
+                    |> Loader.map (\\n -> resultPage (Encode.int n))
+
+            else if op == "exists" then
+                let
+                    nameVal = Dict.get "name" queryMap |> Maybe.withDefault ""
+                in
+                Repo.exists dialect userSchema (Query.eq nameVal nameCol)
+                    |> Loader.map (\\b -> resultPage (Encode.bool b))
+
+            else
+                Repo.all dialect (Query.from userSchema |> Query.orderBy [ Query.asc nameCol ])
+                    |> Loader.map (\\users -> resultPage (Encode.list encodeUser users))
         )
 
 action : Request -> Action (Document Never)
@@ -298,7 +329,7 @@ action req =
             else if op == "delete" then
                 let
                     idVal = Dict.get "id" queryMap |> Maybe.andThen String.toInt |> Maybe.withDefault 0
-                    
+
                     userToDelete =
                         { id = idVal, name = "", email = "", age = Nothing }
                 in
@@ -310,6 +341,69 @@ action req =
 
                             Err err ->
                                 Action.json (Encode.object [ ("ok", Encode.bool False), ("error", Encode.string err) ])
+                    )
+
+            else if op == "insert_unique" then
+                let
+                    nameVal = Dict.get "name" queryMap |> Maybe.withDefault ""
+                    emailVal = Dict.get "email" queryMap |> Maybe.withDefault ""
+
+                    attrs =
+                        Dict.fromList
+                            [ ("name", Encode.string nameVal)
+                            , ("email", Encode.string emailVal)
+                            ]
+
+                    changeset =
+                        Changeset.cast userSchema attrs
+                            |> Changeset.validateRequired [ "name", "email" ]
+                in
+                Action.fromLoader (Repo.validateUnique dialect userSchema (Elmto.column "email" Encode.string) emailVal changeset)
+                    |> Action.andThen (\\cs ->
+                        Repo.insert dialect userSchema cs
+                            |> Action.andThen (\\result ->
+                                case result of
+                                    Ok user ->
+                                        Action.json (Encode.object
+                                            [ ("ok", Encode.bool True)
+                                            , ("user", encodeUser user)
+                                            ])
+
+                                    Err errCs ->
+                                        Action.json (Encode.object
+                                            [ ("ok", Encode.bool False)
+                                            , ("errors", Encode.list (\\(f, m) -> Encode.object [ ("field", Encode.string f), ("message", Encode.string m) ]) (Changeset.errors errCs))
+                                            ])
+                            )
+                    )
+
+            else if op == "insertall" then
+                let
+                    names = [ "Carol", "Dave", "Eve" ]
+                    emails = [ "carol@example.com", "dave@example.com", "eve@example.com" ]
+
+                    makeChangeset n e =
+                        Changeset.cast userSchema
+                            (Dict.fromList [ ("name", Encode.string n), ("email", Encode.string e) ])
+                            |> Changeset.validateRequired [ "name", "email" ]
+
+                    changesets =
+                        List.map2 makeChangeset names emails
+                in
+                Repo.insertAll dialect userSchema changesets
+                    |> Action.andThen (\\results ->
+                        let
+                            successes =
+                                List.filterMap (\\r -> case r of
+                                    Ok u -> Just (encodeUser u)
+                                    Err _ -> Nothing
+                                ) results
+                        in
+                        Action.json (Encode.object
+                            [ ("ok", Encode.bool True)
+                            , ("count", Encode.int (List.length successes))
+                            , ("users", Encode.list identity successes)
+                            ])
                     )
 
             else
@@ -502,6 +596,62 @@ export const createTestWorker = (config: { dialect: "sqlite" | "postgres", sqlit
       { id: 1, name: "Alicia", email: "alice@example.com", age: 25 }
     ]);
 
+    // (H) Repo.get by primary key
+    const getByIdRes = await sqliteWorker.fetch(new Request("http://localhost/testrepo?op=get&id=1"));
+    expect(getByIdRes.status).toBe(200);
+    expect(await getResultJson(getByIdRes)).toEqual({ id: 1, name: "Alicia", email: "alice@example.com", age: 25 });
+
+    const getMissingRes = await sqliteWorker.fetch(new Request("http://localhost/testrepo?op=get&id=999"));
+    expect(getMissingRes.status).toBe(200);
+    expect(await getResultJson(getMissingRes)).toBeNull();
+
+    // (I) Repo.getBy by field value
+    const getByNameRes = await sqliteWorker.fetch(new Request("http://localhost/testrepo?op=getby&name=Alicia"));
+    expect(getByNameRes.status).toBe(200);
+    expect(await getResultJson(getByNameRes)).toEqual({ id: 1, name: "Alicia", email: "alice@example.com", age: 25 });
+
+    // (J) Repo.count / countWhere / exists
+    const countRes = await sqliteWorker.fetch(new Request("http://localhost/testrepo?op=count"));
+    expect(countRes.status).toBe(200);
+    expect(await getResultJson(countRes)).toBe(1);
+
+    const countWhereRes = await sqliteWorker.fetch(new Request("http://localhost/testrepo?op=countwhere&name=Alicia"));
+    expect(countWhereRes.status).toBe(200);
+    expect(await getResultJson(countWhereRes)).toBe(1);
+
+    const countWhereMissRes = await sqliteWorker.fetch(new Request("http://localhost/testrepo?op=countwhere&name=Nobody"));
+    expect(countWhereMissRes.status).toBe(200);
+    expect(await getResultJson(countWhereMissRes)).toBe(0);
+
+    const existsTrueRes = await sqliteWorker.fetch(new Request("http://localhost/testrepo?op=exists&name=Alicia"));
+    expect(existsTrueRes.status).toBe(200);
+    expect(await getResultJson(existsTrueRes)).toBe(true);
+
+    const existsFalseRes = await sqliteWorker.fetch(new Request("http://localhost/testrepo?op=exists&name=Nobody"));
+    expect(existsFalseRes.status).toBe(200);
+    expect(await getResultJson(existsFalseRes)).toBe(false);
+
+    // (K) Repo.validateUnique — insert unique passes, duplicate fails
+    const uniqueOkRes = await sqliteWorker.fetch(new Request("http://localhost/testrepo?op=insert_unique&name=Frank&email=frank@example.com", { method: "POST" }));
+    expect(uniqueOkRes.status).toBe(200);
+    const uniqueOkData = await uniqueOkRes.json();
+    expect(uniqueOkData.ok).toBe(true);
+    expect(uniqueOkData.user.name).toBe("Frank");
+
+    const uniqueDupRes = await sqliteWorker.fetch(new Request("http://localhost/testrepo?op=insert_unique&name=Frank2&email=frank@example.com", { method: "POST" }));
+    expect(uniqueDupRes.status).toBe(200);
+    const uniqueDupData = await uniqueDupRes.json();
+    expect(uniqueDupData.ok).toBe(false);
+    expect(uniqueDupData.errors).toContainEqual({ field: "email", message: "has already been taken" });
+
+    // (L) Repo.insertAll — batch insert
+    const insertAllRes = await sqliteWorker.fetch(new Request("http://localhost/testrepo?op=insertall", { method: "POST" }));
+    expect(insertAllRes.status).toBe(200);
+    const insertAllData = await insertAllRes.json();
+    expect(insertAllData.ok).toBe(true);
+    expect(insertAllData.count).toBe(3);
+    expect(insertAllData.users.map((u: any) => u.name)).toEqual(["Carol", "Dave", "Eve"]);
+
     // ==========================================
     // PostgreSQL Dialect Tests
     // ==========================================
@@ -576,6 +726,58 @@ export const createTestWorker = (config: { dialect: "sqlite" | "postgres", sqlit
       expect(await getResultJson(pgGetRes3)).toEqual([
         { id: 1, name: "Alicia", email: "alice@example.com", age: 25 }
       ]);
+
+      // (H) Repo.get by primary key
+      const pgGetByIdRes = await pgWorker.fetch(new Request("http://localhost/testrepo?op=get&id=1"));
+      expect(pgGetByIdRes.status).toBe(200);
+      expect(await getResultJson(pgGetByIdRes)).toEqual({ id: 1, name: "Alicia", email: "alice@example.com", age: 25 });
+
+      const pgGetMissingRes = await pgWorker.fetch(new Request("http://localhost/testrepo?op=get&id=999"));
+      expect(pgGetMissingRes.status).toBe(200);
+      expect(await getResultJson(pgGetMissingRes)).toBeNull();
+
+      // (I) Repo.getBy
+      const pgGetByNameRes = await pgWorker.fetch(new Request("http://localhost/testrepo?op=getby&name=Alicia"));
+      expect(pgGetByNameRes.status).toBe(200);
+      expect(await getResultJson(pgGetByNameRes)).toEqual({ id: 1, name: "Alicia", email: "alice@example.com", age: 25 });
+
+      // (J) Repo.count / countWhere / exists
+      const pgCountRes = await pgWorker.fetch(new Request("http://localhost/testrepo?op=count"));
+      expect(pgCountRes.status).toBe(200);
+      expect(await getResultJson(pgCountRes)).toBe(1);
+
+      const pgCountWhereRes = await pgWorker.fetch(new Request("http://localhost/testrepo?op=countwhere&name=Alicia"));
+      expect(pgCountWhereRes.status).toBe(200);
+      expect(await getResultJson(pgCountWhereRes)).toBe(1);
+
+      const pgExistsTrueRes = await pgWorker.fetch(new Request("http://localhost/testrepo?op=exists&name=Alicia"));
+      expect(pgExistsTrueRes.status).toBe(200);
+      expect(await getResultJson(pgExistsTrueRes)).toBe(true);
+
+      const pgExistsFalseRes = await pgWorker.fetch(new Request("http://localhost/testrepo?op=exists&name=Nobody"));
+      expect(pgExistsFalseRes.status).toBe(200);
+      expect(await getResultJson(pgExistsFalseRes)).toBe(false);
+
+      // (K) Repo.validateUnique
+      const pgUniqueOkRes = await pgWorker.fetch(new Request("http://localhost/testrepo?op=insert_unique&name=Frank&email=frank@example.com", { method: "POST" }));
+      expect(pgUniqueOkRes.status).toBe(200);
+      const pgUniqueOkData = await pgUniqueOkRes.json();
+      expect(pgUniqueOkData.ok).toBe(true);
+      expect(pgUniqueOkData.user.name).toBe("Frank");
+
+      const pgUniqueDupRes = await pgWorker.fetch(new Request("http://localhost/testrepo?op=insert_unique&name=Frank2&email=frank@example.com", { method: "POST" }));
+      expect(pgUniqueDupRes.status).toBe(200);
+      const pgUniqueDupData = await pgUniqueDupRes.json();
+      expect(pgUniqueDupData.ok).toBe(false);
+      expect(pgUniqueDupData.errors).toContainEqual({ field: "email", message: "has already been taken" });
+
+      // (L) Repo.insertAll
+      const pgInsertAllRes = await pgWorker.fetch(new Request("http://localhost/testrepo?op=insertall", { method: "POST" }));
+      expect(pgInsertAllRes.status).toBe(200);
+      const pgInsertAllData = await pgInsertAllRes.json();
+      expect(pgInsertAllData.ok).toBe(true);
+      expect(pgInsertAllData.count).toBe(3);
+      expect(pgInsertAllData.users.map((u: any) => u.name)).toEqual(["Carol", "Dave", "Eve"]);
     }
   }, 30000);
 });

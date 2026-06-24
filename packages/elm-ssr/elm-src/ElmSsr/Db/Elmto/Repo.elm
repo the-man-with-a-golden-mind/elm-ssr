@@ -1,10 +1,12 @@
 module ElmSsr.Db.Elmto.Repo exposing
-    ( all, one
-    , insert, update, delete
+    ( all, one, get, getBy
+    , count, countWhere, exists
+    , insert, update, delete, insertAll
+    , validateUnique
     )
 
 import ElmSsr.Action as Action exposing (Action)
-import ElmSsr.Db.Elmto as Elmto exposing (Schema)
+import ElmSsr.Db.Elmto as Elmto exposing (Column(..), Schema)
 import ElmSsr.Db.Elmto.Changeset as Changeset exposing (Changeset)
 import ElmSsr.Db.Elmto.Compiler as Compiler exposing (Dialect(..))
 import ElmSsr.Db.Elmto.Query as Query exposing (Query)
@@ -29,6 +31,118 @@ one dialect query =
             Compiler.compileSelect dialect query
     in
     Loader.queryOne { sql = c.sql, params = c.params, decoder = c.decoder }
+
+
+get : Dialect -> Schema record -> Int -> Loader (Maybe record)
+get dialect schema id =
+    let
+        idColumn =
+            Elmto.column "id" Encode.int
+
+        query =
+            Query.from schema
+                |> Query.where_ (Query.eq id idColumn)
+                |> Query.limit 1
+
+        c =
+            Compiler.compileSelect dialect query
+    in
+    Loader.queryOne { sql = c.sql, params = c.params, decoder = c.decoder }
+
+
+getBy : Dialect -> Schema record -> Query.Expression record -> Loader (Maybe record)
+getBy dialect schema expr =
+    let
+        query =
+            Query.from schema
+                |> Query.where_ expr
+                |> Query.limit 1
+
+        c =
+            Compiler.compileSelect dialect query
+    in
+    Loader.queryOne { sql = c.sql, params = c.params, decoder = c.decoder }
+
+
+count : Dialect -> Schema record -> Loader Int
+count dialect schema =
+    let
+        sql =
+            Compiler.toDialectSql dialect ("SELECT COUNT(*) AS count FROM " ++ Elmto.tableName schema)
+    in
+    Loader.queryOne { sql = sql, params = [], decoder = Decode.field "count" Decode.int }
+        |> Loader.map (Maybe.withDefault 0)
+
+
+countWhere : Dialect -> Schema record -> Query.Expression record -> Loader Int
+countWhere dialect schema expr =
+    let
+        baseSql =
+            "SELECT COUNT(*) AS count FROM " ++ Elmto.tableName schema
+
+        whereSql =
+            " WHERE " ++ Query.expressionSql identity expr
+
+        sql =
+            Compiler.toDialectSql dialect (baseSql ++ whereSql)
+    in
+    Loader.queryOne { sql = sql, params = Query.expressionParams expr, decoder = Decode.field "count" Decode.int }
+        |> Loader.map (Maybe.withDefault 0)
+
+
+exists : Dialect -> Schema record -> Query.Expression record -> Loader Bool
+exists dialect schema expr =
+    countWhere dialect schema expr
+        |> Loader.map (\n -> n > 0)
+
+
+validateUnique : Dialect -> Schema record -> Column record a -> a -> Changeset record -> Loader (Changeset record)
+validateUnique dialect schema col value changeset =
+    if not changeset.isValid then
+        Loader.succeed changeset
+
+    else
+        let
+            colName =
+                Elmto.columnName col
+
+            query =
+                Query.from schema
+                    |> Query.where_ (Query.eq value col)
+                    |> Query.limit 1
+
+            c =
+                Compiler.compileSelect dialect query
+        in
+        Loader.queryOne { sql = c.sql, params = c.params, decoder = Elmto.decoder schema }
+            |> Loader.map
+                (\existing ->
+                    case existing of
+                        Just _ ->
+                            let
+                                newErrors =
+                                    ( colName, "has already been taken" ) :: changeset.errors
+                            in
+                            { changeset | errors = newErrors, isValid = False }
+
+                        Nothing ->
+                            changeset
+                )
+
+
+insertAll : Dialect -> Schema record -> List (Changeset record) -> Action (List (Result (Changeset record) record))
+insertAll dialect schema changesets =
+    List.foldl
+        (\cs accAction ->
+            accAction
+                |> Action.andThen
+                    (\acc ->
+                        insert dialect schema cs
+                            |> Action.map (\result -> acc ++ [ result ])
+                    )
+        )
+        (Action.succeed [])
+        changesets
 
 
 insert : Dialect -> Schema record -> Changeset record -> Action (Result (Changeset record) record)

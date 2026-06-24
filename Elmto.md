@@ -227,10 +227,54 @@ Query.groupBy
 
 The wrapper erases the column value type for the list while preserving that the column belongs to the same record/schema.
 
+## Extended Repo Helpers
+
+```elm
+-- Fetch by primary key (int id field)
+get : Dialect -> Schema record -> Int -> Loader (Maybe record)
+
+-- Fetch by any expression
+getBy : Dialect -> Schema record -> Expression record -> Loader (Maybe record)
+
+-- Count all rows
+count : Dialect -> Schema record -> Loader Int
+
+-- Count rows matching an expression
+countWhere : Dialect -> Schema record -> Expression record -> Loader Int
+
+-- Check whether any row matches an expression
+exists : Dialect -> Schema record -> Expression record -> Loader Bool
+
+-- Pre-insert uniqueness check; adds "has already been taken" to the changeset on collision
+validateUnique : Dialect -> Schema record -> Column record a -> a -> Changeset record -> Loader (Changeset record)
+
+-- Sequential batch insert; returns a result per changeset
+insertAll : Dialect -> Schema record -> List (Changeset record) -> Action (List (Result (Changeset record) record))
+```
+
+Example uniqueness pattern:
+
+```elm
+Action.fromLoader (Repo.validateUnique SQLite userSchema emailCol attrs.email changeset)
+    |> Action.andThen (\cs -> Repo.insert SQLite userSchema cs)
+```
+
+## Additional WHERE Operators
+
+```elm
+notInList : List a -> Column record a -> Expression record
+between : a -> a -> Column record a -> Expression record
+ilike : String -> Column record a -> Expression record  -- PostgreSQL ILIKE (case-insensitive LIKE)
+```
+
+`notInList []` compiles to `1 = 1` (vacuously true) so pipelines stay composable.
+
 ## Current Limits
 
 - SQLite `RIGHT JOIN` and `FULL JOIN` require a SQLite version that supports them. For older SQLite versions, prefer `INNER JOIN` / `LEFT JOIN` or raw SQL fallback.
+- `ilike` emits `ILIKE` which is PostgreSQL-specific; it will fail at runtime on SQLite.
 - Complex SQL features such as CTEs, window functions, subqueries, lateral joins, `HAVING` against custom SQL expressions, and vendor-specific operators remain raw SQL territory.
+- Transactions are not yet supported; each `Repo.*` call is an independent effect.
 
 ## Verification
 

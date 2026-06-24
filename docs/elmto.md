@@ -116,11 +116,53 @@ Combine predicates with `havingAnd` and `havingOr`.
 ```elm
 Repo.all dialect statsQuery
 Repo.one dialect statsQuery
+Repo.get dialect userSchema 42
+Repo.getBy dialect userSchema (Query.eq "alice@example.com" emailCol)
 ```
 
 `dialect` is `Compiler.SQLite` or `Compiler.PostgreSQL`.
 
+## Counting and Existence
+
+```elm
+Repo.count dialect userSchema               -- SELECT COUNT(*) FROM users
+Repo.countWhere dialect userSchema expr     -- SELECT COUNT(*) FROM users WHERE …
+Repo.exists dialect userSchema expr         -- true / false
+```
+
+## Uniqueness Validation
+
+Check before insert — avoids a changeset that would fail a DB constraint silently:
+
+```elm
+Action.fromLoader (Repo.validateUnique dialect userSchema emailCol email changeset)
+    |> Action.andThen (\cs -> Repo.insert dialect userSchema cs)
+```
+
+Returns the changeset unchanged if the value is unique; adds `(field, "has already been taken")` if not.
+
+## Batch Insert
+
+```elm
+Repo.insertAll dialect userSchema changesets
+-- : Action (List (Result (Changeset record) record))
+```
+
+Runs inserts sequentially and returns one `Result` per changeset.
+
+## Additional WHERE Operators
+
+```elm
+Query.notInList [ 1, 2, 3 ] idCol      -- id NOT IN (?, ?, ?)
+Query.between 18 65 ageCol             -- age BETWEEN ? AND ?
+Query.ilike "%alice%" nameCol          -- name ILIKE ?  (PostgreSQL only)
+```
+
+`notInList []` compiles to `1 = 1` so an empty exclusion list is safe.
+
 ## Limits
 
 - SQLite `RIGHT JOIN` and `FULL JOIN` require a SQLite version that supports them.
+- `ilike` is PostgreSQL-specific; do not use it on SQLite paths.
+- Transactions are not yet supported; each Repo call is a separate effect.
 - Use raw SQL for CTEs, window functions, subqueries, lateral joins, vendor-specific operators, `HAVING` against custom SQL expressions, or very complex analytical SQL.

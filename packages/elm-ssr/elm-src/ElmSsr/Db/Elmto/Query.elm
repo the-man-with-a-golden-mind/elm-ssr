@@ -6,7 +6,7 @@ module ElmSsr.Db.Elmto.Query exposing
     , asc, desc, ascJoined, descJoined
     , countOf, joinedCountOf, sumOf, joinedSumOf, avgOf, joinedAvgOf, minOf, joinedMinOf, maxOf, joinedMaxOf
     , having, havingEq, havingNeq, havingGt, havingGte, havingLt, havingLte, havingAnd, havingOr
-    , eq, neq, gt, gte, lt, lte, like, inList, isNull, isNotNull, and, or
+    , eq, neq, gt, gte, lt, lte, like, ilike, inList, notInList, between, isNull, isNotNull, and, or
     , toParts, expressionSql, expressionParams, selectionSql, joinSql, groupBySql, orderSql, havingSql, havingParams
     )
 
@@ -404,6 +404,11 @@ like search (Elmto.Column colName _) =
     Expression (\qualify -> qualify colName ++ " LIKE ?") [ Encode.string search ]
 
 
+ilike : String -> Column record a -> Expression record
+ilike search (Elmto.Column colName _) =
+    Expression (\qualify -> qualify colName ++ " ILIKE ?") [ Encode.string search ]
+
+
 inList : List a -> Column record a -> Expression record
 inList values (Elmto.Column colName encoder) =
     let
@@ -411,6 +416,24 @@ inList values (Elmto.Column colName encoder) =
             List.map (\_ -> "?") values |> String.join ", "
     in
     Expression (\qualify -> qualify colName ++ " IN (" ++ placeholders ++ ")") (List.map encoder values)
+
+
+notInList : List a -> Column record a -> Expression record
+notInList values (Elmto.Column colName encoder) =
+    if List.isEmpty values then
+        Expression (\_ -> "1 = 1") []
+
+    else
+        let
+            placeholders =
+                List.map (\_ -> "?") values |> String.join ", "
+        in
+        Expression (\qualify -> qualify colName ++ " NOT IN (" ++ placeholders ++ ")") (List.map encoder values)
+
+
+between : a -> a -> Column record a -> Expression record
+between low high (Elmto.Column colName encoder) =
+    Expression (\qualify -> qualify colName ++ " BETWEEN ? AND ?") [ encoder low, encoder high ]
 
 
 isNull : Column record a -> Expression record

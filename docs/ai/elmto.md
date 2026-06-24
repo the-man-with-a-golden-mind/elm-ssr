@@ -152,9 +152,38 @@ PostgreSQL aggregate compilation casts:
 
 SQLite aggregate compilation does not add casts.
 
+## Extended Repo API
+
+```elm
+get         : Dialect -> Schema record -> Int -> Loader (Maybe record)
+getBy       : Dialect -> Schema record -> Expression record -> Loader (Maybe record)
+count       : Dialect -> Schema record -> Loader Int
+countWhere  : Dialect -> Schema record -> Expression record -> Loader Int
+exists      : Dialect -> Schema record -> Expression record -> Loader Bool
+validateUnique : Dialect -> Schema record -> Column record a -> a -> Changeset record -> Loader (Changeset record)
+insertAll   : Dialect -> Schema record -> List (Changeset record) -> Action (List (Result (Changeset record) record))
+```
+
+`validateUnique` runs a `SELECT … LIMIT 1` and adds `(fieldName, "has already been taken")` to the changeset on collision. Skips the query when the changeset is already invalid.
+
+```elm
+Action.fromLoader (Repo.validateUnique dialect userSchema emailCol email changeset)
+    |> Action.andThen (\cs -> Repo.insert dialect userSchema cs)
+```
+
+## Additional WHERE Operators
+
+```elm
+notInList : List a -> Column record a -> Expression record   -- col NOT IN (?, …); empty list → 1 = 1
+between   : a -> a -> Column record a -> Expression record   -- col BETWEEN ? AND ?
+ilike     : String -> Column record a -> Expression record   -- col ILIKE ? (PostgreSQL only)
+```
+
 ## Current Limits
 
 - `RIGHT JOIN` and `FULL JOIN` depend on SQLite version support.
+- `ilike` is PostgreSQL-specific; emits `ILIKE` which is a syntax error on SQLite.
+- Transactions not yet supported — each Repo call is a separate SQL effect.
 - Use `Loader.query` / `Loader.execute` for CTEs, window functions, subqueries, lateral joins, `HAVING` against custom SQL expressions, and vendor-specific SQL.
 
 ## Tests
