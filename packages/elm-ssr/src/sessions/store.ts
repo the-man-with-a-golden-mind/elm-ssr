@@ -2,9 +2,10 @@ import type { CacheBackend } from "../backends";
 import type { SessionRecord, SessionStore } from "./types";
 
 /** In-memory session store. Survives only as long as the process. */
-export const memorySessionStore = (initial?: Map<string, SessionRecord>): SessionStore => {
+export const memorySessionStore = (initial?: Map<string, SessionRecord>): SessionStore & { store: Map<string, SessionRecord> } => {
   const store = initial ?? new Map<string, SessionRecord>();
   return {
+    store,
     get: async (id) => {
       const record = store.get(id);
       if (!record) {

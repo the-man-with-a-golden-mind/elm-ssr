@@ -1,4 +1,5 @@
 import type {
+  Middleware,
   RenderFlagsFactory,
   RouteCatalog,
   WorkerExecutionContext,
@@ -50,6 +51,7 @@ export interface WorkerAppOptions {
    * skip paths.
    */
   csrf?: CsrfMiddlewareOptions | boolean;
+  middlewares?: Middleware[];
   debug?: boolean;
 }
 
@@ -64,6 +66,7 @@ export const createWorkerApp = ({
   log,
   sessions,
   csrf,
+  middlewares,
   debug
 }: WorkerAppOptions): WorkerHandler => {
   const isDev = typeof process !== "undefined" && process.env ? (process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test") : false;
@@ -83,21 +86,24 @@ export const createWorkerApp = ({
     debug: enableDebug
   });
 
-  const middlewares = [
+  const middlewaresList = [
     errorMiddleware,
     requestIdMiddleware,
     timingMiddleware,
     loggingMiddleware(log)
   ];
   if (sessions) {
-    middlewares.push(sessionMiddleware(sessions));
+    middlewaresList.push(sessionMiddleware(sessions));
     if (csrf) {
-      middlewares.push(csrfMiddleware(csrf === true ? {} : csrf));
+      middlewaresList.push(csrfMiddleware(csrf === true ? {} : csrf));
     }
   }
-  middlewares.push(headMiddleware);
+  if (middlewares) {
+    middlewaresList.push(...middlewares);
+  }
+  middlewaresList.push(headMiddleware);
 
-  const appHandler = composeMiddleware(handler, middlewares);
+  const appHandler = composeMiddleware(handler, middlewaresList);
 
   return {
     fetch(request: Request, env?: unknown, executionCtx?: WorkerExecutionContext) {

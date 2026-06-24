@@ -543,8 +543,9 @@ describe("elm-ssr CLI", () => {
     // E2E Verification: load the worker and simulate requests to verify session middleware
     const runtimePath = resolve(root, "auth-app/runtime.ts");
     delete (globalThis as any).Elm;
-    const { worker } = (await import(runtimePath)) as { worker: any };
+    const { worker, sessionStore } = (await import(runtimePath)) as { worker: any; sessionStore: any };
     expect(worker).toBeDefined();
+    expect(sessionStore).toBeDefined();
 
     // 1. GET / should return 200 OK
     const res1 = await worker.fetch(new Request("http://localhost/"));
@@ -558,10 +559,96 @@ describe("elm-ssr CLI", () => {
     const html2 = await res2.text();
     expect(html2).toContain("Sign In with Auth Provider");
 
-    // 3. GET /profile should redirect to /login (requireUser route guard)
+    // 3. GET /profile (unauthenticated) should redirect to /login (requireUser route guard)
     const res3 = await worker.fetch(new Request("http://localhost/profile"));
     expect(res3.status).toBe(302);
     expect(res3.headers.get("location")).toBe("/login");
+
+    // 4. GET /api/auth/login (perform login) -> should redirect to /profile and set session cookie
+    const loginRes = await worker.fetch(new Request("http://localhost/api/auth/login"));
+    expect(loginRes.status).toBe(302);
+    expect(loginRes.headers.get("location")).toBe("/profile");
+    const cookieHeader = loginRes.headers.get("set-cookie");
+    expect(cookieHeader).toContain("session=");
+
+    // Extract the raw cookie value
+    const sessionCookie = cookieHeader ? cookieHeader.split(";")[0] : "";
+    expect(sessionCookie).not.toBe("");
+
+    // 5. GET /profile (authenticated) with valid cookie -> should return 200 OK and show profile
+    const profileRes = await worker.fetch(new Request("http://localhost/profile", {
+      headers: { "cookie": sessionCookie }
+    }));
+    expect(profileRes.status).toBe(200);
+    const profileHtml = await profileRes.text();
+    expect(profileHtml).toContain("Welcome, BetterAuth User");
+    expect(profileHtml).toContain("Sign Out");
+
+    // 6. GET /profile with corrupt/invalid cookie -> should redirect to /login
+    const corruptRes = await worker.fetch(new Request("http://localhost/profile", {
+      headers: { "cookie": "session=invalid-signed-cookie-payload" }
+    }));
+    expect(corruptRes.status).toBe(302);
+    expect(corruptRes.headers.get("location")).toBe("/login");
+
+    // 7. GET /profile with expired cookie -> should redirect to /login
+    // We can simulate session expiration by editing the session entry in the memory store
+    let sessionId: string | undefined;
+    for (const [id, entry] of sessionStore.store.entries()) {
+      if (entry.data !== null) {
+        sessionId = id;
+        break;
+      }
+    }
+    expect(sessionId).toBeDefined();
+    const sessionEntry = sessionStore.store.get(sessionId!);
+    expect(sessionEntry).toBeDefined();
+    
+    // Set expiresAt to the past (expired)
+    sessionStore.store.set(sessionId!, {
+      ...sessionEntry,
+      expiresAt: Date.now() - 1000 // 1 second ago
+    });
+
+    const expiredRes = await worker.fetch(new Request("http://localhost/profile", {
+      headers: { "cookie": sessionCookie }
+    }));
+    expect(expiredRes.status).toBe(302);
+    expect(expiredRes.headers.get("location")).toBe("/login");
+    // Verify it was deleted from the store
+    expect(sessionStore.store.has(sessionId!)).toBe(false);
+
+    // Let's create a fresh login for logout testing
+    const loginRes2 = await worker.fetch(new Request("http://localhost/api/auth/login"));
+    const cookieHeader2 = loginRes2.headers.get("set-cookie");
+    const sessionCookie2 = cookieHeader2 ? cookieHeader2.split(";")[0] : "";
+    
+    let sessionId2: string | undefined;
+    for (const [id, entry] of sessionStore.store.entries()) {
+      if (entry.data !== null) {
+        sessionId2 = id;
+        break;
+      }
+    }
+    expect(sessionId2).toBeDefined();
+    expect(sessionStore.store.has(sessionId2!)).toBe(true);
+
+    // 8. GET /api/auth/logout with valid cookie -> should redirect to /login, clear cookie, and delete from store
+    const logoutRes = await worker.fetch(new Request("http://localhost/api/auth/logout", {
+      headers: { "cookie": sessionCookie2 }
+    }));
+    expect(logoutRes.status).toBe(302);
+    expect(logoutRes.headers.get("location")).toBe("/login");
+    expect(logoutRes.headers.get("set-cookie")).toContain("session=;");
+    // Verify session is deleted from the store
+    expect(sessionStore.store.has(sessionId2!)).toBe(false);
+
+    // 9. GET /profile after logout -> should redirect to /login
+    const postLogoutRes = await worker.fetch(new Request("http://localhost/profile", {
+      headers: { "cookie": sessionCookie2 }
+    }));
+    expect(postLogoutRes.status).toBe(302);
+    expect(postLogoutRes.headers.get("location")).toBe("/login");
 
     // 2. Invalid provider
     const badCommand = Bun.spawn(
@@ -605,8 +692,9 @@ describe("elm-ssr CLI", () => {
 
     const runtimePath = resolve(root, "runtime.ts");
     delete (globalThis as any).Elm;
-    const { worker } = (await import(runtimePath)) as { worker: any };
+    const { worker, sessionStore } = (await import(runtimePath)) as { worker: any; sessionStore: any };
     expect(worker).toBeDefined();
+    expect(sessionStore).toBeDefined();
 
     const res1 = await worker.fetch(new Request("http://localhost/"));
     expect(res1.status).toBe(200);
@@ -616,6 +704,25 @@ describe("elm-ssr CLI", () => {
 
     const res3 = await worker.fetch(new Request("http://localhost/profile"));
     expect(res3.status).toBe(302);
+
+    // E2E login validation
+    const loginRes = await worker.fetch(new Request("http://localhost/api/auth/login"));
+    expect(loginRes.status).toBe(302);
+    const cookie = loginRes.headers.get("set-cookie")?.split(";")[0] ?? "";
+    expect(cookie).toContain("session=");
+
+    // Profile access with session cookie
+    const profileRes = await worker.fetch(new Request("http://localhost/profile", {
+      headers: { "cookie": cookie }
+    }));
+    expect(profileRes.status).toBe(200);
+
+    // Logout validation
+    const logoutRes = await worker.fetch(new Request("http://localhost/api/auth/logout", {
+      headers: { "cookie": cookie }
+    }));
+    expect(logoutRes.status).toBe(302);
+    expect(logoutRes.headers.get("set-cookie")).toContain("session=;");
   }, 15000);
 
   it("scaffolds a new app with --auth auth0 and compiles/fetches successfully", async () => {
@@ -651,8 +758,9 @@ describe("elm-ssr CLI", () => {
 
     const runtimePath = resolve(root, "auth0-app/runtime.ts");
     delete (globalThis as any).Elm;
-    const { worker } = (await import(runtimePath)) as { worker: any };
+    const { worker, sessionStore } = (await import(runtimePath)) as { worker: any; sessionStore: any };
     expect(worker).toBeDefined();
+    expect(sessionStore).toBeDefined();
 
     const res1 = await worker.fetch(new Request("http://localhost/"));
     expect(res1.status).toBe(200);
@@ -662,6 +770,25 @@ describe("elm-ssr CLI", () => {
 
     const res3 = await worker.fetch(new Request("http://localhost/profile"));
     expect(res3.status).toBe(302);
+
+    // E2E login validation
+    const loginRes = await worker.fetch(new Request("http://localhost/api/auth/login"));
+    expect(loginRes.status).toBe(302);
+    const cookie = loginRes.headers.get("set-cookie")?.split(";")[0] ?? "";
+    expect(cookie).toContain("session=");
+
+    // Profile access with session cookie
+    const profileRes = await worker.fetch(new Request("http://localhost/profile", {
+      headers: { "cookie": cookie }
+    }));
+    expect(profileRes.status).toBe(200);
+
+    // Logout validation
+    const logoutRes = await worker.fetch(new Request("http://localhost/api/auth/logout", {
+      headers: { "cookie": cookie }
+    }));
+    expect(logoutRes.status).toBe(302);
+    expect(logoutRes.headers.get("set-cookie")).toContain("session=;");
   }, 15000);
 
   it("scaffolds a new app with --tailwind option and verifies config and file generation", async () => {

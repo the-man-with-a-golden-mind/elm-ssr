@@ -368,7 +368,7 @@ view user =
         }
 `;
 
-const authEndpointTemplate = (authProvider) => `import { generateSessionId, signValue, generateCsrfToken } from "elm-ssr/sessions";
+const authEndpointTemplate = (authProvider) => `import { generateSessionId, signValue, generateCsrfToken, readSignedCookie } from "elm-ssr/sessions";
 
 export const handleAuth = async (
   request: Request,
@@ -406,6 +406,13 @@ export const handleAuth = async (
     let cookieVal = "__elm_ssr_session=; Path=/; Max-Age=0; HttpOnly";
     if (options?.store && options?.secret) {
       cookieVal = "session=; Path=/; Max-Age=0; HttpOnly";
+      const cookieHeader = request.headers.get("cookie");
+      if (cookieHeader) {
+        const sessionId = await readSignedCookie(cookieHeader, "session", options.secret);
+        if (sessionId) {
+          await options.store.delete(sessionId);
+        }
+      }
     }
     return new Response(null, {
       status: 302,
@@ -498,7 +505,7 @@ if (typeof Bun !== "undefined") {
   let sessionsConfig = '';
   let authInit = '';
   if (auth) {
-    authInit = `\nconst sessionStore = memorySessionStore();\n`;
+    authInit = `\nexport const sessionStore = memorySessionStore();\n`;
     sessionsConfig = `,
   sessions: {
     secret: (env) => (env?.SESSION_SECRET as string) || "change-me-to-a-secure-random-hmac-secret-key-that-is-at-least-32-chars",

@@ -3,6 +3,14 @@
 All notable changes to the `elm-ssr` package. Dates are ISO; "Unreleased" lives
 at the top until a version is cut.
 
+## 0.91.5 — 2026-06-24
+
+### Fixed
+
+- **Public sessions exports**: Exported `readSignedCookie` from `packages/elm-ssr/src/sessions/middleware.ts` and publicly re-exported it in `packages/elm-ssr/src/sessions/index.ts` so that scaffolded auth handlers/endpoints can successfully import it from `elm-ssr/sessions`.
+- **Memory session store inspectability**: Exposed the internal `store` Map on `memorySessionStore()` so test suites can inspect and modify session entries.
+- **E2E CLI Scaffolding Tests**: Fixed session identification in test cases to filter store entries by non-null `data` presence instead of assuming insertion order.
+
 ## 0.91.4 — 2026-06-24
 
 ### Fixed

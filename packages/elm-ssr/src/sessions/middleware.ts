@@ -50,7 +50,7 @@ const appendSetCookie = (response: Response, header: string): Response => {
   });
 };
 
-const readSignedCookie = async (header: string | null, name: string, secret: string): Promise<string | null> => {
+export const readSignedCookie = async (header: string | null, name: string, secret: string): Promise<string | null> => {
   if (!header) {
     return null;
   }
@@ -104,14 +104,21 @@ export const sessionMiddleware = (options: SessionMiddlewareOptions): Middleware
     if (sessionId) {
       const existing = await options.store.get(sessionId);
       if (existing) {
-        session = {
-          id: sessionId,
-          data: existing.data,
-          csrf: existing.csrf,
-          dirty: false,
-          destroyed: false,
-          isNew: false
-        };
+        if (existing.expiresAt && Date.now() > existing.expiresAt) {
+          // Session expired
+          await options.store.delete(sessionId);
+          session = mintSession();
+          session.destroyed = true; // Ensure the cookie gets cleared as well
+        } else {
+          session = {
+            id: sessionId,
+            data: existing.data,
+            csrf: existing.csrf,
+            dirty: false,
+            destroyed: false,
+            isNew: false
+          };
+        }
       } else {
         session = mintSession();
       }

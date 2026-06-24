@@ -6,6 +6,7 @@ export { memorySessionStore, cacheStore, type CacheStoreOptions } from "./store"
 export {
   sessionMiddleware,
   csrfMiddleware,
+  readSignedCookie,
   type SessionMiddlewareOptions,
   type CsrfMiddlewareOptions
 } from "./middleware";
