@@ -3,6 +3,17 @@
 All notable changes to the `elm-ssr` package. Dates are ISO; "Unreleased" lives
 at the top until a version is cut.
 
+## 0.91.6 — 2026-06-24
+
+### Added
+
+- **Cloudflare Effects Adapter Unit Tests**: Added detailed unit tests for the KV/D1/env adapters in `cloudflareEffects`.
+- **Soft Routing Redirect Unit Tests**: Added unit tests validating redirects in the client-side render API.
+
+### Fixed
+
+- **Tailwind CSS Compilation**: Made Tailwind CSS compilation in the build command more robust by executing the package binary directly using the workspace-local `tailwindcss` installation, and added `tailwindcss: 3.4.17` dependency to `packages/elm-ssr`.
+
 ## 0.91.5 — 2026-06-24
 
 ### Fixed
