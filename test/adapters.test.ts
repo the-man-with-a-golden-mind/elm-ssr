@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { defaultEffectRunner, inMemoryEffects } from "elm-ssr/effects";
+import { cloudflareEffects, defaultEffectRunner, inMemoryEffects } from "elm-ssr/effects";
 import { postgresSql, redisCache, withCache, type CacheClient, type SqlClient } from "elm-ssr/backends";
 import { createQueueConsumer, withQueueProducer, type QueueBatch } from "elm-ssr/tasks";
 
@@ -105,6 +105,105 @@ describe("postgresSql (SQL adapter)", () => {
     const handler = postgresSql(fakeSql([], 3));
     const value = await handler({ sql: "DELETE FROM t", params: [], mode: "run" });
     expect(value).toEqual({ rowsAffected: 3 });
+  });
+});
+
+describe("cloudflareEffects (KV/D1/env adapter)", () => {
+  const fakeKv = () => {
+    const store = new Map<string, unknown>();
+    const ttls = new Map<string, number | undefined>();
+    return {
+      store,
+      ttls,
+      binding: {
+        get: async (key: string) => store.get(key) ?? null,
+        put: async (key: string, value: string, options?: { expirationTtl?: number }) => {
+          store.set(key, JSON.parse(value));
+          ttls.set(key, options?.expirationTtl);
+        },
+        delete: async (key: string) => {
+          store.delete(key);
+        }
+      }
+    };
+  };
+
+  const fakeD1 = () => {
+    const calls: Array<{ sql: string; params: unknown[]; mode: "all" | "first" | "run" }> = [];
+    return {
+      calls,
+      binding: {
+        prepare: (sql: string) => ({
+          bind: (...params: unknown[]) => ({
+            all: async () => {
+              calls.push({ sql, params, mode: "all" });
+              return { results: [{ id: 1 }, { id: 2 }] };
+            },
+            first: async () => {
+              calls.push({ sql, params, mode: "first" });
+              return { id: 1 };
+            },
+            run: async () => {
+              calls.push({ sql, params, mode: "run" });
+              return { meta: { changes: 3 } };
+            }
+          })
+        })
+      }
+    };
+  };
+
+  it("round-trips cache effects through a KV-like binding", async () => {
+    const kv = fakeKv();
+    const runner = cloudflareEffects();
+
+    const put = await runner(
+      { kind: "cachePut", payload: { key: "settings", value: { theme: "dark" }, ttlSeconds: 30 } },
+      { env: { CACHE: kv.binding } }
+    );
+    const get = await runner({ kind: "cacheGet", payload: { key: "settings" } }, { env: { CACHE: kv.binding } });
+
+    expect(put).toEqual({ ok: true, value: null });
+    expect(get).toEqual({ ok: true, value: { theme: "dark" } });
+    expect(kv.ttls.get("settings")).toBe(30);
+  });
+
+  it("maps query, queryOne, and execute to a D1-like binding", async () => {
+    const d1 = fakeD1();
+    const runner = cloudflareEffects();
+    const context = { env: { DB: d1.binding } };
+
+    await expect(runner({ kind: "query", payload: { sql: "SELECT * FROM t WHERE x = ?", params: [42] } }, context))
+      .resolves.toEqual({ ok: true, value: [{ id: 1 }, { id: 2 }] });
+    await expect(runner({ kind: "queryOne", payload: { sql: "SELECT * FROM t LIMIT 1", params: [] } }, context))
+      .resolves.toEqual({ ok: true, value: { id: 1 } });
+    await expect(runner({ kind: "execute", payload: { sql: "DELETE FROM t", params: ["old"] } }, context))
+      .resolves.toEqual({ ok: true, value: { rowsAffected: 3 } });
+
+    expect(d1.calls).toEqual([
+      { sql: "SELECT * FROM t WHERE x = ?", params: [42], mode: "all" },
+      { sql: "SELECT * FROM t LIMIT 1", params: [], mode: "first" },
+      { sql: "DELETE FROM t", params: ["old"], mode: "run" }
+    ]);
+  });
+
+  it("reads string env values and treats non-strings as absent", async () => {
+    const runner = cloudflareEffects();
+
+    expect(await runner({ kind: "env", payload: { name: "GREETING" } }, { env: { GREETING: "hello" } }))
+      .toEqual({ ok: true, value: "hello" });
+    expect(await runner({ kind: "env", payload: { name: "COUNT" } }, { env: { COUNT: 3 } }))
+      .toEqual({ ok: true, value: null });
+  });
+
+  it("fails clearly when required Cloudflare bindings are missing", async () => {
+    const runner = cloudflareEffects({ cacheBinding: "APP_CACHE", dbBinding: "APP_DB" });
+
+    const cache = await runner({ kind: "cacheGet", payload: { key: "x" } }, { env: {} });
+    const sql = await runner({ kind: "query", payload: { sql: "SELECT 1", params: [] } }, { env: {} });
+
+    expect(cache).toEqual({ ok: false, error: 'Missing KV binding "APP_CACHE"' });
+    expect(sql).toEqual({ ok: false, error: 'Missing D1 binding "APP_DB"' });
   });
 });
 

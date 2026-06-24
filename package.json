@@ -17,6 +17,7 @@
     "test": "docker compose up -d --wait && (DATABASE_URL=postgres://elmssr:elmssr@localhost:5432/elmssr REDIS_URL=redis://localhost:6379 sh -c 'bun run build && bun test'; ec=$?; docker compose down; exit $ec)",
     "test:unit": "bun run build && bun test $(find test -name '*.test.ts' -not -path '*/integration/*')",
     "test:integration": "docker compose up -d --wait && (DATABASE_URL=postgres://elmssr:elmssr@localhost:5432/elmssr REDIS_URL=redis://localhost:6379 sh -c 'bun run build && bun test test/integration/'; ec=$?; docker compose down; exit $ec)",
+    "test:release": "bun run check && bun run test:unit && bun run test:integration",
     "bench": "bun run build && bun run scripts/benchmark.mjs",
     "dev": "bun run build && ./node_modules/.bin/wrangler dev",
     "deploy": "bun run build && ./node_modules/.bin/wrangler deploy"
@@ -25,8 +26,8 @@
     "bun": ">=1.3"
   },
   "devDependencies": {
-    "elm-ssr": "workspace:*",
     "elm": "^0.19.1-6",
+    "elm-ssr": "workspace:*",
     "happy-dom": "^20.9.0",
     "typescript": "^5.9.0",
     "wrangler": "^4.0.0"

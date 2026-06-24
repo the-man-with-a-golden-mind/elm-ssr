@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { createWorkerApp } from "elm-ssr";
-import { routes, createFlags, exampleEffects } from "../examples/basic/runtime";
+import { createSessionExampleWorker, routes, createFlags, exampleEffects } from "../examples/basic/runtime";
 // @ts-expect-error Generated at build time.
 import ElmRuntime from "../generated/examples/basic/app.mjs";
 import { islands, bundleSource } from "../generated/examples/basic/islands-manifest";
@@ -58,8 +58,12 @@ describe("Advanced Robustness: Soft Routing API", () => {
   });
 
   it("handles routes that redirect in the render API", async () => {
-    // We don't have a redirect route in example yet, but we can check the logic
-    // in request-handler.ts: if (rendered.redirect) { return json({ redirect: ... }) }
+    const sessionWorker = createSessionExampleWorker();
+    const response = await sessionWorker.fetch(new Request("https://example.com/api/render?path=/dashboard"));
+    const body = await response.json() as { redirect?: string };
+
+    expect(response.status).toBe(200);
+    expect(body.redirect).toBe("/profile");
   });
 });
 

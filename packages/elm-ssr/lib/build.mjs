@@ -1,10 +1,6 @@
 import { mkdir, readdir, readFile, rm, writeFile, stat } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
 import { gzipSync } from "node:zlib";
-import { exec } from "node:child_process";
-import { promisify } from "node:util";
-
-const execAsync = promisify(exec);
 
 // This lib is part of elm-ssr. It handles generating Main.elm and 
 // compiling the route apps and island bundles.
@@ -203,21 +199,50 @@ main =
     await rm(rawOutputPath, { force: true });
   };
 
-const findLocalTailwind = async (startDir) => {
-  let current = resolve(startDir);
-  while (true) {
-    const candidate = resolve(current, "node_modules", ".bin", "tailwindcss");
-    try {
-      await stat(candidate);
-      return candidate;
-    } catch {
-      // ignore
-    }
-    const parent = dirname(current);
-    if (parent === current) break;
-    current = parent;
+const findLocalTailwindCli = async (startDir) => {
+  const candidate = resolve(startDir, "node_modules", "tailwindcss", "lib", "cli.js");
+  try {
+    await stat(candidate);
+    return candidate;
+  } catch {
+    return null;
   }
-  return null;
+};
+
+const runTailwind = async ({ rootPath, cliRoot, appRoot, inputPath, contentGlob }) => {
+  const tailwindSearchRoots = [
+    rootPath,
+    cliRoot,
+    resolve(cliRoot, "..", ".."),
+    process.cwd()
+  ];
+  let tailwindCli = null;
+  for (const searchRoot of [...new Set(tailwindSearchRoots)]) {
+    tailwindCli = await findLocalTailwindCli(searchRoot);
+    if (tailwindCli) {
+      break;
+    }
+  }
+
+  const command = tailwindCli
+    ? [process.execPath, tailwindCli]
+    : ["npx", "--yes", "tailwindcss"];
+
+  const child = Bun.spawn(
+    [...command, "-i", inputPath, "--content", contentGlob, "--minify"],
+    { cwd: appRoot, stdout: "pipe", stderr: "pipe" }
+  );
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+    child.exited
+  ]);
+
+  if (exitCode !== 0) {
+    throw new Error((stderr || stdout || `Tailwind exited with code ${exitCode}`).trim());
+  }
+
+  return stdout.toString().trim();
 };
 
   const compileStylesheet = async ({ inputPath, outputPath, appConfig, appRoot }) => {
@@ -234,17 +259,14 @@ const findLocalTailwind = async (startDir) => {
       try {
         console.log(`[elm-ssr] Compiling Tailwind CSS for app "${appConfig.name}"...`);
         const contentGlob = "src/**/*.elm,src/**/*.ts,src/**/*.js";
-        
-        let tailwindBin = await findLocalTailwind(rootPath);
-        if (!tailwindBin) {
-          tailwindBin = await findLocalTailwind(cliRoot);
-        }
-        const binCommand = tailwindBin ? tailwindBin : "npx --yes tailwindcss";
-
-        const command = `${binCommand} -i ${inputPath} --content "${contentGlob}" --minify`;
-        const { stdout } = await execAsync(command, { cwd: appRoot });
-        css = stdout.toString().trim();
+        css = await runTailwind({ rootPath, cliRoot, appRoot, inputPath, contentGlob });
       } catch (err) {
+        if (appConfig.tailwindFallback !== true) {
+          throw new Error(
+            `[elm-ssr] Tailwind CSS compilation failed for app "${appConfig.name}". ` +
+            `Install tailwindcss in the workspace or set "tailwindFallback": true for development-only fallback. ${err.message}`
+          );
+        }
         console.warn(`[elm-ssr] Tailwind CSS compilation failed. Falling back to plain CSS read. Error:`, err.message);
         const raw = await readFile(inputPath, "utf8");
         css = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\s+/g, " ").trim();
