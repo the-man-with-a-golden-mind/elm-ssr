@@ -6,6 +6,7 @@ Elmto is the Ecto-like database layer for `elm-ssr`. It provides typed schemas, 
 
 ```elm
 Query.from userSchema
+    |> Query.distinct
     |> Query.select
         [ Query.col nameCol
         , Query.count idCol
@@ -76,6 +77,54 @@ Query.ascJoined postSchema postTitleCol
 Query.descJoined postSchema postTitleCol
 ```
 
+For arbitrary `ON` clauses:
+
+```elm
+Query.joinOn Query.InnerJoin postSchema
+    (Query.onAnd
+        (Query.onEq idCol postUserIdCol)
+        (Query.onRight (Query.like "F%" postTitleCol))
+    )
+```
+
+For joined-to-joined chains:
+
+```elm
+Query.joinFrom Query.InnerJoin postSchema commentSchema
+    (Query.onEq postIdCol commentPostIdCol)
+```
+
+Available `ON` builders:
+
+```elm
+Query.onEq
+Query.onNeq
+Query.onGt
+Query.onGte
+Query.onLt
+Query.onLte
+Query.onLeft
+Query.onRight
+Query.onAnd
+Query.onOr
+```
+
+Subquery joins are also supported:
+
+```elm
+postsPerUser =
+    Query.from postSchema
+        |> Query.select
+            [ Query.col postUserIdCol
+            , Query.count postIdCol |> Query.as_ "post_count"
+            ]
+            postCountDecoder
+        |> Query.groupBy [ Query.groupByCol postUserIdCol ]
+
+Query.from userSchema
+    |> Query.joinSubquery Query.LeftJoin postCountSchema postsPerUser (Query.onEq idCol postUserIdCol)
+```
+
 ## Group By
 
 Use `groupByCol` to build heterogeneous grouping lists:
@@ -110,6 +159,12 @@ maxOf, joinedMaxOf
 ```
 
 Combine predicates with `havingAnd` and `havingOr`.
+
+Use `havingFragment` for raw aggregate predicates when the typed helpers are not enough:
+
+```elm
+Query.having (Query.havingFragment "COUNT(*) FILTER (WHERE age IS NOT NULL) > ?" [ Encode.int 1 ])
+```
 
 ## Execution
 
@@ -179,10 +234,46 @@ Runs inserts sequentially and returns one `Result` per changeset.
 ```elm
 Query.notInList [ 1, 2, 3 ] idCol      -- id NOT IN (?, ?, ?)
 Query.between 18 65 ageCol             -- age BETWEEN ? AND ?
-Query.ilike "%alice%" nameCol          -- name ILIKE ?  (PostgreSQL only)
+Query.ilike "%alice%" nameCol          -- LOWER(name) LIKE LOWER(?)
 ```
 
+`inList []` compiles to `1 = 0` so an empty inclusion list is safe.
 `notInList []` compiles to `1 = 1` so an empty exclusion list is safe.
+
+## Subqueries, CTEs, And Fragments
+
+```elm
+Query.fromSubquery postCountSchema postsPerUser
+    |> Query.where_ (Query.gte 2 postCountCol)
+
+Query.from postCountSchema
+    |> Query.withCte postCountSchema postsPerUser
+    |> Query.where_ (Query.gt 1 postCountCol)
+
+Query.where_ (Query.existsBy idCol postUserIdCol (Query.from postSchema))
+Query.where_ (Query.notExistsBy idCol postUserIdCol (Query.from postSchema))
+Query.where_ (Query.inSubquery idCol (Query.from postSchema |> Query.select [ Query.col postUserIdCol ] userIdDecoder))
+
+Query.select [ Query.selectFragment "UPPER(name)" [] "upper_name" ] upperNameDecoder
+Query.where_ (Query.fragment "name <> ?" [ Encode.string "Frank" ])
+```
+
+Available raw and relational builders:
+
+```elm
+fromSubquery
+withCte
+joinSubquery
+selectFragment
+fragment
+exists
+notExists
+existsBy
+notExistsBy
+inSubquery
+notInSubquery
+havingFragment
+```
 
 ## Transactions
 
@@ -206,6 +297,22 @@ Repo.transaction steps
 
 Requires `sqlTransaction` in `inMemoryEffects`. On Cloudflare D1 the runtime uses `db.batch` automatically.
 
+## Bulk Updates And Deletes
+
+```elm
+Repo.updateAll dialect userSchema (Query.isNull ageCol)
+    (Changeset.cast userSchema (Dict.fromList [ ( "age", Encode.int 50 ) ]))
+-- : Action (Result (Changeset User) Int)
+
+Repo.deleteAll dialect userSchema (Query.eq 50 ageCol)
+-- : Action Int
+```
+
+`updateAll` validates the changeset, compiles one `UPDATE ... WHERE ...`, and returns affected row count.
+Constraint violations come back as `Err changeset`, the same way `insert` and `update` do.
+
+`deleteAll` compiles one `DELETE ... WHERE ...` and returns `rowsAffected`.
+
 ## Associations
 
 ```elm
@@ -216,6 +323,17 @@ Repo.loadHasMany dialect postSchema postUserIdCol .userId users .id
 -- One query, no N+1. Matches each child to its parent.
 Repo.loadBelongsTo dialect userSchema .id .userId posts
     : Loader (List ( Post, Maybe User ))
+
+-- Same fetch pattern, but map directly into your result shape.
+Repo.preloadHasMany dialect postSchema postUserIdCol .userId .id
+    (\user posts -> { user = user, posts = posts })
+    users
+    : Loader (List { user : User, posts : List Post })
+
+Repo.preloadBelongsTo dialect userSchema .id .userId
+    (\post user -> { post = post, user = user })
+    posts
+    : Loader (List { post : Post, user : Maybe User })
 ```
 
 Both emit a single `WHERE fk IN (…)` query and zip results in Elm.
@@ -223,6 +341,6 @@ Both emit a single `WHERE fk IN (…)` query and zip results in Elm.
 ## Limits
 
 - SQLite `RIGHT JOIN` and `FULL JOIN` require a SQLite version that supports them.
-- `ilike` is PostgreSQL-specific; do not use it on SQLite paths.
+- `ilike` compiles to `LOWER(col) LIKE LOWER(?)`, so it works on SQLite and PostgreSQL, but it is not index-friendly unless the DB has matching functional indexes/collation strategy.
 - `Repo.transaction` cannot chain intermediate results — compile all SQL before calling.
-- Use raw SQL for CTEs, window functions, subqueries, lateral joins, vendor-specific operators, `HAVING` against custom SQL expressions, or very complex analytical SQL.
+- Use raw SQL for window functions, lateral joins, vendor-specific operators, or very complex analytical SQL.

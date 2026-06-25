@@ -115,6 +115,7 @@ interface D1StatementLike {
 
 interface D1DatabaseLike {
   prepare(sql: string): D1StatementLike;
+  batch(statements: D1StatementLike[]): Promise<D1ResultLike[]>;
 }
 
 export interface CloudflareEffectsConfig {
@@ -206,7 +207,7 @@ export const cloudflareEffects = (config: CloudflareEffectsConfig = {}): EffectR
           const result = await statement.run();
           return { ok: true, value: { rowsAffected: result.meta?.changes ?? 0 } };
         } catch (error) {
-          const parsed = parseConstraintError(String(error));
+          const parsed = parseConstraintError(error);
           if (parsed) return { ok: true, value: { constraintError: parsed } };
           return { ok: false, error: String(error) };
         }
@@ -232,29 +233,34 @@ export interface SqlQuery {
   mode: "all" | "first" | "run";
 }
 
-function parseConstraintError(msg: string): { kind: string; field: string | null } | null {
+function parseConstraintError(error: unknown): { kind: string; field: string | null } | null {
+  const record = isRecord(error) ? error : null;
+  const msg = String(error);
+  const detail = typeof record?.detail === "string" ? record.detail : "";
+  const combined = detail ? `${msg}\n${detail}` : msg;
+
   // SQLite: "SQLITE_CONSTRAINT: UNIQUE constraint failed: table.column"
-  const sqliteUnique = msg.match(/UNIQUE constraint failed: \w+\.(\w+)/i);
+  const sqliteUnique = combined.match(/UNIQUE constraint failed: \w+\.(\w+)/i);
   if (sqliteUnique) return { kind: "unique", field: sqliteUnique[1] };
 
-  const sqliteNotNull = msg.match(/NOT NULL constraint failed: \w+\.(\w+)/i);
+  const sqliteNotNull = combined.match(/NOT NULL constraint failed: \w+\.(\w+)/i);
   if (sqliteNotNull) return { kind: "notNull", field: sqliteNotNull[1] };
 
-  if (/FOREIGN KEY constraint failed/i.test(msg)) return { kind: "foreignKey", field: null };
-  if (/CHECK constraint failed/i.test(msg)) return { kind: "check", field: null };
+  if (/FOREIGN KEY constraint failed/i.test(combined)) return { kind: "foreignKey", field: null };
+  if (/CHECK constraint failed/i.test(combined)) return { kind: "check", field: null };
 
   // PostgreSQL: "duplicate key value violates unique constraint …  Key (col)=(val) already exists"
-  if (/duplicate key value violates unique constraint/i.test(msg)) {
-    const f = msg.match(/Key \((\w+)\)=/);
+  if (/duplicate key value violates unique constraint/i.test(combined)) {
+    const f = combined.match(/Key \(["`]?(\w+)["`]?\)=/);
     return { kind: "unique", field: f?.[1] ?? null };
   }
 
   // PostgreSQL: 'null value in column "col" of relation …'
-  const pgNotNull = msg.match(/null value in column ["`]?(\w+)["`]?/i);
+  const pgNotNull = combined.match(/null value in column ["`]?(\w+)["`]?/i);
   if (pgNotNull) return { kind: "notNull", field: pgNotNull[1] };
 
-  if (/violates foreign key constraint/i.test(msg)) return { kind: "foreignKey", field: null };
-  if (/violates check constraint/i.test(msg)) return { kind: "check", field: null };
+  if (/violates foreign key constraint/i.test(combined)) return { kind: "foreignKey", field: null };
+  if (/violates check constraint/i.test(combined)) return { kind: "check", field: null };
 
   return null;
 }
@@ -378,7 +384,7 @@ export const inMemoryEffects = (options: InMemoryEffectsOptions = {}): EffectRun
           const value = await options.sql({ sql: String(effect.payload.sql), params: sqlParams(effect), mode });
           return { ok: true, value };
         } catch (error) {
-          const parsed = parseConstraintError(String(error));
+          const parsed = parseConstraintError(error);
           if (parsed) return { ok: true, value: { constraintError: parsed } };
           return { ok: false, error: String(error) };
         }

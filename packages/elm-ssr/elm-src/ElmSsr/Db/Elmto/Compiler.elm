@@ -3,7 +3,9 @@ module ElmSsr.Db.Elmto.Compiler exposing
     , compileSelect
     , compileInsert
     , compileUpdate
+    , compileUpdateAll
     , compileDelete
+    , compileDeleteAll
     , toDialectSql
     )
 
@@ -49,16 +51,6 @@ toDialectSql dialect baseSql =
 compileSelect : Dialect -> Query record selection -> { sql : String, params : List Encode.Value, decoder : Decode.Decoder selection }
 compileSelect dialect query =
     let
-        q =
-            Query.toParts query
-
-        qualifyBase name =
-            if List.isEmpty q.joins then
-                name
-
-            else
-                q.tableName ++ "." ++ name
-
         castPostgresNumbers =
             case dialect of
                 PostgreSQL ->
@@ -67,91 +59,14 @@ compileSelect dialect query =
                 SQLite ->
                     False
 
-        selectsStr =
-            String.join ", " (List.map (Query.selectionSql castPostgresNumbers qualifyBase) q.selectCols)
+        compiled =
+            Query.rawSelect castPostgresNumbers query
 
-        baseSql =
-            "SELECT " ++ selectsStr ++ " FROM " ++ q.tableName
-
-        joinSql =
-            if List.isEmpty q.joins then
-                ""
-
-            else
-                " " ++ String.join " " (List.map (Query.joinSql q.tableName) q.joins)
-
-        ( whereSql, whereParams ) =
-            if List.isEmpty q.conditions then
-                ( "", [] )
-
-            else
-                let
-                    sqls =
-                        List.map (Query.expressionSql qualifyBase) q.conditions
-                            |> String.join " AND "
-
-                    vals =
-                        List.map Query.expressionParams q.conditions
-                            |> List.concat
-                in
-                ( " WHERE " ++ sqls, vals )
-
-        groupBySql =
-            if List.isEmpty q.groupByCols then
-                ""
-
-            else
-                " GROUP BY " ++ (List.map (Query.groupBySql qualifyBase) q.groupByCols |> String.join ", ")
-
-        ( havingSql, havingParams ) =
-            if List.isEmpty q.havingConditions then
-                ( "", [] )
-
-            else
-                let
-                    sqls =
-                        List.map (Query.havingSql qualifyBase) q.havingConditions
-                            |> String.join " AND "
-
-                    vals =
-                        List.map Query.havingParams q.havingConditions
-                            |> List.concat
-                in
-                ( " HAVING " ++ sqls, vals )
-
-        orderSql =
-            if List.isEmpty q.orderCols then
-                ""
-
-            else
-                let
-                    orders =
-                        List.map (Query.orderSql qualifyBase) q.orderCols
-                            |> String.join ", "
-                in
-                " ORDER BY " ++ orders
-
-        limitSql =
-            case q.limitVal of
-                Just l ->
-                    " LIMIT " ++ String.fromInt l
-
-                Nothing ->
-                    ""
-
-        offsetSql =
-            case q.offsetVal of
-                Just o ->
-                    " OFFSET " ++ String.fromInt o
-
-                Nothing ->
-                    ""
-
-        rawSql =
-            baseSql ++ joinSql ++ whereSql ++ groupBySql ++ havingSql ++ orderSql ++ limitSql ++ offsetSql
+        q =
+            Query.toParts query
     in
-    { sql = toDialectSql dialect rawSql
-    , params = whereParams ++ havingParams
+    { sql = toDialectSql dialect compiled.sql
+    , params = compiled.params
     , decoder = q.decoder
     }
 
@@ -273,6 +188,37 @@ compileUpdate dialect schema changeset =
                             }
 
 
+compileUpdateAll : Dialect -> Schema record -> Query.Expression record -> Changeset record -> Result (List (String, String)) { sql : String, params : List Encode.Value }
+compileUpdateAll dialect schema expr changeset =
+    if not (Changeset.isValid changeset) then
+        Err (Changeset.errors changeset)
+
+    else
+        let
+            changeList =
+                Dict.toList (Changeset.changes changeset)
+        in
+        if List.isEmpty changeList then
+            Err [ ( "changeset", "no changes to update" ) ]
+
+        else
+            let
+                setClauses =
+                    List.map (\( col, _ ) -> col ++ " = ?") changeList
+                        |> String.join ", "
+
+                whereSql =
+                    Query.expressionSqlFrom (Elmto.tableName schema) identity expr
+
+                rawSql =
+                    "UPDATE " ++ Elmto.tableName schema ++ " SET " ++ setClauses ++ " WHERE " ++ whereSql
+            in
+            Ok
+                { sql = toDialectSql dialect rawSql
+                , params = List.map Tuple.second changeList ++ Query.expressionParams expr
+                }
+
+
 compileDelete : Dialect -> Schema record -> Encode.Value -> { sql : String, params : List Encode.Value }
 compileDelete dialect schema idVal =
     let
@@ -281,4 +227,15 @@ compileDelete dialect schema idVal =
     in
     { sql = toDialectSql dialect rawSql
     , params = [ idVal ]
+    }
+
+
+compileDeleteAll : Dialect -> Schema record -> Query.Expression record -> { sql : String, params : List Encode.Value }
+compileDeleteAll dialect schema expr =
+    let
+        rawSql =
+            "DELETE FROM " ++ Elmto.tableName schema ++ " WHERE " ++ Query.expressionSqlFrom (Elmto.tableName schema) identity expr
+    in
+    { sql = toDialectSql dialect rawSql
+    , params = Query.expressionParams expr
     }

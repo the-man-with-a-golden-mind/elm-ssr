@@ -35,6 +35,48 @@ describe("cookie effect (getCookie)", () => {
   });
 });
 
+describe("constraint error parsing", () => {
+  it("extracts quoted PostgreSQL unique fields via inMemoryEffects softExecute", async () => {
+    const runner = inMemoryEffects({
+      sql: async () => {
+        throw new Error('duplicate key value violates unique constraint "users_email_key" Key ("email")=(x@example.com) already exists');
+      }
+    });
+
+    const result = await runner(
+      { kind: "softExecute", payload: { sql: "INSERT INTO users(email) VALUES (?)", params: ["x@example.com"] } },
+      {}
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      value: { constraintError: { kind: "unique", field: "email" } }
+    });
+  });
+
+  it("extracts PostgreSQL unique fields from Bun.sql-style detail metadata", async () => {
+    const runner = inMemoryEffects({
+      sql: async () => {
+        const error = new Error('duplicate key value violates unique constraint "users_email_key"') as Error & {
+          detail?: string;
+        };
+        error.detail = "Key (email)=(x@example.com) already exists.";
+        throw error;
+      }
+    });
+
+    const result = await runner(
+      { kind: "softExecute", payload: { sql: "INSERT INTO users(email) VALUES (?)", params: ["x@example.com"] } },
+      {}
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      value: { constraintError: { kind: "unique", field: "email" } }
+    });
+  });
+});
+
 describe("redisCache + withCache (Redis adapter)", () => {
   const fakeRedis = (): CacheClient & { store: Map<string, string> } => {
     const store = new Map<string, string>();

@@ -73,10 +73,26 @@ type alias Post =
     , title : String
     }
 
+type alias Comment =
+    { id : Int
+    , postId : Int
+    , body : String
+    }
+
 type alias UserStats =
     { name : String
     , postCount : Int
     , averageAge : Float
+    }
+
+type alias UserPostCount =
+    { userId : Int
+    , postCount : Int
+    }
+
+type alias NamePostCount =
+    { name : String
+    , postCount : Maybe Int
     }
 
 userDecoder : Decode.Decoder User
@@ -109,6 +125,20 @@ postSchema =
         |> Elmto.field "user_id" .userId Elmto.int
         |> Elmto.field "title" .title Elmto.string
 
+commentDecoder : Decode.Decoder Comment
+commentDecoder =
+    Decode.map3 Comment
+        (Decode.field "id" Decode.int)
+        (Decode.field "post_id" Decode.int)
+        (Decode.field "body" Decode.string)
+
+commentSchema : Elmto.Schema Comment
+commentSchema =
+    Elmto.schema "comments" commentDecoder
+        |> Elmto.field "id" .id Elmto.int
+        |> Elmto.field "post_id" .postId Elmto.int
+        |> Elmto.field "body" .body Elmto.string
+
 statsDecoder : Decode.Decoder UserStats
 statsDecoder =
     Decode.map3 UserStats
@@ -116,11 +146,33 @@ statsDecoder =
         (Decode.field "count_id" Decode.int)
         (Decode.field "avg_age" Decode.float)
 
+userPostCountDecoder : Decode.Decoder UserPostCount
+userPostCountDecoder =
+    Decode.map2 UserPostCount
+        (Decode.field "user_id" Decode.int)
+        (Decode.field "post_count" Decode.int)
+
+namePostCountDecoder : Decode.Decoder NamePostCount
+namePostCountDecoder =
+    Decode.map2 NamePostCount
+        (Decode.field "name" Decode.string)
+        (Decode.field "post_count" (Decode.nullable Decode.int))
+
+userPostCountSchema : Elmto.Schema UserPostCount
+userPostCountSchema =
+    Elmto.schema "user_post_counts" userPostCountDecoder
+        |> Elmto.field "user_id" .userId Elmto.int
+        |> Elmto.field "post_count" .postCount Elmto.int
+
 idCol = Elmto.column "id" Encode.int
 nameCol = Elmto.column "name" Encode.string
 ageCol = Elmto.column "age" Encode.int
+postIdCol = Elmto.column "id" Encode.int
 postUserIdCol = Elmto.column "user_id" Encode.int
+postCountCol = Elmto.column "post_count" Encode.int
 postTitleCol = Elmto.column "title" Encode.string
+commentPostIdCol = Elmto.column "post_id" Encode.int
+commentBodyCol = Elmto.column "body" Encode.string
 
 page : Request -> Loader (Document Never)
 page req =
@@ -198,6 +250,160 @@ page req =
                     |> Query.join Query.InnerJoin postSchema idCol postUserIdCol
                 )
 
+        postsPerUserSubquery =
+            Query.from postSchema
+                |> Query.select
+                    [ Query.col postUserIdCol
+                    , Query.count postIdCol |> Query.as_ "post_count"
+                    ]
+                    userPostCountDecoder
+                |> Query.groupBy [ Query.groupByCol postUserIdCol ]
+
+        fromSubquerySqlite =
+            Compiler.compileSelect SQLite
+                (Query.fromSubquery userPostCountSchema postsPerUserSubquery
+                    |> Query.where_ (Query.gte 2 postCountCol)
+                    |> Query.orderBy [ Query.desc postCountCol ]
+                )
+
+        fromSubqueryPostgres =
+            Compiler.compileSelect PostgreSQL
+                (Query.fromSubquery userPostCountSchema postsPerUserSubquery
+                    |> Query.where_ (Query.gte 2 postCountCol)
+                    |> Query.orderBy [ Query.desc postCountCol ]
+                )
+
+        withCteSqlite =
+            Compiler.compileSelect SQLite
+                (Query.from userPostCountSchema
+                    |> Query.withCte userPostCountSchema postsPerUserSubquery
+                    |> Query.where_ (Query.gt 1 postCountCol)
+                    |> Query.orderBy [ Query.desc postCountCol ]
+                )
+
+        withCtePostgres =
+            Compiler.compileSelect PostgreSQL
+                (Query.from userPostCountSchema
+                    |> Query.withCte userPostCountSchema postsPerUserSubquery
+                    |> Query.where_ (Query.gt 1 postCountCol)
+                    |> Query.orderBy [ Query.desc postCountCol ]
+                )
+
+        joinSubquerySqlite =
+            Compiler.compileSelect SQLite
+                (Query.from userSchema
+                    |> Query.select
+                        [ Query.col nameCol
+                        , Query.joinedCol userPostCountSchema postCountCol |> Query.as_ "post_count"
+                        ]
+                        namePostCountDecoder
+                    |> Query.joinSubquery Query.LeftJoin userPostCountSchema postsPerUserSubquery (Query.onEq idCol postUserIdCol)
+                    |> Query.orderBy [ Query.asc nameCol ]
+                )
+
+        joinSubqueryPostgres =
+            Compiler.compileSelect PostgreSQL
+                (Query.from userSchema
+                    |> Query.select
+                        [ Query.col nameCol
+                        , Query.joinedCol userPostCountSchema postCountCol |> Query.as_ "post_count"
+                        ]
+                        namePostCountDecoder
+                    |> Query.joinSubquery Query.LeftJoin userPostCountSchema postsPerUserSubquery (Query.onEq idCol postUserIdCol)
+                    |> Query.orderBy [ Query.asc nameCol ]
+                )
+
+        selectFragmentSqlite =
+            Compiler.compileSelect SQLite
+                (Query.from userSchema
+                    |> Query.select [ Query.selectFragment "UPPER(name)" [] "upper_name" ] (Decode.field "upper_name" Decode.string)
+                    |> Query.orderBy [ Query.asc nameCol ]
+                )
+
+        fragmentWhereSqlite =
+            Compiler.compileSelect SQLite
+                (Query.from userSchema
+                    |> Query.select [ Query.col nameCol ] (Decode.field "name" Decode.string)
+                    |> Query.where_ (Query.fragment "name <> ?" [ Encode.string "Bob" ])
+                    |> Query.orderBy [ Query.asc nameCol ]
+                )
+
+        existsBySqlite =
+            Compiler.compileSelect SQLite
+                (Query.from userSchema
+                    |> Query.where_
+                        (Query.existsBy idCol postUserIdCol
+                            (Query.from postSchema
+                                |> Query.select [ Query.col postUserIdCol ] (Decode.field "user_id" Decode.int)
+                            )
+                        )
+                    |> Query.orderBy [ Query.asc nameCol ]
+                )
+
+        existsByPostgres =
+            Compiler.compileSelect PostgreSQL
+                (Query.from userSchema
+                    |> Query.where_
+                        (Query.existsBy idCol postUserIdCol
+                            (Query.from postSchema
+                                |> Query.select [ Query.col postUserIdCol ] (Decode.field "user_id" Decode.int)
+                            )
+                        )
+                    |> Query.orderBy [ Query.asc nameCol ]
+                )
+
+        inSubquerySqlite =
+            Compiler.compileSelect SQLite
+                (Query.from userSchema
+                    |> Query.where_
+                        (Query.inSubquery idCol
+                            (Query.from postSchema
+                                |> Query.select [ Query.col postUserIdCol ] (Decode.field "user_id" Decode.int)
+                                |> Query.where_ (Query.like "F%" postTitleCol)
+                            )
+                        )
+                    |> Query.orderBy [ Query.asc nameCol ]
+                )
+
+        inSubqueryPostgres =
+            Compiler.compileSelect PostgreSQL
+                (Query.from userSchema
+                    |> Query.where_
+                        (Query.inSubquery idCol
+                            (Query.from postSchema
+                                |> Query.select [ Query.col postUserIdCol ] (Decode.field "user_id" Decode.int)
+                                |> Query.where_ (Query.like "F%" postTitleCol)
+                            )
+                        )
+                    |> Query.orderBy [ Query.asc nameCol ]
+                )
+
+        unionSqlite =
+            Compiler.compileSelect SQLite
+                (Query.from userSchema
+                    |> Query.select [ Query.col nameCol ] (Decode.field "name" Decode.string)
+                    |> Query.where_ (Query.like "A%" nameCol)
+                    |> Query.union
+                        (Query.from userSchema
+                            |> Query.select [ Query.col nameCol ] (Decode.field "name" Decode.string)
+                            |> Query.where_ (Query.like "B%" nameCol)
+                        )
+                    |> Query.orderBy [ Query.asc nameCol ]
+                )
+
+        unionAllPostgres =
+            Compiler.compileSelect PostgreSQL
+                (Query.from userSchema
+                    |> Query.select [ Query.col nameCol ] (Decode.field "name" Decode.string)
+                    |> Query.where_ (Query.like "A%" nameCol)
+                    |> Query.unionAll
+                        (Query.from userSchema
+                            |> Query.select [ Query.col nameCol ] (Decode.field "name" Decode.string)
+                            |> Query.where_ (Query.like "B%" nameCol)
+                        )
+                    |> Query.orderBy [ Query.asc nameCol ]
+                )
+
         aliasedJoinedSqlite =
             Compiler.compileSelect SQLite
                 (Query.from userSchema
@@ -259,6 +465,12 @@ page req =
                     |> Query.where_ (Query.notInList [] idCol)
                 )
 
+        inListEmpty =
+            Compiler.compileSelect SQLite
+                (Query.from userSchema
+                    |> Query.where_ (Query.inList [] idCol)
+                )
+
         betweenSqlite =
             Compiler.compileSelect SQLite
                 (Query.from userSchema
@@ -275,6 +487,42 @@ page req =
             Compiler.compileSelect SQLite
                 (Query.from userSchema
                     |> Query.where_ (Query.ilike "%alice%" nameCol)
+                )
+
+        distinctJoinSqlite =
+            Compiler.compileSelect SQLite
+                (Query.from userSchema
+                    |> Query.select [ Query.col nameCol ] (Decode.field "name" Decode.string)
+                    |> Query.distinct
+                    |> Query.joinOn Query.InnerJoin postSchema
+                        (Query.onAnd
+                            (Query.onEq idCol postUserIdCol)
+                            (Query.onRight (Query.like "F%" postTitleCol))
+                        )
+                    |> Query.joinFrom Query.InnerJoin postSchema commentSchema
+                        (Query.onAnd
+                            (Query.onEq postIdCol commentPostIdCol)
+                            (Query.onRight (Query.isNotNull commentBodyCol))
+                        )
+                    |> Query.orderBy [ Query.asc nameCol ]
+                )
+
+        distinctJoinPostgres =
+            Compiler.compileSelect PostgreSQL
+                (Query.from userSchema
+                    |> Query.select [ Query.col nameCol ] (Decode.field "name" Decode.string)
+                    |> Query.distinct
+                    |> Query.joinOn Query.InnerJoin postSchema
+                        (Query.onAnd
+                            (Query.onEq idCol postUserIdCol)
+                            (Query.onRight (Query.like "F%" postTitleCol))
+                        )
+                    |> Query.joinFrom Query.InnerJoin postSchema commentSchema
+                        (Query.onAnd
+                            (Query.onEq postIdCol commentPostIdCol)
+                            (Query.onRight (Query.isNotNull commentBodyCol))
+                        )
+                    |> Query.orderBy [ Query.asc nameCol ]
                 )
 
         hasManyLoadSqlite =
@@ -338,6 +586,24 @@ page req =
         updatePostgres =
             Compiler.compileUpdate PostgreSQL userSchema updateChangeset
 
+        bulkUpdateChangeset =
+            Changeset.cast userSchema
+                (Dict.fromList
+                    [ ( "age", Encode.int 50 ) ]
+                )
+
+        bulkUpdateSqlite =
+            Compiler.compileUpdateAll SQLite userSchema (Query.isNull ageCol) bulkUpdateChangeset
+
+        bulkUpdatePostgres =
+            Compiler.compileUpdateAll PostgreSQL userSchema (Query.isNull ageCol) bulkUpdateChangeset
+
+        bulkDeleteSqlite =
+            Compiler.compileDeleteAll SQLite userSchema (Query.eq 50 ageCol)
+
+        bulkDeletePostgres =
+            Compiler.compileDeleteAll PostgreSQL userSchema (Query.eq 50 ageCol)
+
         resultJson =
             Encode.object
                 [ ( "query_sqlite", Encode.string compiledSqlite.sql )
@@ -350,6 +616,20 @@ page req =
                 , ( "mixed_group_sqlite", Encode.string mixedGroupSqlite.sql )
                 , ( "all_aggregate_sqlite", Encode.string allAggregateSqlite.sql )
                 , ( "all_aggregate_postgres", Encode.string allAggregatePostgres.sql )
+                , ( "from_subquery_sqlite", Encode.string fromSubquerySqlite.sql )
+                , ( "from_subquery_postgres", Encode.string fromSubqueryPostgres.sql )
+                , ( "with_cte_sqlite", Encode.string withCteSqlite.sql )
+                , ( "with_cte_postgres", Encode.string withCtePostgres.sql )
+                , ( "join_subquery_sqlite", Encode.string joinSubquerySqlite.sql )
+                , ( "join_subquery_postgres", Encode.string joinSubqueryPostgres.sql )
+                , ( "select_fragment_sqlite", Encode.string selectFragmentSqlite.sql )
+                , ( "fragment_where_sqlite", Encode.string fragmentWhereSqlite.sql )
+                , ( "exists_by_sqlite", Encode.string existsBySqlite.sql )
+                , ( "exists_by_postgres", Encode.string existsByPostgres.sql )
+                , ( "in_subquery_sqlite", Encode.string inSubquerySqlite.sql )
+                , ( "in_subquery_postgres", Encode.string inSubqueryPostgres.sql )
+                , ( "union_sqlite", Encode.string unionSqlite.sql )
+                , ( "union_all_postgres", Encode.string unionAllPostgres.sql )
                 , ( "aliased_joined_sqlite", Encode.string aliasedJoinedSqlite.sql )
                 , ( "joined_filter_having_sqlite", Encode.string joinedFilterHavingSqlite.sql )
                 , ( "joined_filter_having_postgres", Encode.string joinedFilterHavingPostgres.sql )
@@ -374,12 +654,24 @@ page req =
                 , ( "update_postgres", case updatePostgres of
                                         Ok c -> Encode.string c.sql
                                         Err _ -> Encode.null )
+                , ( "bulk_update_sqlite", case bulkUpdateSqlite of
+                                            Ok c -> Encode.string c.sql
+                                            Err _ -> Encode.null )
+                , ( "bulk_update_postgres", case bulkUpdatePostgres of
+                                            Ok c -> Encode.string c.sql
+                                            Err _ -> Encode.null )
+                , ( "bulk_delete_sqlite", Encode.string bulkDeleteSqlite.sql )
+                , ( "bulk_delete_postgres", Encode.string bulkDeletePostgres.sql )
                 , ( "not_in_list_sqlite", Encode.string notInListSqlite.sql )
                 , ( "not_in_list_postgres", Encode.string notInListPostgres.sql )
                 , ( "not_in_list_empty", Encode.string notInListEmpty.sql )
+                , ( "in_list_empty", Encode.string inListEmpty.sql )
                 , ( "between_sqlite", Encode.string betweenSqlite.sql )
                 , ( "between_postgres", Encode.string betweenPostgres.sql )
                 , ( "ilike_sqlite", Encode.string ilikeSqlite.sql )
+                , ( "distinct_join_sqlite", Encode.string distinctJoinSqlite.sql )
+                , ( "distinct_join_postgres", Encode.string distinctJoinPostgres.sql )
+                , ( "distinct_join_param_count", Encode.int (List.length distinctJoinSqlite.params) )
                 , ( "has_many_load_sqlite", Encode.string hasManyLoadSqlite.sql )
                 , ( "belongs_to_load_sqlite", Encode.string belongsToLoadSqlite.sql )
                 ]
@@ -446,6 +738,20 @@ action _ =
     expect(data.mixed_group_sqlite).toBe("SELECT users.name, users.age, COUNT(users.id) AS count_id FROM users INNER JOIN posts ON users.id = posts.user_id GROUP BY users.name, users.age");
     expect(data.all_aggregate_sqlite).toBe("SELECT COUNT(users.id) AS count_id, SUM(users.age) AS sum_age, AVG(users.age) AS avg_age, MIN(users.age) AS min_age, MAX(users.age) AS max_age FROM users INNER JOIN posts ON users.id = posts.user_id");
     expect(data.all_aggregate_postgres).toBe("SELECT COUNT(users.id)::int AS count_id, SUM(users.age)::float AS sum_age, AVG(users.age)::float AS avg_age, MIN(users.age) AS min_age, MAX(users.age) AS max_age FROM users INNER JOIN posts ON users.id = posts.user_id");
+    expect(data.from_subquery_sqlite).toBe("SELECT user_id, post_count FROM (SELECT user_id, COUNT(id) AS post_count FROM posts GROUP BY user_id) AS user_post_counts WHERE post_count >= ? ORDER BY post_count DESC");
+    expect(data.from_subquery_postgres).toBe("SELECT user_id, post_count FROM (SELECT user_id, COUNT(id)::int AS post_count FROM posts GROUP BY user_id) AS user_post_counts WHERE post_count >= $1 ORDER BY post_count DESC");
+    expect(data.with_cte_sqlite).toBe("WITH user_post_counts AS (SELECT user_id, COUNT(id) AS post_count FROM posts GROUP BY user_id) SELECT user_id, post_count FROM user_post_counts WHERE post_count > ? ORDER BY post_count DESC");
+    expect(data.with_cte_postgres).toBe("WITH user_post_counts AS (SELECT user_id, COUNT(id)::int AS post_count FROM posts GROUP BY user_id) SELECT user_id, post_count FROM user_post_counts WHERE post_count > $1 ORDER BY post_count DESC");
+    expect(data.join_subquery_sqlite).toBe("SELECT users.name, user_post_counts.post_count AS post_count FROM users LEFT JOIN (SELECT user_id, COUNT(id) AS post_count FROM posts GROUP BY user_id) AS user_post_counts ON users.id = user_post_counts.user_id ORDER BY users.name ASC");
+    expect(data.join_subquery_postgres).toBe("SELECT users.name, user_post_counts.post_count AS post_count FROM users LEFT JOIN (SELECT user_id, COUNT(id)::int AS post_count FROM posts GROUP BY user_id) AS user_post_counts ON users.id = user_post_counts.user_id ORDER BY users.name ASC");
+    expect(data.select_fragment_sqlite).toBe("SELECT UPPER(name) AS upper_name FROM users ORDER BY name ASC");
+    expect(data.fragment_where_sqlite).toBe("SELECT name FROM users WHERE name <> ? ORDER BY name ASC");
+    expect(data.exists_by_sqlite).toBe("SELECT id, name, email, age FROM users WHERE EXISTS (SELECT user_id FROM posts WHERE user_id = users.id) ORDER BY name ASC");
+    expect(data.exists_by_postgres).toBe("SELECT id, name, email, age FROM users WHERE EXISTS (SELECT user_id FROM posts WHERE user_id = users.id) ORDER BY name ASC");
+    expect(data.in_subquery_sqlite).toBe("SELECT id, name, email, age FROM users WHERE id IN (SELECT user_id FROM posts WHERE title LIKE ?) ORDER BY name ASC");
+    expect(data.in_subquery_postgres).toBe("SELECT id, name, email, age FROM users WHERE id IN (SELECT user_id FROM posts WHERE title LIKE $1) ORDER BY name ASC");
+    expect(data.union_sqlite).toBe("SELECT name FROM users WHERE name LIKE ? UNION SELECT name FROM users WHERE name LIKE ? ORDER BY name ASC");
+    expect(data.union_all_postgres).toBe("SELECT name FROM users WHERE name LIKE $1 UNION ALL SELECT name FROM users WHERE name LIKE $2 ORDER BY name ASC");
     expect(data.aliased_joined_sqlite).toBe("SELECT users.name AS user_name, posts.title AS post_title, COUNT(posts.user_id) AS post_total FROM users INNER JOIN posts ON users.id = posts.user_id ORDER BY posts.title ASC");
     expect(data.joined_filter_having_sqlite).toBe("SELECT users.name, COUNT(posts.user_id) AS post_count FROM users INNER JOIN posts ON users.id = posts.user_id WHERE posts.title LIKE ? GROUP BY users.name HAVING COUNT(posts.user_id) > ? ORDER BY posts.title DESC");
     expect(data.joined_filter_having_postgres).toBe("SELECT users.name, COUNT(posts.user_id)::int AS post_count FROM users INNER JOIN posts ON users.id = posts.user_id WHERE posts.title LIKE $1 GROUP BY users.name HAVING COUNT(posts.user_id) > $2 ORDER BY posts.title DESC");
@@ -464,14 +770,22 @@ action _ =
 
     expect(data.update_sqlite).toBe("UPDATE users SET name = ? WHERE id = ?");
     expect(data.update_postgres).toBe("UPDATE users SET name = $1 WHERE id = $2 RETURNING *");
+    expect(data.bulk_update_sqlite).toBe("UPDATE users SET age = ? WHERE age IS NULL");
+    expect(data.bulk_update_postgres).toBe("UPDATE users SET age = $1 WHERE age IS NULL");
+    expect(data.bulk_delete_sqlite).toBe("DELETE FROM users WHERE age = ?");
+    expect(data.bulk_delete_postgres).toBe("DELETE FROM users WHERE age = $1");
 
     // Assert new operators
     expect(data.not_in_list_sqlite).toBe("SELECT id, name, email, age FROM users WHERE id NOT IN (?, ?, ?)");
     expect(data.not_in_list_postgres).toBe("SELECT id, name, email, age FROM users WHERE id NOT IN ($1, $2, $3)");
     expect(data.not_in_list_empty).toBe("SELECT id, name, email, age FROM users WHERE 1 = 1");
+    expect(data.in_list_empty).toBe("SELECT id, name, email, age FROM users WHERE 1 = 0");
     expect(data.between_sqlite).toBe("SELECT id, name, email, age FROM users WHERE age BETWEEN ? AND ?");
     expect(data.between_postgres).toBe("SELECT id, name, email, age FROM users WHERE age BETWEEN $1 AND $2");
-    expect(data.ilike_sqlite).toBe("SELECT id, name, email, age FROM users WHERE name ILIKE ?");
+    expect(data.ilike_sqlite).toBe("SELECT id, name, email, age FROM users WHERE LOWER(name) LIKE LOWER(?)");
+    expect(data.distinct_join_sqlite).toBe("SELECT DISTINCT users.name FROM users INNER JOIN posts ON (users.id = posts.user_id AND posts.title LIKE ?) INNER JOIN comments ON (posts.id = comments.post_id AND comments.body IS NOT NULL) ORDER BY users.name ASC");
+    expect(data.distinct_join_postgres).toBe("SELECT DISTINCT users.name FROM users INNER JOIN posts ON (users.id = posts.user_id AND posts.title LIKE $1) INNER JOIN comments ON (posts.id = comments.post_id AND comments.body IS NOT NULL) ORDER BY users.name ASC");
+    expect(data.distinct_join_param_count).toBe(1);
     expect(data.has_many_load_sqlite).toBe("SELECT id, user_id, title FROM posts WHERE user_id IN (?, ?)");
     expect(data.belongs_to_load_sqlite).toBe("SELECT id, name, email, age FROM users WHERE id IN (?, ?)");
   }, 15000);

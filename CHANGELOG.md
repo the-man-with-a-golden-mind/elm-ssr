@@ -3,6 +3,25 @@
 All notable changes to the `elm-ssr` package. Dates are ISO; "Unreleased" lives
 at the top until a version is cut.
 
+## 0.98.0 — 2026-06-25
+
+### Added
+
+- **Elmto `updateAll` / `deleteAll`**: Bulk update and delete operations that apply a WHERE expression to a whole table. `updateAll` returns `Result (Changeset record) Int` (rows affected) and propagates constraint errors; `deleteAll` returns `Int` (rows affected).
+- **Elmto `preloadHasMany` / `preloadBelongsTo`**: Convenience wrappers over `loadHasMany` / `loadBelongsTo` that accept a result-builder function and return the merged `List result` directly, removing the extra `Loader.map` at the call site.
+- **Elmto `compileUpdateAll` / `compileDeleteAll`**: Compiler support for bulk operations with dialect-aware SQL generation (SQLite `?` / PostgreSQL `$n` positionals).
+- **Constraint error `detail` field**: `parseConstraintError` now inspects the Bun.sql-style `.detail` metadata property on error objects (PostgreSQL `Key (col)=(val) already exists` detail), so field names are extracted reliably even when the main message omits them. Tests added to `test/adapters.test.ts`.
+- **PostgreSQL `COUNT` cast**: `Repo.count` and `Repo.countWhere` now emit `COUNT(*)::int` on PostgreSQL to ensure the Elm `Decode.int` decoder receives an integer rather than a string.
+- **`D1DatabaseLike.batch` type**: Added missing `batch` method to the internal D1 interface so TypeScript accepts `cloudflareEffects` transaction batching without a cast.
+
+### Performance
+
+- **`Route.env` sync shortcut**: Config constants passed via `createFlags` `env` are now resolved synchronously from the flags record rather than going through an async `effectRequest`/`effectResult` port round-trip, eliminating one event-loop tick per request for every `Route.env` call.
+
+### Fixed
+
+- **Constraint error parsing**: `parseConstraintError` now receives the raw error object instead of `String(error)`, so quoted field names (`Key ("email")=…`) are extracted correctly via the combined message + detail approach.
+
 ## 0.92.0 — 2026-06-24
 
 ### Added

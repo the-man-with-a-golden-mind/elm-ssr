@@ -56,6 +56,7 @@ Write decoders against those aliases, or override them with `as_`.
 join : JoinType -> Schema joined -> Column record a -> Column joined a -> Query record selection -> Query record selection
 joinOn : JoinType -> Schema joined -> On record joined -> Query record selection -> Query record selection
 joinFrom : JoinType -> Schema left -> Schema joined -> On left joined -> Query record selection -> Query record selection
+joinSubquery : JoinType -> Schema joined -> Query inner selection -> On record joined -> Query record out -> Query record out
 ```
 
 The join key columns must share the same Elm value type. The joined schema supplies the joined SQL table. Example:
@@ -110,6 +111,43 @@ distinct : Query record selection -> Query record selection
 
 Adds `DISTINCT` immediately after `SELECT`.
 
+## Subqueries And CTEs
+
+```elm
+fromSubquery : Schema record -> Query inner selection -> Query record record
+withCte : Schema cteRecord -> Query source selection -> Query record out -> Query record out
+
+exists : Query inner selection -> Expression record
+notExists : Query inner selection -> Expression record
+existsBy : Column outer a -> Column inner a -> Query inner selection -> Expression outer
+notExistsBy : Column outer a -> Column inner a -> Query inner selection -> Expression outer
+inSubquery : Column record a -> Query inner selection -> Expression record
+notInSubquery : Column record a -> Query inner selection -> Expression record
+```
+
+Patterns:
+
+```elm
+postsPerUser =
+    Query.from postSchema
+        |> Query.select
+            [ Query.col postUserIdCol
+            , Query.count postIdCol |> Query.as_ "post_count"
+            ]
+            userPostCountDecoder
+        |> Query.groupBy [ Query.groupByCol postUserIdCol ]
+
+Query.fromSubquery userPostCountSchema postsPerUser
+    |> Query.where_ (Query.gte 2 postCountCol)
+
+Query.from userPostCountSchema
+    |> Query.withCte userPostCountSchema postsPerUser
+    |> Query.where_ (Query.gte 2 postCountCol)
+
+Query.from userSchema
+    |> Query.where_ (Query.existsBy idCol postUserIdCol (Query.from postSchema))
+```
+
 ## Grouping
 
 ```elm
@@ -157,6 +195,12 @@ Example:
 |> Query.having (Query.havingGt 1 (Query.joinedCountOf postSchema postUserIdCol))
 ```
 
+Raw fallback:
+
+```elm
+havingFragment : String -> List Encode.Value -> Having record
+```
+
 ## Joined Aggregate Pattern
 
 ```elm
@@ -190,6 +234,15 @@ PostgreSQL aggregate compilation casts:
 - `AVG(...)::float`
 
 SQLite aggregate compilation does not add casts.
+
+## Raw SQL Escape Hatches
+
+```elm
+selectFragment : String -> List Encode.Value -> String -> Selection record
+fragment : String -> List Encode.Value -> Expression record
+```
+
+Use them for vendor-specific SQL while keeping the rest of the query typed.
 
 ## Performance: eliminate the dialect effect round-trip
 
@@ -308,6 +361,37 @@ Cloudflare D1: uses `db.batch(stmts)` — no extra config needed.
 
 Limitation: all SQL must be compiled upfront; cannot use result of step N in step N+1 parameters.
 
+## Bulk Updates And Deletes
+
+```elm
+updateAll :
+    Dialect
+    -> Schema record
+    -> Expression record
+    -> Changeset record
+    -> Action (Result (Changeset record) Int)
+
+deleteAll :
+    Dialect
+    -> Schema record
+    -> Expression record
+    -> Action Int
+```
+
+Patterns:
+
+```elm
+Repo.updateAll dialect userSchema (Query.isNull ageCol)
+    (Changeset.cast userSchema (Dict.fromList [ ( "age", Encode.int 50 ) ]))
+
+Repo.deleteAll dialect userSchema (Query.eq 50 ageCol)
+```
+
+`updateAll` uses one `UPDATE ... WHERE ...` statement and returns affected row count.
+Constraint violations are mapped back into `Err changeset`.
+
+`deleteAll` uses one `DELETE ... WHERE ...` statement and returns `rowsAffected`.
+
 ## Associations
 
 ```elm
@@ -327,16 +411,35 @@ loadBelongsTo :
     -> (record -> Int)       -- FK getter on child (e.g. .userId)
     -> List record
     -> Loader (List ( record, Maybe related ))
+
+preloadHasMany :
+    Dialect
+    -> Schema related
+    -> Column related Int
+    -> (related -> Int)
+    -> (record -> Int)
+    -> (record -> List related -> result)
+    -> List record
+    -> Loader (List result)
+
+preloadBelongsTo :
+    Dialect
+    -> Schema related
+    -> (related -> Int)
+    -> (record -> Int)
+    -> (record -> Maybe related -> result)
+    -> List record
+    -> Loader (List result)
 ```
 
-Both issue **one** `WHERE fk IN (…)` query and group results in Elm — no N+1. Always chain after `Repo.all` via `Loader.andThen`.
+Both issue **one** `WHERE fk IN (…)` query and group results in Elm — no N+1. `preloadHasMany` / `preloadBelongsTo` are mapping wrappers over the corresponding load functions. Always chain after `Repo.all` via `Loader.andThen`.
 
 ## Current Limits
 
 - `RIGHT JOIN` and `FULL JOIN` depend on SQLite version support.
-- `ilike` is PostgreSQL-specific; emits `ILIKE` which is a syntax error on SQLite.
+- `ilike` emits `LOWER(col) LIKE LOWER(?)`, so it works on SQLite and PostgreSQL.
 - `Repo.transaction` cannot chain intermediate results — compile all SQL before calling.
-- Use `Loader.query` / `Loader.execute` for CTEs, window functions, subqueries, lateral joins, `HAVING` against custom SQL expressions, and vendor-specific SQL.
+- Use `Loader.query` / `Loader.execute` for window functions, lateral joins, and vendor-specific SQL.
 
 ## Tests
 

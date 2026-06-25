@@ -1,10 +1,10 @@
 module ElmSsr.Db.Elmto.Repo exposing
     ( all, one, get, getBy
     , count, countWhere, exists
-    , insert, update, delete, insertAll
+    , insert, update, delete, insertAll, updateAll, deleteAll
     , validateUnique
     , transaction
-    , loadHasMany, loadBelongsTo
+    , loadHasMany, loadBelongsTo, preloadHasMany, preloadBelongsTo
     )
 
 import ElmSsr.Action as Action exposing (Action)
@@ -70,7 +70,12 @@ count : Dialect -> Schema record -> Loader Int
 count dialect schema =
     let
         sql =
-            Compiler.toDialectSql dialect ("SELECT COUNT(*) AS count FROM " ++ Elmto.tableName schema)
+            case dialect of
+                PostgreSQL ->
+                    "SELECT COUNT(*)::int AS count FROM " ++ Elmto.tableName schema
+
+                SQLite ->
+                    "SELECT COUNT(*) AS count FROM " ++ Elmto.tableName schema
     in
     Loader.queryOne { sql = sql, params = [], decoder = Decode.field "count" Decode.int }
         |> Loader.map (Maybe.withDefault 0)
@@ -80,7 +85,12 @@ countWhere : Dialect -> Schema record -> Query.Expression record -> Loader Int
 countWhere dialect schema expr =
     let
         baseSql =
-            "SELECT COUNT(*) AS count FROM " ++ Elmto.tableName schema
+            case dialect of
+                PostgreSQL ->
+                    "SELECT COUNT(*)::int AS count FROM " ++ Elmto.tableName schema
+
+                SQLite ->
+                    "SELECT COUNT(*) AS count FROM " ++ Elmto.tableName schema
 
         whereSql =
             " WHERE " ++ Query.expressionSql identity expr
@@ -145,6 +155,33 @@ insertAll dialect schema changesets =
         )
         (Action.succeed [])
         changesets
+
+
+updateAll : Dialect -> Schema record -> Query.Expression record -> Changeset record -> Action (Result (Changeset record) Int)
+updateAll dialect schema expr changeset =
+    if not (Changeset.isValid changeset) then
+        Action.succeed (Err changeset)
+
+    else
+        case Compiler.compileUpdateAll dialect schema expr changeset of
+            Err errs ->
+                let
+                    errChangeset =
+                        { changeset | errors = changeset.errors ++ errs, isValid = False }
+                in
+                Action.succeed (Err errChangeset)
+
+            Ok c ->
+                Action.fromLoader (Loader.softExecute { sql = c.sql, params = c.params })
+                    |> Action.map
+                        (\result ->
+                            case result of
+                                Ok rows ->
+                                    Ok rows.rowsAffected
+
+                                Err constraintErr ->
+                                    Err (applyConstraintError constraintErr changeset)
+                        )
 
 
 applyConstraintError : Loader.ConstraintError -> Changeset record -> Changeset record
@@ -350,6 +387,16 @@ delete dialect schema record =
             |> Action.map (\_ -> Ok True)
 
 
+deleteAll : Dialect -> Schema record -> Query.Expression record -> Action Int
+deleteAll dialect schema expr =
+    let
+        c =
+            Compiler.compileDeleteAll dialect schema expr
+    in
+    Action.fromLoader (Loader.execute { sql = c.sql, params = c.params })
+        |> Action.map .rowsAffected
+
+
 {-| Run a list of pre-compiled SQL statements atomically in a single DB
 transaction. Returns the total `rowsAffected` across all statements. Any
 failure rolls back the entire transaction.
@@ -491,3 +538,30 @@ loadBelongsTo dialect relatedSchema getRelatedId getFk records =
                         )
                         records
                 )
+
+
+preloadHasMany :
+    Dialect
+    -> Schema related
+    -> Column related Int
+    -> (related -> Int)
+    -> (record -> Int)
+    -> (record -> List related -> result)
+    -> List record
+    -> Loader (List result)
+preloadHasMany dialect relatedSchema fkCol getFk getParentId buildResult records =
+    loadHasMany dialect relatedSchema fkCol getFk records getParentId
+        |> Loader.map (List.map (\( record, related ) -> buildResult record related))
+
+
+preloadBelongsTo :
+    Dialect
+    -> Schema related
+    -> (related -> Int)
+    -> (record -> Int)
+    -> (record -> Maybe related -> result)
+    -> List record
+    -> Loader (List result)
+preloadBelongsTo dialect relatedSchema getRelatedId getFk buildResult records =
+    loadBelongsTo dialect relatedSchema getRelatedId getFk records
+        |> Loader.map (List.map (\( record, related ) -> buildResult record related))

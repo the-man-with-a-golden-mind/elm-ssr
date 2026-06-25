@@ -10,6 +10,10 @@ const MODULE_NAME = "ElmtoBenchApp";
 const USERS_COUNT = 500;
 const POSTS_PER_USER = 5;
 const ITERATIONS = 40;
+// Queries batched per request for Elmto route cases — amortises the fixed
+// per-request overhead (Elm init, port setup, HTML render) so each sample
+// reflects per-query cost rather than per-request cost.
+const INNER_ITERATIONS = 20;
 
 const quantile = (values, fraction) => {
   const sorted = [...values].sort((left, right) => left - right);
@@ -20,7 +24,7 @@ const quantile = (values, fraction) => {
 const formatMs = (value) => `${value.toFixed(2)} ms`;
 const formatOps = (value) => `${value.toFixed(1)} ops/s`;
 
-const runCase = async (label, iterations, task) => {
+const runCase = async (label, iterations, task, divisor = 1) => {
   for (let index = 0; index < 5; index += 1) {
     await task();
   }
@@ -30,7 +34,7 @@ const runCase = async (label, iterations, task) => {
   for (let index = 0; index < iterations; index += 1) {
     const startedAt = performance.now();
     await task();
-    samples.push(performance.now() - startedAt);
+    samples.push((performance.now() - startedAt) / divisor);
   }
 
   const total = samples.reduce((sum, sample) => sum + sample, 0);
@@ -169,6 +173,15 @@ encodeUser user =
         , ("age", Maybe.map Encode.int user.age |> Maybe.withDefault Encode.null)
         ]
 
+-- Run a loader n times sequentially; returns the last result.
+-- Used by the benchmark to amortise per-request fixed overhead over n queries.
+repeatN : Int -> Loader a -> Loader a
+repeatN n loader =
+    if n <= 1 then
+        loader
+    else
+        loader |> Loader.andThen (\\_ -> repeatN (n - 1) loader)
+
 page : Request -> Loader (Document Never)
 page req =
     let
@@ -176,6 +189,7 @@ page req =
         queryMap = Dict.fromList req.query
         op = Dict.get "op" queryMap |> Maybe.withDefault ""
         searchTerm = Dict.get "name" queryMap |> Maybe.withDefault ""
+        count = Dict.get "count" queryMap |> Maybe.andThen String.toInt |> Maybe.withDefault 1
 
         resultPage value =
             Page.page
@@ -204,7 +218,7 @@ page req =
                 |> Query.orderBy [ Query.asc nameCol ]
     in
     if Dict.get "summary" queryMap == Just "1" then
-        Repo.all dialect summaryQuery
+        repeatN count (Repo.all dialect summaryQuery)
             |> Loader.map
                 (\\stats ->
                     stats
@@ -221,11 +235,11 @@ page req =
                 )
 
     else if op == "search" then
-        Repo.all dialect searchQuery
+        repeatN count (Repo.all dialect searchQuery)
             |> Loader.map (\\users -> resultPage (Encode.list encodeUser users))
 
     else
-        Repo.all dialect (Query.from userSchema |> Query.orderBy [ Query.asc nameCol ])
+        repeatN count (Repo.all dialect (Query.from userSchema |> Query.orderBy [ Query.asc nameCol ]))
             |> Loader.map (\\users -> resultPage (Encode.list encodeUser users))
 
 action : Request -> Action (Document Never)
@@ -364,6 +378,7 @@ const seedSqlite = (sqlitePath) => {
 
 const seedPostgres = async (pgUrl) => {
   const sql = new SQL(pgUrl);
+  await sql.unsafe("DROP TABLE IF EXISTS elmto_comments");
   await sql.unsafe("DROP TABLE IF EXISTS elmto_posts");
   await sql.unsafe("DROP TABLE IF EXISTS elmto_users");
   await sql.unsafe("CREATE TABLE elmto_users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE, age INTEGER)");
@@ -385,9 +400,8 @@ const seedPostgres = async (pgUrl) => {
   await sql.close();
 };
 
-const sqliteRawSummary = (sqlitePath) => {
-  const db = new Database(sqlitePath, { readonly: true });
-  const rows = db
+const sqliteRawSummary = (db) => {
+  return db
     .query(
       "SELECT elmto_users.name AS name, COUNT(elmto_posts.user_id) AS postCount, AVG(elmto_users.age) AS averageAge FROM elmto_users INNER JOIN elmto_posts ON elmto_users.id = elmto_posts.user_id WHERE elmto_posts.title LIKE ? GROUP BY elmto_users.name HAVING COUNT(elmto_posts.user_id) >= ? ORDER BY elmto_users.name ASC"
     )
@@ -397,26 +411,19 @@ const sqliteRawSummary = (sqlitePath) => {
       postCount: Number(row.postCount),
       averageAge: row.averageAge === null ? null : Number(row.averageAge)
     }));
-  db.close();
-  return rows;
 };
 
-const sqliteRawSearch = (sqlitePath, term) => {
-  const db = new Database(sqlitePath, { readonly: true });
-  const rows = db
+const sqliteRawSearch = (db, term) => {
+  return db
     .query("SELECT id, name, email, age FROM elmto_users WHERE LOWER(name) LIKE LOWER(?) ORDER BY name ASC")
     .all(`%${term}%`);
-  db.close();
-  return rows;
 };
 
-const postgresRawSummary = async (pgUrl) => {
-  const sql = new SQL(pgUrl);
+const postgresRawSummary = async (sql) => {
   const rows = await sql.unsafe(
     "SELECT elmto_users.name AS name, COUNT(elmto_posts.user_id) AS \"postCount\", AVG(elmto_users.age) AS \"averageAge\" FROM elmto_users INNER JOIN elmto_posts ON elmto_users.id = elmto_posts.user_id WHERE elmto_posts.title LIKE $1 GROUP BY elmto_users.name HAVING COUNT(elmto_posts.user_id) >= $2 ORDER BY elmto_users.name ASC",
     ["%", 1]
   );
-  await sql.close();
   return Array.from(rows).map((row) => ({
     name: row.name,
     postCount: Number(row.postCount),
@@ -424,13 +431,11 @@ const postgresRawSummary = async (pgUrl) => {
   }));
 };
 
-const postgresRawSearch = async (pgUrl, term) => {
-  const sql = new SQL(pgUrl);
+const postgresRawSearch = async (sql, term) => {
   const rows = await sql.unsafe(
     "SELECT id, name, email, age FROM elmto_users WHERE LOWER(name) LIKE LOWER($1) ORDER BY name ASC",
     [`%${term}%`]
   );
-  await sql.close();
   return Array.from(rows);
 };
 
@@ -442,6 +447,8 @@ const printCase = (result) => {
 
 const main = async () => {
   const root = await mkdtemp(join(tmpdir(), "elmto-bench-"));
+  let sqliteRawDb = null;
+  let postgresRawSql = null;
 
   try {
     await writeFixtureApp(root);
@@ -451,11 +458,12 @@ const main = async () => {
     const sqlitePath = join(root, "bench.sqlite");
     seedSqlite(sqlitePath);
     const sqliteWorker = createBenchWorker({ dialect: "sqlite", sqlitePath });
+    sqliteRawDb = new Database(sqlitePath, { readonly: true });
 
     const sqliteRouteSummary = await parseResultJson(await sqliteWorker.fetch(new Request("http://localhost/bench?summary=1")));
     const sqliteRouteSearch = await parseResultJson(await sqliteWorker.fetch(new Request("http://localhost/bench?op=search&name=User01")));
-    const sqliteRawSummaryRows = sqliteRawSummary(sqlitePath);
-    const sqliteRawSearchRows = sqliteRawSearch(sqlitePath, "User01");
+    const sqliteRawSummaryRows = sqliteRawSummary(sqliteRawDb);
+    const sqliteRawSearchRows = sqliteRawSearch(sqliteRawDb, "User01");
 
     if (JSON.stringify(sqliteRouteSummary) !== JSON.stringify(sqliteRawSummaryRows)) {
       throw new Error("SQLite summary parity failed");
@@ -466,24 +474,25 @@ const main = async () => {
 
     const sqliteCases = [
       await runCase("sqlite/raw summary", ITERATIONS, async () => {
-        sqliteRawSummary(sqlitePath);
-      }),
+        for (let i = 0; i < INNER_ITERATIONS; i++) sqliteRawSummary(sqliteRawDb);
+      }, INNER_ITERATIONS),
       await runCase("sqlite/elmto summary route", ITERATIONS, async () => {
-        const response = await sqliteWorker.fetch(new Request("http://localhost/bench?summary=1"));
+        const response = await sqliteWorker.fetch(new Request(`http://localhost/bench?summary=1&count=${INNER_ITERATIONS}`));
         await parseResultJson(response);
-      }),
+      }, INNER_ITERATIONS),
       await runCase("sqlite/raw search", ITERATIONS, async () => {
-        sqliteRawSearch(sqlitePath, "User01");
-      }),
+        for (let i = 0; i < INNER_ITERATIONS; i++) sqliteRawSearch(sqliteRawDb, "User01");
+      }, INNER_ITERATIONS),
       await runCase("sqlite/elmto search route", ITERATIONS, async () => {
-        const response = await sqliteWorker.fetch(new Request("http://localhost/bench?op=search&name=User01"));
+        const response = await sqliteWorker.fetch(new Request(`http://localhost/bench?op=search&name=User01&count=${INNER_ITERATIONS}`));
         await parseResultJson(response);
-      })
+      }, INNER_ITERATIONS)
     ];
 
     console.log("Elmto benchmark");
     console.log("===============");
     console.log(`dataset: ${USERS_COUNT} users, ${USERS_COUNT * POSTS_PER_USER} posts`);
+    console.log(`methodology: ${INNER_ITERATIONS} queries per request, times divided by ${INNER_ITERATIONS} (per-query avg)`);
     console.log("");
     console.log("SQLite");
     console.log("------");
@@ -499,11 +508,12 @@ const main = async () => {
 
     await seedPostgres(DATABASE_URL);
     const postgresWorker = createBenchWorker({ dialect: "postgres", pgUrl: DATABASE_URL });
+    postgresRawSql = new SQL(DATABASE_URL);
 
     const postgresRouteSummary = await parseResultJson(await postgresWorker.fetch(new Request("http://localhost/bench?summary=1")));
     const postgresRouteSearch = await parseResultJson(await postgresWorker.fetch(new Request("http://localhost/bench?op=search&name=User01")));
-    const postgresRawSummaryRows = await postgresRawSummary(DATABASE_URL);
-    const postgresRawSearchRows = await postgresRawSearch(DATABASE_URL, "User01");
+    const postgresRawSummaryRows = await postgresRawSummary(postgresRawSql);
+    const postgresRawSearchRows = await postgresRawSearch(postgresRawSql, "User01");
 
     if (JSON.stringify(postgresRouteSummary) !== JSON.stringify(postgresRawSummaryRows)) {
       throw new Error("PostgreSQL summary parity failed");
@@ -514,19 +524,19 @@ const main = async () => {
 
     const postgresCases = [
       await runCase("postgres/raw summary", ITERATIONS, async () => {
-        await postgresRawSummary(DATABASE_URL);
-      }),
+        for (let i = 0; i < INNER_ITERATIONS; i++) await postgresRawSummary(postgresRawSql);
+      }, INNER_ITERATIONS),
       await runCase("postgres/elmto summary route", ITERATIONS, async () => {
-        const response = await postgresWorker.fetch(new Request("http://localhost/bench?summary=1"));
+        const response = await postgresWorker.fetch(new Request(`http://localhost/bench?summary=1&count=${INNER_ITERATIONS}`));
         await parseResultJson(response);
-      }),
+      }, INNER_ITERATIONS),
       await runCase("postgres/raw search", ITERATIONS, async () => {
-        await postgresRawSearch(DATABASE_URL, "User01");
-      }),
+        for (let i = 0; i < INNER_ITERATIONS; i++) await postgresRawSearch(postgresRawSql, "User01");
+      }, INNER_ITERATIONS),
       await runCase("postgres/elmto search route", ITERATIONS, async () => {
-        const response = await postgresWorker.fetch(new Request("http://localhost/bench?op=search&name=User01"));
+        const response = await postgresWorker.fetch(new Request(`http://localhost/bench?op=search&name=User01&count=${INNER_ITERATIONS}`));
         await parseResultJson(response);
-      })
+      }, INNER_ITERATIONS)
     ];
 
     console.log("");
@@ -534,6 +544,12 @@ const main = async () => {
     console.log("----------");
     postgresCases.forEach(printCase);
   } finally {
+    if (postgresRawSql) {
+      await postgresRawSql.close();
+    }
+    if (sqliteRawDb) {
+      sqliteRawDb.close();
+    }
     await rm(root, { recursive: true, force: true });
   }
 };
