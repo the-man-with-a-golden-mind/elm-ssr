@@ -11,6 +11,7 @@ type Query record selection
 type Selection record
 type GroupBy record
 type Join record
+type On left right
 
 type JoinType
     = InnerJoin
@@ -53,6 +54,8 @@ Write decoders against those aliases, or override them with `as_`.
 
 ```elm
 join : JoinType -> Schema joined -> Column record a -> Column joined a -> Query record selection -> Query record selection
+joinOn : JoinType -> Schema joined -> On record joined -> Query record selection -> Query record selection
+joinFrom : JoinType -> Schema left -> Schema joined -> On left joined -> Query record selection -> Query record selection
 ```
 
 The join key columns must share the same Elm value type. The joined schema supplies the joined SQL table. Example:
@@ -70,6 +73,42 @@ groupByJoinedCol : Schema joined -> Column joined a -> GroupBy record
 ascJoined : Schema joined -> Column joined a -> Order
 descJoined : Schema joined -> Column joined a -> Order
 ```
+
+`joinOn` supports arbitrary join predicates. `joinFrom` supports chaining from an already joined table.
+
+```elm
+onEq : Column left a -> Column right a -> On left right
+onNeq : Column left a -> Column right a -> On left right
+onGt : Column left a -> Column right a -> On left right
+onGte : Column left a -> Column right a -> On left right
+onLt : Column left a -> Column right a -> On left right
+onLte : Column left a -> Column right a -> On left right
+onLeft : Expression left -> On left right
+onRight : Expression right -> On left right
+onAnd : On left right -> On left right -> On left right
+onOr : On left right -> On left right -> On left right
+```
+
+Example:
+
+```elm
+Query.from userSchema
+    |> Query.joinOn Query.InnerJoin postSchema
+        (Query.onAnd
+            (Query.onEq idCol postUserIdCol)
+            (Query.onRight (Query.like "F%" postTitleCol))
+        )
+    |> Query.joinFrom Query.InnerJoin postSchema commentSchema
+        (Query.onEq postIdCol commentPostIdCol)
+```
+
+## Distinct
+
+```elm
+distinct : Query record selection -> Query record selection
+```
+
+Adds `DISTINCT` immediately after `SELECT`.
 
 ## Grouping
 
@@ -152,6 +191,46 @@ PostgreSQL aggregate compilation casts:
 
 SQLite aggregate compilation does not add casts.
 
+## Performance: eliminate the dialect effect round-trip
+
+Every `Loader.env "DB_DIALECT"` call costs a full async effect round-trip (~0.5 ms of
+Promise scheduling overhead). For config values that are constant per process, use
+`Route.env` instead — it reads synchronously from the request flags, zero overhead:
+
+```elm
+-- ❌ Adds one extra effect round-trip per request
+getDialect : Loader Dialect
+getDialect =
+    Loader.env "DB_DIALECT"
+        |> Loader.map (...)
+
+-- ✅ Synchronous, free
+dialectFromRequest : Request -> Dialect
+dialectFromRequest req =
+    case Route.env "DB_DIALECT" req of
+        Just "postgres" -> PostgreSQL
+        _ -> SQLite
+```
+
+Wire it in `createFlags` so the value arrives in the initial flags payload:
+
+```typescript
+createFlags: ({ request, path }) => {
+  const [pathname, search = ""] = path.split("?");
+  return {
+    method: request?.method ?? "GET",
+    path: pathname,
+    query: Object.fromEntries(new URLSearchParams(search)),
+    formData: {},
+    env: { DB_DIALECT: config.dialect }   // ← add this
+  };
+}
+```
+
+Keep `Loader.env` for values that are NOT in flags (e.g. secrets that must
+stay out of the Elm runtime state), or for Cloudflare bindings only available
+at request time.
+
 ## DB Constraint → Changeset Error
 
 `Repo.insert` and `Repo.update` now catch database constraint violations and
@@ -196,7 +275,8 @@ Action.fromLoader (Repo.validateUnique dialect userSchema emailCol email changes
 ```elm
 notInList : List a -> Column record a -> Expression record   -- col NOT IN (?, …); empty list → 1 = 1
 between   : a -> a -> Column record a -> Expression record   -- col BETWEEN ? AND ?
-ilike     : String -> Column record a -> Expression record   -- col ILIKE ? (PostgreSQL only)
+ilike     : String -> Column record a -> Expression record   -- LOWER(col) LIKE LOWER(?)
+inList    : List a -> Column record a -> Expression record   -- empty list → 1 = 0
 ```
 
 ## Transactions

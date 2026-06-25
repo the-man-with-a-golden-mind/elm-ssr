@@ -3,6 +3,7 @@ module ElmSsr.Route exposing
     , segments, method, query
     , param, params
     , formValue
+    , env
     , decoder
     )
 
@@ -49,6 +50,7 @@ type alias Request =
     , query : List ( String, String )
     , params : List ( String, String )
     , formData : List ( String, String )
+    , env : List ( String, String )
     }
 
 
@@ -105,6 +107,24 @@ formValue key request =
     lookup key request.formData
 
 
+{-| Look up an environment variable / flag passed to the runtime at startup.
+
+Prefer this over `Loader.env` for configuration constants (e.g. dialect, feature
+flags) that are set once at process start, not per-request. Reading from the
+request is synchronous and costs no effect round-trip.
+
+    getDialect : Request -> Dialect
+    getDialect req =
+        case Route.env "DB_DIALECT" req of
+            Just "postgres" -> PostgreSQL
+            _ -> SQLite
+
+-}
+env : String -> Request -> Maybe String
+env key request =
+    lookup key request.env
+
+
 lookup : String -> List ( String, String ) -> Maybe String
 lookup key pairs =
     pairs
@@ -118,9 +138,9 @@ in by the generated router, not by the Worker, so they start empty.
 -}
 decoder : Decoder Request
 decoder =
-    Decode.map4
-        (\requestMethod path queryPairs formDataPairs ->
-            { method = requestMethod, path = path, query = queryPairs, params = [], formData = formDataPairs }
+    Decode.map5
+        (\requestMethod path queryPairs formDataPairs envPairs ->
+            { method = requestMethod, path = path, query = queryPairs, params = [], formData = formDataPairs, env = envPairs }
         )
         (Decode.oneOf [ Decode.field "method" Decode.string, Decode.succeed "GET" ])
         (Decode.field "path" Decode.string)
@@ -131,6 +151,11 @@ decoder =
         )
         (Decode.oneOf
             [ Decode.field "formData" (Decode.keyValuePairs Decode.string)
+            , Decode.succeed []
+            ]
+        )
+        (Decode.oneOf
+            [ Decode.field "env" (Decode.keyValuePairs Decode.string)
             , Decode.succeed []
             ]
         )
