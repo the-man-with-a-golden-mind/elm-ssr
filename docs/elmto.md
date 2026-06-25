@@ -160,9 +160,45 @@ Query.ilike "%alice%" nameCol          -- name ILIKE ?  (PostgreSQL only)
 
 `notInList []` compiles to `1 = 1` so an empty exclusion list is safe.
 
+## Transactions
+
+```elm
+Repo.transaction steps  -- steps : List { sql : String, params : List Encode.Value }
+-- : Action Int         -- total rowsAffected; rolls back on any failure
+```
+
+Build steps from compiled operations:
+
+```elm
+let
+    steps =
+        List.filterMap identity
+            [ Compiler.compileInsert dialect userSchema userCs |> Result.toMaybe
+            , Compiler.compileInsert dialect postSchema postCs |> Result.toMaybe
+            ]
+in
+Repo.transaction steps
+```
+
+Requires `sqlTransaction` in `inMemoryEffects`. On Cloudflare D1 the runtime uses `db.batch` automatically.
+
+## Associations
+
+```elm
+-- One query, no N+1. Groups children per parent.
+Repo.loadHasMany dialect postSchema postUserIdCol .userId users .id
+    : Loader (List ( User, List Post ))
+
+-- One query, no N+1. Matches each child to its parent.
+Repo.loadBelongsTo dialect userSchema .id .userId posts
+    : Loader (List ( Post, Maybe User ))
+```
+
+Both emit a single `WHERE fk IN (…)` query and zip results in Elm.
+
 ## Limits
 
 - SQLite `RIGHT JOIN` and `FULL JOIN` require a SQLite version that supports them.
 - `ilike` is PostgreSQL-specific; do not use it on SQLite paths.
-- Transactions are not yet supported; each Repo call is a separate effect.
+- `Repo.transaction` cannot chain intermediate results — compile all SQL before calling.
 - Use raw SQL for CTEs, window functions, subqueries, lateral joins, vendor-specific operators, `HAVING` against custom SQL expressions, or very complex analytical SQL.

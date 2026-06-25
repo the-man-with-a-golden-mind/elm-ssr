@@ -179,11 +179,63 @@ between   : a -> a -> Column record a -> Expression record   -- col BETWEEN ? AN
 ilike     : String -> Column record a -> Expression record   -- col ILIKE ? (PostgreSQL only)
 ```
 
+## Transactions
+
+```elm
+-- Loader.transaction (low-level, available via Action.fromLoader)
+Loader.transaction : List { sql : String, params : List Encode.Value } -> Loader Int
+
+-- Repo.transaction (Action wrapper)
+Repo.transaction : List { sql : String, params : List Encode.Value } -> Action Int
+```
+
+Executes all statements atomically. Any failure rolls back. Returns total `rowsAffected`.
+
+Requires `sqlTransaction` in `inMemoryEffects`:
+
+```typescript
+sqlTransaction: (stmts) => {
+  const txn = db.transaction(() => {
+    let rows = 0;
+    for (const s of stmts) rows += db.query(s.sql).run(...s.params).changes;
+    return { rowsAffected: rows };
+  });
+  return Promise.resolve(txn());
+}
+```
+
+Cloudflare D1: uses `db.batch(stmts)` — no extra config needed.
+
+Limitation: all SQL must be compiled upfront; cannot use result of step N in step N+1 parameters.
+
+## Associations
+
+```elm
+loadHasMany :
+    Dialect
+    -> Schema related
+    -> Column related Int    -- FK col on child table (e.g. postUserIdCol)
+    -> (related -> Int)      -- FK getter on child record (e.g. .userId)
+    -> List record           -- parent records
+    -> (record -> Int)       -- PK getter on parent (e.g. .id)
+    -> Loader (List ( record, List related ))
+
+loadBelongsTo :
+    Dialect
+    -> Schema related
+    -> (related -> Int)      -- PK getter on parent (e.g. .id)
+    -> (record -> Int)       -- FK getter on child (e.g. .userId)
+    -> List record
+    -> Loader (List ( record, Maybe related ))
+```
+
+Both issue **one** `WHERE fk IN (…)` query and group results in Elm — no N+1. Always chain after `Repo.all` via `Loader.andThen`.
+
 ## Current Limits
 
 - `RIGHT JOIN` and `FULL JOIN` depend on SQLite version support.
 - `ilike` is PostgreSQL-specific; emits `ILIKE` which is a syntax error on SQLite.
-- Transactions not yet supported — each Repo call is a separate SQL effect.
+- `Repo.transaction` cannot chain intermediate results — compile all SQL before calling.
 - Use `Loader.query` / `Loader.execute` for CTEs, window functions, subqueries, lateral joins, `HAVING` against custom SQL expressions, and vendor-specific SQL.
 
 ## Tests

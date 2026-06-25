@@ -269,12 +269,61 @@ ilike : String -> Column record a -> Expression record  -- PostgreSQL ILIKE (cas
 
 `notInList []` compiles to `1 = 1` (vacuously true) so pipelines stay composable.
 
+## Transactions
+
+`Repo.transaction` executes a list of pre-compiled SQL statements atomically. Requires `sqlTransaction` in your `inMemoryEffects` options (see [Effect vocabulary](./AGENTS.md#effect-vocabulary)):
+
+```elm
+let
+    steps =
+        List.filterMap identity
+            [ Compiler.compileInsert dialect userSchema userCs |> Result.toMaybe
+            , Compiler.compileInsert dialect postSchema postCs |> Result.toMaybe
+            ]
+in
+Repo.transaction steps
+    |> Action.andThen (\rowsAffected -> ...)
+```
+
+On Cloudflare D1 the runtime uses `db.batch` (atomically committed). Locally wire bun:sqlite's `db.transaction` or `Bun.sql`'s `sql.begin` via the `sqlTransaction` option.
+
+## Associations
+
+```elm
+-- hasMany: given a list of parents, load all children grouped per parent
+loadHasMany :
+    Dialect
+    -> Schema related
+    -> Column related Int    -- FK column on child table
+    -> (related -> Int)      -- FK getter on child record
+    -> List record           -- parent records
+    -> (record -> Int)       -- PK getter on parent
+    -> Loader (List ( record, List related ))
+
+-- belongsTo: given a list of children, load each child's single parent
+loadBelongsTo :
+    Dialect
+    -> Schema related
+    -> (related -> Int)      -- PK getter on parent record
+    -> (record -> Int)       -- FK getter on child record
+    -> List record           -- child records
+    -> Loader (List ( record, Maybe related ))
+```
+
+Both issue a single `IN (...)` query — no N+1. Typical usage:
+
+```elm
+Repo.all dialect (Query.from userSchema)
+    |> Loader.andThen
+        (Repo.loadHasMany dialect postSchema postUserIdCol .userId users .id)
+```
+
 ## Current Limits
 
 - SQLite `RIGHT JOIN` and `FULL JOIN` require a SQLite version that supports them. For older SQLite versions, prefer `INNER JOIN` / `LEFT JOIN` or raw SQL fallback.
 - `ilike` emits `ILIKE` which is PostgreSQL-specific; it will fail at runtime on SQLite.
+- `Repo.transaction` cannot use the result of an earlier statement to parameterise a later one; compile all SQL upfront.
 - Complex SQL features such as CTEs, window functions, subqueries, lateral joins, `HAVING` against custom SQL expressions, and vendor-specific operators remain raw SQL territory.
-- Transactions are not yet supported; each `Repo.*` call is an independent effect.
 
 ## Verification
 

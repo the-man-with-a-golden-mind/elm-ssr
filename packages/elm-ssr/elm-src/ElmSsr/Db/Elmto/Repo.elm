@@ -3,6 +3,8 @@ module ElmSsr.Db.Elmto.Repo exposing
     , count, countWhere, exists
     , insert, update, delete, insertAll
     , validateUnique
+    , transaction
+    , loadHasMany, loadBelongsTo
     )
 
 import ElmSsr.Action as Action exposing (Action)
@@ -307,3 +309,146 @@ delete dialect schema record =
         in
         Action.fromLoader (Loader.execute { sql = c.sql, params = c.params })
             |> Action.map (\_ -> Ok True)
+
+
+{-| Run a list of pre-compiled SQL statements atomically in a single DB
+transaction. Returns the total `rowsAffected` across all statements. Any
+failure rolls back the entire transaction.
+
+Build the list from `Compiler.compile*` results:
+
+    let
+        steps =
+            List.filterMap identity
+                [ Compiler.compileInsert dialect userSchema userCs |> Result.toMaybe
+                , Compiler.compileInsert dialect postSchema postCs |> Result.toMaybe
+                ]
+    in
+    Repo.transaction steps
+
+Requires `sqlTransaction` to be configured in your `inMemoryEffects` options.
+-}
+transaction : List { sql : String, params : List Encode.Value } -> Action Int
+transaction stmts =
+    Action.fromLoader (Loader.transaction stmts)
+
+
+{-| For a list of parent records, load all related child records via a foreign
+key and group them per parent (hasMany / one-to-many).
+
+    usersWithPosts : Loader (List ( User, List Post ))
+    usersWithPosts =
+        Repo.all dialect userQuery
+            |> Loader.andThen
+                (Repo.loadHasMany dialect postSchema postUserIdCol .userId users .id)
+
+Arguments:
+- `dialect` — SQLite or PostgreSQL
+- `relatedSchema` — schema of the child table (e.g. postSchema)
+- `fkCol` — the FK column on the child table (e.g. `column "user_id" Encode.int`)
+- `getFk` — extract the FK value from a decoded child record (e.g. `.userId`)
+- `parents` — the list of already-loaded parent records
+- `getParentId` — extract the PK from a parent record (e.g. `.id`)
+-}
+loadHasMany :
+    Dialect
+    -> Schema related
+    -> Column related Int
+    -> (related -> Int)
+    -> List record
+    -> (record -> Int)
+    -> Loader (List ( record, List related ))
+loadHasMany dialect relatedSchema fkCol getFk parents getParentId =
+    if List.isEmpty parents then
+        Loader.succeed (List.map (\p -> ( p, [] )) parents)
+
+    else
+        let
+            parentIds =
+                List.map getParentId parents
+
+            query =
+                Query.from relatedSchema
+                    |> Query.where_ (Query.inList parentIds fkCol)
+
+            c =
+                Compiler.compileSelect dialect query
+        in
+        Loader.query { sql = c.sql, params = c.params, decoder = Elmto.decoder relatedSchema }
+            |> Loader.map
+                (\related ->
+                    List.map
+                        (\parent ->
+                            let
+                                pid =
+                                    getParentId parent
+
+                                children =
+                                    List.filter (\r -> getFk r == pid) related
+                            in
+                            ( parent, children )
+                        )
+                        parents
+                )
+
+
+{-| For a list of child records, load each record's single parent via the
+child's foreign key (belongsTo / many-to-one). Assumes the parent's PK is
+named `id`.
+
+    postsWithUsers : Loader (List ( Post, Maybe User ))
+    postsWithUsers =
+        Repo.all dialect postQuery
+            |> Loader.andThen
+                (Repo.loadBelongsTo dialect userSchema .id .userId posts)
+
+Arguments:
+- `dialect` — SQLite or PostgreSQL
+- `relatedSchema` — schema of the parent table (e.g. userSchema)
+- `getRelatedId` — extract the PK from a decoded parent record (e.g. `.id`)
+- `getFk` — extract the FK value from a child record (e.g. `.userId`)
+- `records` — the list of already-loaded child records
+-}
+loadBelongsTo :
+    Dialect
+    -> Schema related
+    -> (related -> Int)
+    -> (record -> Int)
+    -> List record
+    -> Loader (List ( record, Maybe related ))
+loadBelongsTo dialect relatedSchema getRelatedId getFk records =
+    if List.isEmpty records then
+        Loader.succeed (List.map (\r -> ( r, Nothing )) records)
+
+    else
+        let
+            fkIds =
+                List.map getFk records
+
+            idColumn =
+                Elmto.column "id" Encode.int
+
+            query =
+                Query.from relatedSchema
+                    |> Query.where_ (Query.inList fkIds idColumn)
+
+            c =
+                Compiler.compileSelect dialect query
+        in
+        Loader.query { sql = c.sql, params = c.params, decoder = Elmto.decoder relatedSchema }
+            |> Loader.map
+                (\related ->
+                    List.map
+                        (\record ->
+                            let
+                                fk =
+                                    getFk record
+
+                                matched =
+                                    List.filter (\r -> getRelatedId r == fk) related
+                                        |> List.head
+                            in
+                            ( record, matched )
+                        )
+                        records
+                )

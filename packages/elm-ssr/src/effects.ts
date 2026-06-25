@@ -178,6 +178,19 @@ export const cloudflareEffects = (config: CloudflareEffectsConfig = {}): EffectR
         return { ok: true, value: { rowsAffected: result.meta?.changes ?? 0 } };
       }
 
+      case "transaction": {
+        const db = env[dbBinding] as D1DatabaseLike | undefined;
+        if (!db) {
+          return { ok: false, error: `Missing D1 binding "${dbBinding}"` };
+        }
+        const stmts = (effect.payload.statements as Array<{ sql: unknown; params: unknown[] }>)
+          .map(s => db.prepare(String(s.sql)).bind(...(Array.isArray(s.params) ? s.params : [])));
+        const results = await db.batch(stmts);
+        const rowsAffected = (results as Array<{ meta?: { changes?: number } }>)
+          .reduce((acc, r) => acc + (r.meta?.changes ?? 0), 0);
+        return { ok: true, value: { rowsAffected } };
+      }
+
       case "env": {
         const value = env[String(effect.payload.name)];
         return { ok: true, value: typeof value === "string" ? value : null };
@@ -205,6 +218,32 @@ export interface InMemoryEffectsOptions {
   cache?: Map<string, { value: unknown; expiresAt?: number }>;
   /** SQL backend, e.g. a bun:sqlite or Postgres handler. Required for query/execute. */
   sql?: (query: SqlQuery) => unknown | Promise<unknown>;
+  /**
+   * Atomic multi-statement SQL transaction handler. Required for `Loader.transaction`.
+   * Receives an ordered list of `{ sql, params }` statements; must execute all of them
+   * inside a single BEGIN/COMMIT block and roll back on any failure.
+   * Returns `{ rowsAffected: number }` — the total rows changed across all statements.
+   *
+   * Example with bun:sqlite:
+   *   sqlTransaction: (stmts) => {
+   *     const txn = db.transaction(() => {
+   *       let rows = 0;
+   *       for (const s of stmts) rows += db.query(s.sql).run(...s.params).changes;
+   *       return { rowsAffected: rows };
+   *     });
+   *     return txn();
+   *   }
+   *
+   * Example with Bun.sql (PostgreSQL):
+   *   sqlTransaction: async (stmts) => {
+   *     let rows = 0;
+   *     await pgSql.begin(async tx => {
+   *       for (const s of stmts) { await tx.unsafe(s.sql, s.params); rows++; }
+   *     });
+   *     return { rowsAffected: rows };
+   *   }
+   */
+  sqlTransaction?: (statements: Array<{ sql: string; params: unknown[] }>) => Promise<{ rowsAffected: number }>;
   /** Override `fetchJson` (e.g. fixtures in tests); defaults to a real fetch. */
   fetchJson?: (url: string) => unknown | Promise<unknown>;
   now?: () => number;
@@ -260,6 +299,22 @@ export const inMemoryEffects = (options: InMemoryEffectsOptions = {}): EffectRun
         try {
           const value = await options.sql({ sql: String(effect.payload.sql), params: sqlParams(effect), mode });
           return { ok: true, value };
+        } catch (error) {
+          return { ok: false, error: String(error) };
+        }
+      }
+
+      case "transaction": {
+        if (!options.sqlTransaction) {
+          return { ok: false, error: 'The "sqlTransaction" handler is not configured in inMemoryEffects.' };
+        }
+        const stmts = (effect.payload.statements as Array<{ sql: unknown; params: unknown[] }>).map(s => ({
+          sql: String(s.sql),
+          params: Array.isArray(s.params) ? s.params : []
+        }));
+        try {
+          const result = await options.sqlTransaction(stmts);
+          return { ok: true, value: result };
         } catch (error) {
           return { ok: false, error: String(error) };
         }

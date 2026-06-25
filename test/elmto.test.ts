@@ -58,6 +58,7 @@ import ElmSsr.Db.Elmto as Elmto
 import ElmSsr.Db.Elmto.Changeset as Changeset
 import ElmSsr.Db.Elmto.Query as Query
 import ElmSsr.Db.Elmto.Compiler as Compiler exposing (Dialect(..))
+import ElmSsr.Db.Elmto.Repo as Repo
 
 type alias User =
     { id : Int
@@ -276,6 +277,18 @@ page req =
                     |> Query.where_ (Query.ilike "%alice%" nameCol)
                 )
 
+        hasManyLoadSqlite =
+            Compiler.compileSelect SQLite
+                (Query.from postSchema
+                    |> Query.where_ (Query.inList [ 1, 2 ] postUserIdCol)
+                )
+
+        belongsToLoadSqlite =
+            Compiler.compileSelect SQLite
+                (Query.from userSchema
+                    |> Query.where_ (Query.inList [ 10, 20 ] idCol)
+                )
+
         validAttrs =
             Dict.fromList
                 [ ( "id", Encode.int 0 )
@@ -367,6 +380,8 @@ page req =
                 , ( "between_sqlite", Encode.string betweenSqlite.sql )
                 , ( "between_postgres", Encode.string betweenPostgres.sql )
                 , ( "ilike_sqlite", Encode.string ilikeSqlite.sql )
+                , ( "has_many_load_sqlite", Encode.string hasManyLoadSqlite.sql )
+                , ( "belongs_to_load_sqlite", Encode.string belongsToLoadSqlite.sql )
                 ]
     in
     Loader.succeed
@@ -457,5 +472,7 @@ action _ =
     expect(data.between_sqlite).toBe("SELECT id, name, email, age FROM users WHERE age BETWEEN ? AND ?");
     expect(data.between_postgres).toBe("SELECT id, name, email, age FROM users WHERE age BETWEEN $1 AND $2");
     expect(data.ilike_sqlite).toBe("SELECT id, name, email, age FROM users WHERE name ILIKE ?");
+    expect(data.has_many_load_sqlite).toBe("SELECT id, user_id, title FROM posts WHERE user_id IN (?, ?)");
+    expect(data.belongs_to_load_sqlite).toBe("SELECT id, name, email, age FROM users WHERE id IN (?, ?)");
   }, 15000);
 });

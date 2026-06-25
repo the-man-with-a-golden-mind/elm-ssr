@@ -4,7 +4,7 @@ module ElmSsr.Loader exposing
     , map, map2, andThen
     , fetchJson
     , cacheGet, cachePut
-    , query, queryOne, execute
+    , query, queryOne, execute, transaction
     , env
     , getCookie
     , enqueue
@@ -260,6 +260,24 @@ execute config =
                 (Decode.map (\rows -> { rowsAffected = rows }) (Decode.field "rowsAffected" Decode.int))
                 result
         )
+
+
+{-| Execute a list of SQL statements atomically in a single DB transaction.
+Returns the total `rowsAffected` across all statements. If any statement fails
+the entire transaction is rolled back. Requires `sqlTransaction` to be wired in
+the effect runner (see `inMemoryEffects` docs). -}
+transaction : List { sql : String, params : List Encode.Value } -> Loader Int
+transaction stmts =
+    Pending
+        { kind = "transaction"
+        , payload =
+            Encode.object
+                [ ( "statements"
+                  , Encode.list (\s -> sqlPayload s.sql s.params) stmts
+                  )
+                ]
+        }
+        (\result -> resumeFetchJson (Decode.field "rowsAffected" Decode.int) result)
 
 
 {-| Read an environment variable / secret / binding name. -}

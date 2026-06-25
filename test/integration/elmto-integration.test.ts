@@ -233,6 +233,38 @@ page req =
                 Repo.exists dialect userSchema (Query.eq nameVal nameCol)
                     |> Loader.map (\\b -> resultPage (Encode.bool b))
 
+            else if op == "hasmany" then
+                Repo.all dialect (Query.from userSchema |> Query.orderBy [ Query.asc nameCol ])
+                    |> Loader.andThen (\\users ->
+                        Repo.loadHasMany dialect postSchema postUserIdCol .userId users .id
+                            |> Loader.map (\\pairs ->
+                                resultPage
+                                    (Encode.list (\\( u, posts ) ->
+                                        Encode.object
+                                            [ ("user", Encode.string u.name)
+                                            , ("posts", Encode.list (\\p -> Encode.string p.title) posts)
+                                            ]
+                                    ) pairs)
+                            )
+                    )
+
+            else if op == "belongsto" then
+                Repo.all dialect (Query.from postSchema |> Query.orderBy [ Query.asc postTitleCol ])
+                    |> Loader.andThen (\\posts ->
+                        Repo.loadBelongsTo dialect userSchema .id .userId posts
+                            |> Loader.map (\\pairs ->
+                                resultPage
+                                    (Encode.list (\\( p, maybeUser ) ->
+                                        Encode.object
+                                            [ ("post", Encode.string p.title)
+                                            , ("user", case maybeUser of
+                                                Just u -> Encode.string u.name
+                                                Nothing -> Encode.null)
+                                            ]
+                                    ) pairs)
+                            )
+                    )
+
             else
                 Repo.all dialect (Query.from userSchema |> Query.orderBy [ Query.asc nameCol ])
                     |> Loader.map (\\users -> resultPage (Encode.list encodeUser users))
@@ -377,6 +409,44 @@ action req =
                             )
                     )
 
+            else if op == "txn" then
+                let
+                    idVal = Dict.get "id" queryMap |> Maybe.andThen String.toInt |> Maybe.withDefault 0
+                    title1Val = Dict.get "title1" queryMap |> Maybe.withDefault "TxPost1"
+                    title2Val = Dict.get "title2" queryMap |> Maybe.withDefault "TxPost2"
+
+                    insert1 =
+                        Compiler.compileInsert dialect postSchema
+                            (Changeset.cast postSchema
+                                (Dict.fromList
+                                    [ ("user_id", Encode.int idVal)
+                                    , ("title", Encode.string title1Val)
+                                    ]
+                                )
+                            )
+
+                    insert2 =
+                        Compiler.compileInsert dialect postSchema
+                            (Changeset.cast postSchema
+                                (Dict.fromList
+                                    [ ("user_id", Encode.int idVal)
+                                    , ("title", Encode.string title2Val)
+                                    ]
+                                )
+                            )
+
+                    steps =
+                        List.filterMap identity
+                            [ Result.toMaybe insert1
+                            , Result.toMaybe insert2
+                            ]
+                in
+                Repo.transaction steps
+                    |> Action.map (\\rows ->
+                        Encode.object [ ("ok", Encode.bool True), ("rowsAffected", Encode.int rows) ]
+                    )
+                    |> Action.andThen Action.json
+
             else if op == "insertall" then
                 let
                     names = [ "Carol", "Dave", "Eve" ]
@@ -450,6 +520,7 @@ export const createFlags = ({ request, path }) => {
 
 export const createTestWorker = (config: { dialect: "sqlite" | "postgres", sqlitePath?: string, pgUrl?: string }) => {
   let sqlHandler;
+  let sqlTransactionHandler;
   if (config.dialect === "sqlite") {
     const db = new Database(config.sqlitePath!);
     sqlHandler = ({ sql, params, mode }) => {
@@ -463,6 +534,17 @@ export const createTestWorker = (config: { dialect: "sqlite" | "postgres", sqlit
         return statement.get(...args) ?? null;
       }
       return statement.all(...args);
+    };
+    sqlTransactionHandler = (stmts) => {
+      const txn = db.transaction(() => {
+        let rowsAffected = 0;
+        for (const s of stmts) {
+          const info = db.query(s.sql).run(...(s.params as never[]));
+          rowsAffected += Number(info.changes);
+        }
+        return { rowsAffected };
+      });
+      return Promise.resolve(txn());
     };
   } else {
     const sql = new SQL(config.pgUrl!);
@@ -478,11 +560,22 @@ export const createTestWorker = (config: { dialect: "sqlite" | "postgres", sqlit
       }
       return rowsArray;
     };
+    sqlTransactionHandler = async (stmts) => {
+      let rowsAffected = 0;
+      await sql.begin(async (tx) => {
+        for (const s of stmts) {
+          await tx.unsafe(s.sql, s.params as unknown[]);
+          rowsAffected++;
+        }
+      });
+      return { rowsAffected };
+    };
   }
 
   const effects = inMemoryEffects({
     env: { DB_DIALECT: config.dialect },
-    sql: sqlHandler
+    sql: sqlHandler,
+    sqlTransaction: sqlTransactionHandler
   });
 
   return createWorkerApp({
@@ -652,6 +745,30 @@ export const createTestWorker = (config: { dialect: "sqlite" | "postgres", sqlit
     expect(insertAllData.count).toBe(3);
     expect(insertAllData.users.map((u: any) => u.name)).toEqual(["Carol", "Dave", "Eve"]);
 
+    // (M) Repo.transaction — atomic two-post insert for user id=1
+    const txnRes = await sqliteWorker.fetch(new Request("http://localhost/testrepo?op=txn&id=1&title1=TxA&title2=TxB", { method: "POST" }));
+    expect(txnRes.status).toBe(200);
+    const txnData = await txnRes.json();
+    expect(txnData.ok).toBe(true);
+    expect(txnData.rowsAffected).toBe(2);
+
+    // (N) Repo.loadHasMany — users with posts
+    const hasManyRes = await sqliteWorker.fetch(new Request("http://localhost/testrepo?op=hasmany"));
+    expect(hasManyRes.status).toBe(200);
+    const hasManyData = await getResultJson(hasManyRes);
+    const aliciaEntry = hasManyData.find((e: any) => e.user === "Alicia");
+    expect(aliciaEntry).toBeDefined();
+    expect(aliciaEntry.posts).toContain("TxA");
+    expect(aliciaEntry.posts).toContain("TxB");
+
+    // (O) Repo.loadBelongsTo — posts with their users
+    const belongsToRes = await sqliteWorker.fetch(new Request("http://localhost/testrepo?op=belongsto"));
+    expect(belongsToRes.status).toBe(200);
+    const belongsToData = await getResultJson(belongsToRes);
+    const txPost = belongsToData.find((e: any) => e.post === "TxA");
+    expect(txPost).toBeDefined();
+    expect(txPost.user).toBe("Alicia");
+
     // ==========================================
     // PostgreSQL Dialect Tests
     // ==========================================
@@ -778,6 +895,29 @@ export const createTestWorker = (config: { dialect: "sqlite" | "postgres", sqlit
       expect(pgInsertAllData.ok).toBe(true);
       expect(pgInsertAllData.count).toBe(3);
       expect(pgInsertAllData.users.map((u: any) => u.name)).toEqual(["Carol", "Dave", "Eve"]);
+
+      // (M) Repo.transaction
+      const pgTxnRes = await pgWorker.fetch(new Request("http://localhost/testrepo?op=txn&id=1&title1=TxA&title2=TxB", { method: "POST" }));
+      expect(pgTxnRes.status).toBe(200);
+      const pgTxnData = await pgTxnRes.json();
+      expect(pgTxnData.ok).toBe(true);
+      expect(pgTxnData.rowsAffected).toBe(2);
+
+      // (N) Repo.loadHasMany
+      const pgHasManyRes = await pgWorker.fetch(new Request("http://localhost/testrepo?op=hasmany"));
+      expect(pgHasManyRes.status).toBe(200);
+      const pgHasManyData = await getResultJson(pgHasManyRes);
+      const pgAliciaEntry = pgHasManyData.find((e: any) => e.user === "Alicia");
+      expect(pgAliciaEntry).toBeDefined();
+      expect(pgAliciaEntry.posts).toContain("TxA");
+
+      // (O) Repo.loadBelongsTo
+      const pgBelongsToRes = await pgWorker.fetch(new Request("http://localhost/testrepo?op=belongsto"));
+      expect(pgBelongsToRes.status).toBe(200);
+      const pgBelongsToData = await getResultJson(pgBelongsToRes);
+      const pgTxPost = pgBelongsToData.find((e: any) => e.post === "TxA");
+      expect(pgTxPost).toBeDefined();
+      expect(pgTxPost.user).toBe("Alicia");
     }
   }, 30000);
 });
