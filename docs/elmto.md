@@ -141,6 +141,30 @@ Action.fromLoader (Repo.validateUnique dialect userSchema emailCol email changes
 
 Returns the changeset unchanged if the value is unique; adds `(field, "has already been taken")` if not.
 
+## DB Constraint Errors
+
+`Repo.insert` and `Repo.update` catch database constraint violations and return
+`Err changeset` with a structured error instead of crashing:
+
+| Constraint | Field | Message |
+|---|---|---|
+| UNIQUE | column name | `"has already been taken"` |
+| NOT NULL | column name | `"can't be blank"` |
+| FOREIGN KEY | `"base"` | `"does not exist"` |
+| CHECK | `"base"` | `"constraint violation"` |
+
+```elm
+Repo.insert SQLite userSchema changeset
+    |> Action.andThen (\result ->
+        case result of
+            Ok user -> -- success
+            Err cs  -> -- constraint or validation error, same Err branch
+    )
+```
+
+Use `validateUnique` to catch uniqueness before the DB call when you want to
+avoid the extra round-trip.
+
 ## Batch Insert
 
 ```elm

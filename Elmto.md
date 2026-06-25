@@ -227,6 +227,22 @@ Query.groupBy
 
 The wrapper erases the column value type for the list while preserving that the column belongs to the same record/schema.
 
+## DB Constraint → Changeset Error
+
+`Repo.insert` and `Repo.update` no longer crash on database constraint
+violations. They catch the error and return `Err changeset` with a structured
+error attached, so callers handle it the same way they handle validation errors:
+
+| Constraint | Elm error |
+|---|---|
+| UNIQUE on `email` | `("email", "has already been taken")` |
+| NOT NULL on `name` | `("name", "can't be blank")` |
+| FOREIGN KEY | `("base", "does not exist")` |
+| CHECK | `("base", "constraint violation")` |
+
+The field name is extracted from the DB error message (reliable for SQLite and
+PostgreSQL UNIQUE violations; falls back to `"base"` when extraction fails).
+
 ## Extended Repo Helpers
 
 ```elm

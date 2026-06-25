@@ -147,6 +147,29 @@ insertAll dialect schema changesets =
         changesets
 
 
+applyConstraintError : Loader.ConstraintError -> Changeset record -> Changeset record
+applyConstraintError err changeset =
+    let
+        fieldName =
+            Maybe.withDefault "base" err.field
+
+        msg =
+            case err.kind of
+                "unique" ->
+                    "has already been taken"
+
+                "notNull" ->
+                    "can't be blank"
+
+                "foreignKey" ->
+                    "does not exist"
+
+                _ ->
+                    "constraint violation"
+    in
+    { changeset | errors = ( fieldName, msg ) :: changeset.errors, isValid = False }
+
+
 insert : Dialect -> Schema record -> Changeset record -> Action (Result (Changeset record) record)
 insert dialect schema changeset =
     if not (Changeset.isValid changeset) then
@@ -164,52 +187,60 @@ insert dialect schema changeset =
             Ok c ->
                 case dialect of
                     PostgreSQL ->
-                        Action.fromLoader (Loader.queryOne { sql = c.sql, params = c.params, decoder = Elmto.decoder schema })
+                        Action.fromLoader (Loader.softQueryOne { sql = c.sql, params = c.params, decoder = Elmto.decoder schema })
                             |> Action.map
-                                (\maybeRec ->
-                                     case maybeRec of
-                                         Just rec ->
+                                (\result ->
+                                     case result of
+                                         Ok (Just rec) ->
                                              Ok rec
 
-                                         Nothing ->
+                                         Ok Nothing ->
                                              Err { changeset | errors = ( "repo", "Insert failed to return record" ) :: changeset.errors, isValid = False }
+
+                                         Err constraintErr ->
+                                             Err (applyConstraintError constraintErr changeset)
                                 )
 
                     SQLite ->
-                        Action.fromLoader (Loader.execute { sql = c.sql, params = c.params })
+                        Action.fromLoader (Loader.softExecute { sql = c.sql, params = c.params })
                             |> Action.andThen
-                                (\_ ->
-                                     Action.fromLoader (Loader.queryOne { sql = "SELECT last_insert_rowid() as id", params = [], decoder = Decode.field "id" Decode.int })
-                                )
-                            |> Action.andThen
-                                (\maybeId ->
-                                     case maybeId of
-                                         Just rowId ->
-                                             let
-                                                 idColumn =
-                                                     Elmto.column "id" Encode.int
+                                (\result ->
+                                     case result of
+                                         Err constraintErr ->
+                                             Action.succeed (Err (applyConstraintError constraintErr changeset))
 
-                                                 fetchQuery =
-                                                     Query.from schema
-                                                         |> Query.where_ (Query.eq rowId idColumn)
-                                                         |> Query.limit 1
+                                         Ok _ ->
+                                             Action.fromLoader (Loader.queryOne { sql = "SELECT last_insert_rowid() as id", params = [], decoder = Decode.field "id" Decode.int })
+                                                 |> Action.andThen
+                                                     (\maybeId ->
+                                                          case maybeId of
+                                                              Just rowId ->
+                                                                  let
+                                                                      idColumn =
+                                                                          Elmto.column "id" Encode.int
 
-                                                 fc =
-                                                     Compiler.compileSelect SQLite fetchQuery
-                                             in
-                                             Action.fromLoader (Loader.queryOne { sql = fc.sql, params = fc.params, decoder = fc.decoder })
-                                                 |> Action.map
-                                                     (\maybeRec ->
-                                                         case maybeRec of
-                                                             Just rec ->
-                                                                 Ok rec
+                                                                      fetchQuery =
+                                                                          Query.from schema
+                                                                              |> Query.where_ (Query.eq rowId idColumn)
+                                                                              |> Query.limit 1
 
-                                                             Nothing ->
-                                                                 Err { changeset | errors = ( "repo", "Failed to retrieve inserted record" ) :: changeset.errors, isValid = False }
+                                                                      fc =
+                                                                          Compiler.compileSelect SQLite fetchQuery
+                                                                  in
+                                                                  Action.fromLoader (Loader.queryOne { sql = fc.sql, params = fc.params, decoder = fc.decoder })
+                                                                      |> Action.map
+                                                                          (\maybeRec ->
+                                                                               case maybeRec of
+                                                                                   Just rec ->
+                                                                                       Ok rec
+
+                                                                                   Nothing ->
+                                                                                       Err { changeset | errors = ( "repo", "Failed to retrieve inserted record" ) :: changeset.errors, isValid = False }
+                                                                          )
+
+                                                              Nothing ->
+                                                                  Action.succeed (Err { changeset | errors = ( "repo", "Failed to resolve last insert rowid" ) :: changeset.errors, isValid = False })
                                                      )
-
-                                         Nothing ->
-                                             Action.succeed (Err { changeset | errors = ( "repo", "Failed to resolve last insert rowid" ) :: changeset.errors, isValid = False })
                                 )
 
 
@@ -230,57 +261,65 @@ update dialect schema changeset =
             Ok c ->
                 case dialect of
                     PostgreSQL ->
-                        Action.fromLoader (Loader.queryOne { sql = c.sql, params = c.params, decoder = Elmto.decoder schema })
+                        Action.fromLoader (Loader.softQueryOne { sql = c.sql, params = c.params, decoder = Elmto.decoder schema })
                             |> Action.map
-                                (\maybeRec ->
-                                     case maybeRec of
-                                         Just rec ->
+                                (\result ->
+                                     case result of
+                                         Ok (Just rec) ->
                                              Ok rec
 
-                                         Nothing ->
+                                         Ok Nothing ->
                                              Err { changeset | errors = ( "repo", "Update failed to return record" ) :: changeset.errors, isValid = False }
+
+                                         Err constraintErr ->
+                                             Err (applyConstraintError constraintErr changeset)
                                 )
 
                     SQLite ->
-                        Action.fromLoader (Loader.execute { sql = c.sql, params = c.params })
+                        Action.fromLoader (Loader.softExecute { sql = c.sql, params = c.params })
                             |> Action.andThen
-                                (\_ ->
-                                     case changeset.data of
-                                         Just originalRecord ->
-                                             let
-                                                 idField =
-                                                     List.filter (\f -> f.name == "id") (Elmto.fields schema)
-                                                         |> List.head
+                                (\result ->
+                                     case result of
+                                         Err constraintErr ->
+                                             Action.succeed (Err (applyConstraintError constraintErr changeset))
 
-                                                 idVal =
-                                                     case idField of
-                                                         Just f ->
-                                                             f.encoder originalRecord
+                                         Ok _ ->
+                                             case changeset.data of
+                                                 Just originalRecord ->
+                                                     let
+                                                         idField =
+                                                             List.filter (\f -> f.name == "id") (Elmto.fields schema)
+                                                                 |> List.head
 
-                                                         Nothing ->
-                                                             Encode.null
-                                             in
-                                             if idVal == Encode.null then
-                                                 Action.succeed (Err { changeset | errors = ( "repo", "Record has no valid id" ) :: changeset.errors, isValid = False })
-
-                                             else
-                                                 let
-                                                     selectSql =
-                                                         "SELECT * FROM " ++ Elmto.tableName schema ++ " WHERE id = ?"
-                                                 in
-                                                 Action.fromLoader (Loader.queryOne { sql = selectSql, params = [ idVal ], decoder = Elmto.decoder schema })
-                                                     |> Action.map
-                                                         (\maybeRec ->
-                                                             case maybeRec of
-                                                                 Just rec ->
-                                                                     Ok rec
+                                                         idVal =
+                                                             case idField of
+                                                                 Just f ->
+                                                                     f.encoder originalRecord
 
                                                                  Nothing ->
-                                                                     Err { changeset | errors = ( "repo", "Failed to retrieve updated record" ) :: changeset.errors, isValid = False }
-                                                         )
+                                                                     Encode.null
+                                                     in
+                                                     if idVal == Encode.null then
+                                                         Action.succeed (Err { changeset | errors = ( "repo", "Record has no valid id" ) :: changeset.errors, isValid = False })
 
-                                         Nothing ->
-                                             Action.succeed (Err { changeset | errors = ( "repo", "No record data to retrieve updated ID" ) :: changeset.errors, isValid = False })
+                                                     else
+                                                         let
+                                                             selectSql =
+                                                                 "SELECT * FROM " ++ Elmto.tableName schema ++ " WHERE id = ?"
+                                                         in
+                                                         Action.fromLoader (Loader.queryOne { sql = selectSql, params = [ idVal ], decoder = Elmto.decoder schema })
+                                                             |> Action.map
+                                                                 (\maybeRec ->
+                                                                      case maybeRec of
+                                                                          Just rec ->
+                                                                              Ok rec
+
+                                                                          Nothing ->
+                                                                              Err { changeset | errors = ( "repo", "Failed to retrieve updated record" ) :: changeset.errors, isValid = False }
+                                                                 )
+
+                                                 Nothing ->
+                                                     Action.succeed (Err { changeset | errors = ( "repo", "No record data to retrieve updated ID" ) :: changeset.errors, isValid = False })
                                 )
 
 

@@ -5,6 +5,7 @@ module ElmSsr.Loader exposing
     , fetchJson
     , cacheGet, cachePut
     , query, queryOne, execute, transaction
+    , ConstraintError, softExecute, softQueryOne
     , env
     , getCookie
     , enqueue
@@ -258,6 +259,64 @@ execute config =
         (\result ->
             resumeFetchJson
                 (Decode.map (\rows -> { rowsAffected = rows }) (Decode.field "rowsAffected" Decode.int))
+                result
+        )
+
+
+{-| A database constraint violation returned as data instead of a hard failure.
+
+`kind` is one of `"unique"`, `"notNull"`, `"foreignKey"`, or `"check"`.
+`field` is the column name when the runtime can extract it from the error message.
+-}
+type alias ConstraintError =
+    { kind : String
+    , field : Maybe String
+    }
+
+
+constraintErrorDecoder : Decoder ConstraintError
+constraintErrorDecoder =
+    Decode.map2 ConstraintError
+        (Decode.field "kind" Decode.string)
+        (Decode.maybe (Decode.field "field" Decode.string))
+
+
+{-| Like `execute`, but catches database constraint violations and returns them
+as `Err ConstraintError` instead of crashing with a 502. Use this inside
+`Repo.insert` / `Repo.update` so constraint errors can be attached to the
+changeset and surfaced to the user. -}
+softExecute : { sql : String, params : List Encode.Value } -> Loader (Result ConstraintError { rowsAffected : Int })
+softExecute config =
+    Pending
+        { kind = "softExecute", payload = sqlPayload config.sql config.params }
+        (\result ->
+            resumeFetchJson
+                (Decode.oneOf
+                    [ Decode.map Ok
+                        (Decode.map (\n -> { rowsAffected = n })
+                            (Decode.field "rowsAffected" Decode.int)
+                        )
+                    , Decode.map Err
+                        (Decode.field "constraintError" constraintErrorDecoder)
+                    ]
+                )
+                result
+        )
+
+
+{-| Like `queryOne`, but catches database constraint violations and returns
+them as `Err ConstraintError`. Used for `INSERT … RETURNING *` on PostgreSQL. -}
+softQueryOne : { sql : String, params : List Encode.Value, decoder : Decoder a } -> Loader (Result ConstraintError (Maybe a))
+softQueryOne config =
+    Pending
+        { kind = "softQueryOne", payload = sqlPayload config.sql config.params }
+        (\result ->
+            resumeFetchJson
+                (Decode.oneOf
+                    [ Decode.map Ok (Decode.nullable config.decoder)
+                    , Decode.map Err (Decode.field "constraintError" constraintErrorDecoder)
+                    ]
+                )
                 result
         )
 

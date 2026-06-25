@@ -152,6 +152,26 @@ PostgreSQL aggregate compilation casts:
 
 SQLite aggregate compilation does not add casts.
 
+## DB Constraint → Changeset Error
+
+`Repo.insert` and `Repo.update` now catch database constraint violations and
+return `Err changeset` instead of crashing with a 502.
+
+| DB constraint | Changeset error |
+|---|---|
+| UNIQUE | `(field, "has already been taken")` |
+| NOT NULL | `(field, "can't be blank")` |
+| FOREIGN KEY | `("base", "does not exist")` |
+| CHECK | `("base", "constraint violation")` |
+
+The field name is extracted from the DB error message when possible (works for
+SQLite and PostgreSQL UNIQUE violations). Use `validateUnique` to check before
+hitting the DB when you want to avoid the round-trip.
+
+The low-level primitives behind this are `Loader.softExecute` (SQLite path) and
+`Loader.softQueryOne` (PostgreSQL RETURNING * path). Both return
+`Result Loader.ConstraintError …` instead of failing hard.
+
 ## Extended Repo API
 
 ```elm

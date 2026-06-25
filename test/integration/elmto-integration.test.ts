@@ -375,6 +375,35 @@ action req =
                                 Action.json (Encode.object [ ("ok", Encode.bool False), ("error", Encode.string err) ])
                     )
 
+            else if op == "insert_dupe" then
+                let
+                    nameVal = Dict.get "name" queryMap |> Maybe.withDefault ""
+                    emailVal = Dict.get "email" queryMap |> Maybe.withDefault ""
+
+                    changeset =
+                        Changeset.cast userSchema
+                            (Dict.fromList
+                                [ ("name", Encode.string nameVal)
+                                , ("email", Encode.string emailVal)
+                                ]
+                            )
+                in
+                Repo.insert dialect userSchema changeset
+                    |> Action.andThen (\\result ->
+                        case result of
+                            Ok user ->
+                                Action.json (Encode.object
+                                    [ ("ok", Encode.bool True)
+                                    , ("user", encodeUser user)
+                                    ])
+
+                            Err cs ->
+                                Action.json (Encode.object
+                                    [ ("ok", Encode.bool False)
+                                    , ("errors", Encode.list (\\(f, m) -> Encode.object [ ("field", Encode.string f), ("message", Encode.string m) ]) (Changeset.errors cs))
+                                    ])
+                    )
+
             else if op == "insert_unique" then
                 let
                     nameVal = Dict.get "name" queryMap |> Maybe.withDefault ""
@@ -737,6 +766,13 @@ export const createTestWorker = (config: { dialect: "sqlite" | "postgres", sqlit
     expect(uniqueDupData.ok).toBe(false);
     expect(uniqueDupData.errors).toContainEqual({ field: "email", message: "has already been taken" });
 
+    // (K2) DB constraint → Err changeset (no pre-check, DB fires UNIQUE)
+    const dbDupeRes = await sqliteWorker.fetch(new Request("http://localhost/testrepo?op=insert_dupe&name=Dup&email=frank@example.com", { method: "POST" }));
+    expect(dbDupeRes.status).toBe(200);
+    const dbDupeData = await dbDupeRes.json();
+    expect(dbDupeData.ok).toBe(false);
+    expect(dbDupeData.errors).toContainEqual({ field: "email", message: "has already been taken" });
+
     // (L) Repo.insertAll — batch insert
     const insertAllRes = await sqliteWorker.fetch(new Request("http://localhost/testrepo?op=insertall", { method: "POST" }));
     expect(insertAllRes.status).toBe(200);
@@ -887,6 +923,13 @@ export const createTestWorker = (config: { dialect: "sqlite" | "postgres", sqlit
       const pgUniqueDupData = await pgUniqueDupRes.json();
       expect(pgUniqueDupData.ok).toBe(false);
       expect(pgUniqueDupData.errors).toContainEqual({ field: "email", message: "has already been taken" });
+
+      // (K2) DB constraint → Err changeset
+      const pgDbDupeRes = await pgWorker.fetch(new Request("http://localhost/testrepo?op=insert_dupe&name=Dup&email=frank@example.com", { method: "POST" }));
+      expect(pgDbDupeRes.status).toBe(200);
+      const pgDbDupeData = await pgDbDupeRes.json();
+      expect(pgDbDupeData.ok).toBe(false);
+      expect(pgDbDupeData.errors).toContainEqual({ field: "email", message: "has already been taken" });
 
       // (L) Repo.insertAll
       const pgInsertAllRes = await pgWorker.fetch(new Request("http://localhost/testrepo?op=insertall", { method: "POST" }));

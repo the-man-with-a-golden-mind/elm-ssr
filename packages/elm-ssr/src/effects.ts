@@ -191,6 +191,27 @@ export const cloudflareEffects = (config: CloudflareEffectsConfig = {}): EffectR
         return { ok: true, value: { rowsAffected } };
       }
 
+      case "softExecute":
+      case "softQueryOne": {
+        const db = env[dbBinding] as D1DatabaseLike | undefined;
+        if (!db) {
+          return { ok: false, error: `Missing D1 binding "${dbBinding}"` };
+        }
+        const statement = db.prepare(String(effect.payload.sql)).bind(...sqlParams(effect));
+        try {
+          if (effect.kind === "softQueryOne") {
+            const row = await statement.first();
+            return { ok: true, value: row ?? null };
+          }
+          const result = await statement.run();
+          return { ok: true, value: { rowsAffected: result.meta?.changes ?? 0 } };
+        } catch (error) {
+          const parsed = parseConstraintError(String(error));
+          if (parsed) return { ok: true, value: { constraintError: parsed } };
+          return { ok: false, error: String(error) };
+        }
+      }
+
       case "env": {
         const value = env[String(effect.payload.name)];
         return { ok: true, value: typeof value === "string" ? value : null };
@@ -209,6 +230,33 @@ export interface SqlQuery {
   sql: string;
   params: unknown[];
   mode: "all" | "first" | "run";
+}
+
+function parseConstraintError(msg: string): { kind: string; field: string | null } | null {
+  // SQLite: "SQLITE_CONSTRAINT: UNIQUE constraint failed: table.column"
+  const sqliteUnique = msg.match(/UNIQUE constraint failed: \w+\.(\w+)/i);
+  if (sqliteUnique) return { kind: "unique", field: sqliteUnique[1] };
+
+  const sqliteNotNull = msg.match(/NOT NULL constraint failed: \w+\.(\w+)/i);
+  if (sqliteNotNull) return { kind: "notNull", field: sqliteNotNull[1] };
+
+  if (/FOREIGN KEY constraint failed/i.test(msg)) return { kind: "foreignKey", field: null };
+  if (/CHECK constraint failed/i.test(msg)) return { kind: "check", field: null };
+
+  // PostgreSQL: "duplicate key value violates unique constraint …  Key (col)=(val) already exists"
+  if (/duplicate key value violates unique constraint/i.test(msg)) {
+    const f = msg.match(/Key \((\w+)\)=/);
+    return { kind: "unique", field: f?.[1] ?? null };
+  }
+
+  // PostgreSQL: 'null value in column "col" of relation …'
+  const pgNotNull = msg.match(/null value in column ["`]?(\w+)["`]?/i);
+  if (pgNotNull) return { kind: "notNull", field: pgNotNull[1] };
+
+  if (/violates foreign key constraint/i.test(msg)) return { kind: "foreignKey", field: null };
+  if (/violates check constraint/i.test(msg)) return { kind: "check", field: null };
+
+  return null;
 }
 
 export interface InMemoryEffectsOptions {
@@ -316,6 +364,22 @@ export const inMemoryEffects = (options: InMemoryEffectsOptions = {}): EffectRun
           const result = await options.sqlTransaction(stmts);
           return { ok: true, value: result };
         } catch (error) {
+          return { ok: false, error: String(error) };
+        }
+      }
+
+      case "softExecute":
+      case "softQueryOne": {
+        if (!options.sql) {
+          return { ok: false, error: 'The "sql" handler is not configured in inMemoryEffects.' };
+        }
+        const mode = effect.kind === "softQueryOne" ? "first" : "run";
+        try {
+          const value = await options.sql({ sql: String(effect.payload.sql), params: sqlParams(effect), mode });
+          return { ok: true, value };
+        } catch (error) {
+          const parsed = parseConstraintError(String(error));
+          if (parsed) return { ok: true, value: { constraintError: parsed } };
           return { ok: false, error: String(error) };
         }
       }
