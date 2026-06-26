@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { createSseStream, encodeSseEvent } from "elm-ssr/sse";
+import { createNamedSseStream, createSseStream, encodeSseEvent } from "elm-ssr/sse";
 
 const decoder = new TextDecoder();
 
@@ -152,5 +152,66 @@ describe("createSseStream", () => {
     expect(body).toContain('data: {"n":1}');
     expect(body).toContain('data: {"n":2}');
     expect(body).toContain('data: {"n":3}');
+  });
+});
+
+describe("createNamedSseStream", () => {
+  const sseRequest = () => new Request("https://example.com/__elm-ssr/prices");
+
+  it("stamps every event with the channel name as the event type", async () => {
+    const response = createNamedSseStream(sseRequest(), "price-update", async (publish) => {
+      publish(JSON.stringify({ btc: 60000 }));
+      publish(JSON.stringify({ eth: 3000 }));
+    });
+    const body = await response.text();
+    const lines = body.split("\n");
+    const eventLines = lines.filter((l) => l.startsWith("event:"));
+    expect(eventLines).toHaveLength(2);
+    expect(eventLines.every((l) => l === "event: price-update")).toBe(true);
+  });
+
+  it("assigns auto-incrementing ids starting at 1", async () => {
+    const response = createNamedSseStream(sseRequest(), "tick", async (publish) => {
+      publish("a");
+      publish("b");
+      publish("c");
+    });
+    const body = await response.text();
+    const idLines = body.split("\n").filter((l) => l.startsWith("id:"));
+    expect(idLines).toEqual(["id: 1", "id: 2", "id: 3"]);
+  });
+
+  it("sets the same SSE response headers as createSseStream", async () => {
+    const response = createNamedSseStream(sseRequest(), "tick", (_publish) => {});
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+    expect(response.headers.get("cache-control")).toContain("no-cache");
+    expect(response.headers.get("x-accel-buffering")).toBe("no");
+    await response.text();
+  });
+
+  it("delivers data payloads correctly alongside event/id frames", async () => {
+    const response = createNamedSseStream(sseRequest(), "msg", async (publish) => {
+      publish("hello");
+    });
+    const body = await response.text();
+    expect(body).toContain("event: msg");
+    expect(body).toContain("id: 1");
+    expect(body).toContain("data: hello");
+  });
+
+  it("resets id counter per stream (not shared across streams)", async () => {
+    const firstBody = await createNamedSseStream(sseRequest(), "ch", async (p) => {
+      p("x");
+      p("y");
+    }).text();
+    const secondBody = await createNamedSseStream(sseRequest(), "ch", async (p) => {
+      p("z");
+    }).text();
+
+    // Each stream starts at id=1.
+    expect(firstBody).toContain("id: 1");
+    expect(firstBody).toContain("id: 2");
+    expect(secondBody).toContain("id: 1");
+    expect(secondBody).not.toContain("id: 3");
   });
 });

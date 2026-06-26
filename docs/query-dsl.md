@@ -1,8 +1,19 @@
 # Type-Safe SQL Query DSL & Schema Generation
 
-`elm-ssr` provides a built-in CLI command and a pure-Elm database DSL to generate type-safe Elm data modules directly from your SQL migrations. This gives you compile-time safety for your database interactions, preventing runtime decode mismatches and type mismatches.
+`elm-ssr` provides a CLI command that reads your SQL migrations and generates a type-safe Elm module for each table, giving you compile-time checked CRUD helpers and a fluent filter DSL — no SQL strings for the common case.
 
-This page documents the generated `ElmSsr.Db.Dsl` layer. For the newer Ecto-like Elmto API with joins, group-by, and aggregate projections, see [Elmto](elmto.md).
+## DSL vs Elmto — which to use
+
+| Situation | Use |
+|---|---|
+| Simple CRUD: list, find by id, insert, update, delete | **Generated DSL** (this page) |
+| Filters, pagination, `WHERE … AND …`, `LIKE`, `IN (…)` | **Generated DSL** |
+| Joins, `GROUP BY`, `HAVING`, aggregates (`COUNT`, `SUM`, …) | **[Elmto](elmto.md)** |
+| Complex subqueries, CTEs, `UNION` | **[Elmto](elmto.md)** |
+| Constraint-safe writes (`INSERT` returning the row) | **[Elmto Repo](elmto.md)** |
+| Anything the above can't express | `Loader.query` / `Loader.execute` (raw SQL) |
+
+The generated DSL is intentionally lightweight. It delegates complex relational work to Elmto rather than trying to replace SQL.
 
 ---
 
@@ -35,6 +46,76 @@ Database field names written in `snake_case` are automatically translated to `ca
 ---
 
 ## 2. Generated Module Structure
+
+For a table named `test_members`, the command generates `src/<Namespace>/Db/TestMembers.elm`.
+
+**Concrete example** — given this migration:
+
+```sql
+CREATE TABLE trello_cards (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    column_id   INTEGER NOT NULL,
+    title       TEXT    NOT NULL,
+    description TEXT,
+    position    INTEGER NOT NULL
+);
+```
+
+The generated module looks like:
+
+```elm
+module Example.Db.TrelloCards exposing
+    ( TrelloCard, TrelloCardsTable, table
+    , id, columnId, title, description, position
+    , decoder, all, byId, insert, update, delete
+    )
+
+import ElmSsr.Db.Dsl as Dsl exposing (Column, Table)
+import ElmSsr.Loader as Loader exposing (Loader)
+import Json.Decode as Decode
+import Json.Encode as Encode
+
+
+type TrelloCardsTable = TrelloCardsTable
+
+table : Table TrelloCardsTable
+table = Dsl.table "trello_cards"
+
+id         : Column TrelloCardsTable Int
+columnId   : Column TrelloCardsTable Int
+title      : Column TrelloCardsTable String
+description : Column TrelloCardsTable String    -- nullable → Maybe String in record
+position   : Column TrelloCardsTable Int
+
+
+type alias TrelloCard =
+    { id          : Int
+    , columnId    : Int
+    , title       : String
+    , description : Maybe String    -- TEXT without NOT NULL
+    , position    : Int
+    }
+
+
+decoder : Decode.Decoder TrelloCard
+
+-- CRUD
+all    : Loader (List TrelloCard)
+byId   : Int -> Loader (Maybe TrelloCard)
+insert : { columnId : Int, title : String, description : Maybe String, position : Int }
+       -> Loader { rowsAffected : Int }
+update : Int -> { columnId : Int, title : String, description : Maybe String, position : Int }
+       -> Loader { rowsAffected : Int }
+delete : Int -> Loader { rowsAffected : Int }
+```
+
+Key conventions:
+- `snake_case` SQL names → `camelCase` Elm names (`column_id` → `columnId`)
+- Nullable columns (`TEXT` without `NOT NULL`) → `Maybe` in the record type
+- Auto-increment primary keys are excluded from `insert` parameters
+- `update` and `delete` take the id as the first argument, named `idVal` to avoid shadowing the `id` column descriptor
+
+---
 
 For a table named `test_members`, the command generates a file at `src/<Namespace>/Db/TestMembers.elm`. Let's look at what is exposed:
 

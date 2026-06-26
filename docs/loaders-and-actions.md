@@ -20,7 +20,52 @@ Loader.succeed : a -> Loader a
 
 -- abort with an HTTP status and message
 Loader.fail : Int -> String -> Loader a
+
+-- redirect before rendering (303-style)
+Loader.redirect : String -> Loader a
 ```
+
+`Loader.redirect` is the right tool for auth guards — redirect to `/login`
+before any data is fetched if the session is missing:
+
+```elm
+page _ =
+    Loader.session userDecoder
+        |> Loader.andThen
+            (\maybeUser ->
+                case maybeUser of
+                    Just user ->
+                        Loader.map (view user) (loadDashboard user.id)
+
+                    Nothing ->
+                        Loader.redirect "/login"
+            )
+```
+
+### `Loader.requireUser` — auth guard shorthand
+
+Wraps the session-check-then-redirect pattern above into a single call:
+
+```elm
+Loader.requireUser
+    : Decode.Decoder user
+    -> String
+    -> (user -> Loader a)
+    -> Loader a
+```
+
+If the session is present and decodes successfully, the callback receives the
+user and the loader continues. If the session is missing or fails to decode,
+the request is redirected to the given path.
+
+```elm
+page : Request -> Loader (Document Never)
+page request =
+    Loader.requireUser userDecoder "/login" <| \user ->
+        Loader.map (view user) (loadDashboard user.id)
+```
+
+Requires `sessions:` to be wired in `createWorkerApp`. See [Sessions](sessions.md).
 
 ### Composition
 
@@ -137,6 +182,32 @@ Action.succeed  : a -> Action a
 Action.fail     : Int -> String -> Action a
 Action.redirect : String -> Action a
 Action.json     : Value -> Action a
+```
+
+### `Action.requireUser` — auth guard shorthand
+
+Same as `Loader.requireUser` but for actions. Redirects to the login path if
+no session is present:
+
+```elm
+Action.requireUser
+    : Decode.Decoder user
+    -> String
+    -> (user -> Action a)
+    -> Action a
+```
+
+```elm
+action : Request -> Action (Document Never)
+action request =
+    Action.requireUser userDecoder "/login" <| \user ->
+        case Route.formValue "message" request of
+            Just msg ->
+                Action.fromLoader (saveComment user.id msg)
+                    |> Action.andThen (\_ -> Action.redirect "/comments")
+
+            Nothing ->
+                Action.fail 422 "Message is required"
 ```
 
 ### Cookies

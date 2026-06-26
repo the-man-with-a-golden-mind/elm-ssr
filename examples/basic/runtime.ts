@@ -2,7 +2,7 @@ import { createWorkerApp } from "elm-ssr";
 import { inMemoryEffects, type EffectRunner } from "elm-ssr/effects";
 import { renderApp, type CompiledElmModule } from "elm-ssr/render";
 import type { RouteCatalog, WorkerHandler } from "elm-ssr/http";
-import { memorySessionStore } from "elm-ssr/sessions";
+import { memorySessionStore, type SessionStore } from "elm-ssr/sessions";
 import { createSseStream } from "elm-ssr/sse";
 import { memoryJobStore, withJobs, type JobHandlers } from "elm-ssr/jobs";
 import { islands, bundleSource } from "../../generated/examples/basic/islands-manifest";
@@ -78,14 +78,31 @@ export const routes: RouteCatalog = {
   ]
 };
 
-export const createFlags = ({ request, path, formData }: { request?: Request; url?: URL; path: string; formData?: Record<string, string> }) => {
+export const createFlags = ({
+  request,
+  path,
+  formData,
+  env
+}: {
+  request?: Request;
+  url?: URL;
+  path: string;
+  formData?: Record<string, string>;
+  env?: Record<string, unknown>;
+}) => {
   const [pathname, search = ""] = path.split("?");
-
+  // Route.env in Elm decodes the env field as (keyValuePairs string), so only
+  // string-valued bindings are passed through. Non-string values (D1, KV, …)
+  // are filtered out here rather than crashing the decoder.
+  const envStrings = env
+    ? Object.fromEntries(Object.entries(env).filter(([ , v]) => typeof v === "string") as [string, string][])
+    : {};
   return {
     method: request?.method ?? "GET",
     path: pathname,
     query: Object.fromEntries(new URLSearchParams(search)),
-    formData: formData ?? {}
+    formData: formData ?? {},
+    env: envStrings
   };
 };
 
@@ -252,7 +269,7 @@ export const worker = createExampleWorker();
  * production `secure: true` is the default.
  */
 export const createSessionExampleWorker = (
-  options: { effects?: EffectRunner; log?: (entry: string) => void; secret?: string } = {}
+  options: { effects?: EffectRunner; log?: (entry: string) => void; secret?: string; store?: SessionStore } = {}
 ) =>
   createWorkerApp({
     elmModule,
@@ -265,7 +282,7 @@ export const createSessionExampleWorker = (
     log: options.log,
     sessions: {
       secret: options.secret ?? "elm-ssr-example-dev-secret-do-not-use-in-prod",
-      store: memorySessionStore(),
+      store: options.store ?? memorySessionStore(),
       secure: false
     },
     csrf: true

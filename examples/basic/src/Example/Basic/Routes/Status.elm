@@ -5,7 +5,7 @@ import ElmSsr.Document exposing (Document)
 import ElmSsr.Html exposing (Node, h1, li, p, section, span, text, ul)
 import ElmSsr.Html.Attributes exposing (class)
 import ElmSsr.Loader as Loader exposing (Loader)
-import ElmSsr.Route exposing (Request)
+import ElmSsr.Route as Route exposing (Request)
 import Example.Basic.View.Shared as Shared
 import Json.Decode as Decode
 import Json.Encode as Encode
@@ -19,8 +19,14 @@ type alias Status =
 
 
 page : Request -> Loader (Document Never)
-page _ =
-    Loader.map2 view cachedStatus (Loader.env "GREETING")
+page req =
+    -- Route.env reads synchronously from the request flags (no effect round-trip).
+    -- Loader.env reads asynchronously via the effect runner. Both should agree.
+    let
+        syncGreeting =
+            Route.env "GREETING" req
+    in
+    Loader.map2 (view syncGreeting) cachedStatus (Loader.env "GREETING")
 
 
 {-| Read the status from the cache; on a miss, fetch it and populate the cache
@@ -67,16 +73,16 @@ encode status =
         ]
 
 
-view : Status -> Maybe String -> Document Never
-view data greeting =
+view : Maybe String -> Status -> Maybe String -> Document Never
+view syncGreeting data asyncGreeting =
     Shared.pageDocument "Edge Status"
-        [ statusSection data greeting
+        [ statusSection data asyncGreeting syncGreeting
         , Shared.featureSection
         ]
 
 
-statusSection : Status -> Maybe String -> Node msg
-statusSection data greeting =
+statusSection : Status -> Maybe String -> Maybe String -> Node msg
+statusSection data asyncGreeting syncGreeting =
     section [ class "panel" ]
         [ span [ class "eyebrow" ] [ text "Loader page (server only)" ]
         , h1 [] [ text "Edge status" ]
@@ -85,6 +91,7 @@ statusSection data greeting =
             [ li [] [ text ("Uptime: " ++ data.uptime) ]
             , li [] [ text ("Region: " ++ data.region) ]
             , li [] [ text ("Builds: " ++ String.fromInt data.builds) ]
-            , li [] [ text ("Env GREETING: " ++ Maybe.withDefault "—" greeting) ]
+            , li [] [ text ("Env GREETING (Loader.env): " ++ Maybe.withDefault "—" asyncGreeting) ]
+            , li [] [ text ("Env GREETING (Route.env): " ++ Maybe.withDefault "—" syncGreeting) ]
             ]
         ]

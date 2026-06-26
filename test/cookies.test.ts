@@ -137,6 +137,48 @@ describe("Action.clearCookie (logout)", () => {
   });
 });
 
+describe("Action.defaultCookie (permissive preference cookie)", () => {
+  // /preferences uses Action.defaultCookie which has only path=/; no HttpOnly,
+  // no Secure, no SameSite, no Max-Age. Contrast: /session uses sessionCookie
+  // which has all the hardened attributes.
+  it("sets a cookie with path=/ and NO security attributes (permissive defaults)", async () => {
+    const response = await worker.fetch(
+      new Request("https://example.com/preferences", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: "theme=dark"
+      })
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("/preferences?theme=dark");
+
+    const cookies = setCookies(response);
+    expect(cookies).toHaveLength(1);
+
+    const attrs = parseCookieAttrs(cookies[0]);
+    expect(attrs.__name).toBe("theme");
+    expect(attrs.__value).toBe("dark");
+    expect(attrs.path).toBe("/");
+
+    // These must NOT be present on a defaultCookie.
+    expect(attrs.httponly).toBeUndefined();
+    expect(attrs.secure).toBeUndefined();
+    expect(attrs.samesite).toBeUndefined();
+    expect(attrs["max-age"]).toBeUndefined();
+    expect(attrs.expires).toBeUndefined();
+  });
+
+  it("renders the current theme from the query string on GET", async () => {
+    const response = await worker.fetch(
+      new Request("https://example.com/preferences?theme=dark")
+    );
+    expect(response.status).toBe(200);
+    const html = await response.text();
+    expect(html).toContain("Theme: dark");
+  });
+});
+
 describe("/api/render forwards cookies set by an action", () => {
   it("attaches Set-Cookie even on the SPA-nav preview endpoint", async () => {
     // The /api/render endpoint is GET-only and runs the route's `page`

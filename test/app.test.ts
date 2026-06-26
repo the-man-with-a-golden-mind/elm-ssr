@@ -207,3 +207,68 @@ describe("render pipeline", () => {
     expect(html).toContain("upstream unavailable");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Page.* helper functions — metaCharset, metaViewport, metaName, stylesheet,
+// document (lang/status), notFound (404 status)
+// ---------------------------------------------------------------------------
+
+describe("Page.* helpers (serialized HTML assertions)", () => {
+  // Every route via Shared.baseHead uses all four meta helpers. The home
+  // page is the simplest route that goes through them.
+  it("Page.metaCharset renders <meta charset='...'> in the document head", async () => {
+    const result = await renderPath("/");
+    const html = renderHtmlDocument(result.document);
+    expect(html).toContain('charset="utf-8"');
+  });
+
+  it("Page.metaViewport renders <meta name='viewport' content='...'> in the head", async () => {
+    const result = await renderPath("/");
+    const html = renderHtmlDocument(result.document);
+    expect(html).toContain('name="viewport"');
+    expect(html).toContain("width=device-width");
+  });
+
+  it("Page.metaName renders an arbitrary <meta name='...' content='...'> pair", async () => {
+    const result = await renderPath("/");
+    const html = renderHtmlDocument(result.document);
+    expect(html).toContain('name="description"');
+    expect(html).toContain("Elm SSR library prototype");
+  });
+
+  it("Page.stylesheet renders a <link rel='stylesheet' href='...'> in the head", async () => {
+    const result = await renderPath("/");
+    const html = renderHtmlDocument(result.document);
+    expect(html).toContain('rel="stylesheet"');
+    expect(html).toContain('href="/styles.css"');
+  });
+
+  it("Page.page sets lang='en' and status 200 on the html element and response", async () => {
+    const result = await renderPath("/");
+    const html = renderHtmlDocument(result.document);
+    expect(result.status).toBe(200);
+    expect(html).toContain('lang="en"');
+  });
+
+  it("Page.notFound sets status 404 while still rendering a full HTML document", async () => {
+    const result = await renderPath("/missing");
+    const html = renderHtmlDocument(result.document);
+    expect(result.status).toBe(404);
+    // Head helpers still present on a 404 page.
+    expect(html).toContain('charset="utf-8"');
+    expect(html).toContain('lang="en"');
+  });
+
+  it("Page.document with a 502 status propagates that code through the render result", async () => {
+    // The runtime synthesises a Page.error document (using Page.document internally)
+    // when a loader fails. Verify that the status field flows through correctly.
+    const result = await renderApp(elmModule, createFlags({ path: "/status" }), {
+      effects: async () => ({ ok: false, error: "service down" })
+    });
+    expect(result.status).toBe(502);
+    const html = renderHtmlDocument(result.document);
+    // The runtime-generated error document still serialises to valid HTML.
+    expect(html).toContain("<!doctype html>");  // serialiser emits lowercase per HTML5 spec
+    expect(html).toContain("service down");
+  });
+});

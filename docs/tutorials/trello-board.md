@@ -1,43 +1,41 @@
 # Tutorial: Building a Trello Board in `elm-ssr`
 
-In this tutorial, we will build a fully functional, database-backed, interactive **Trello Board** using `elm-ssr`. 
+In this tutorial we build a fully functional, database-backed, interactive **Trello Board** using `elm-ssr`.
 
 You will learn how to:
 1. **Design a relational schema** with columns and cards.
-2. **Generate type-safe database queries** using the CLI scanner.
-3. **Build a Loader** to Server-Side Render (SSR) the initial state.
-4. **Embed an interactive Elm Island** to handle client-side drag-and-drop or movements.
-5. **Persist state dynamically** back to the server using Actions.
+2. **Generate type-safe database modules** with the CLI scanner.
+3. **Build a Loader** to Server-Side Render (SSR) the initial board state.
+4. **Embed an interactive Elm Island** that handles client-side card movements.
+5. **Persist state** back to the server using JSON API Actions.
 
 ---
 
 ## Architecture Overview
 
-A Trello board requires both high-performance initial loading (for SEO and perceived speed) and highly interactive user actions. We will split the responsibilities:
+A Trello board needs both fast initial loading (SEO, perceived performance) and highly interactive user actions. We split the responsibilities:
 
-* **The Page (`Routes/Trello.elm`)**: Fetches columns and cards from the database on the server, renders the main HTML shell, and embeds the interactive island.
-* **The Island (`Islands/TrelloBoard.elm`)**: A standard `Browser.element` that mounts on the client. It handles visual interactions (moving cards, opening forms) and issues `fetch` requests to update the database.
-* **The API Routes (`Routes/Api/Trello/Move.elm`, etc.)**: Endpoints that accept card updates and run database writes.
+* **The Page (`Routes/Trello.elm`)** — fetches columns and cards from the database on the server, renders the HTML shell, and embeds the island.
+* **The Island (`Islands/TrelloBoard.elm`)** — a standard `Browser.element` that mounts client-side. It handles moving cards and adding new ones, and calls API routes to persist changes.
+* **The API Routes (`Routes/Api/Trello/Card.elm`, `Routes/Api/Trello/Move.elm`)** — receive form or JSON requests from the island and run the corresponding SQL.
 
 ```mermaid
 graph TD
     User[Browser] -->|GET /trello| Worker[Cloudflare Worker]
     Worker -->|1. Run Loader| DB[(SQLite / D1)]
     DB -->|2. Columns & Cards| Worker
-    Worker -->|3. SSR Page + Flags| User
+    Worker -->|3. SSR Page + Island flags| User
     User -->|4. Hydrate Island| Island[Islands.TrelloBoard]
-    User -->|5. Drag/Move Card| Island
-    Island -->|6. POST /api/trello/move| WorkerAPI[Worker API Action]
-    WorkerAPI -->|7. Update Column ID| DB
+    User -->|5. Move / Add Card| Island
+    Island -->|6. POST /api/trello/move| WorkerAPI[Worker Action]
+    WorkerAPI -->|7. UPDATE column_id| DB
 ```
 
 ---
 
 ## Step 1: Define the Database Schema
 
-First, let's define our database structure. We need columns (e.g. "To Do", "In Progress") and cards belonging to those columns.
-
-Create a new migration file `migrations/0002_trello.sql`:
+Create `migrations/0002_trello.sql`:
 
 ```sql
 -- migrations/0002_trello.sql
@@ -57,19 +55,20 @@ CREATE TABLE trello_cards (
     FOREIGN KEY(column_id) REFERENCES trello_columns(id)
 );
 
--- Seed initial data
-INSERT INTO trello_columns (id, title, position) VALUES 
-(1, 'To Do', 1),
-(2, 'In Progress', 2),
-(3, 'Done', 3);
+-- Seed data
+INSERT INTO trello_columns (id, title, position) VALUES
+    (1, 'To Do', 1),
+    (2, 'In Progress', 2),
+    (3, 'Done', 3);
 
-INSERT INTO trello_cards (column_id, title, description, position) VALUES 
-(1, 'Write Trello Tutorial', 'Write a step-by-step guide for elm-ssr.', 1),
-(1, 'Review PRs', 'Check the styling pipeline code.', 2),
-(2, 'Design Debugger UI', 'Build the DevTools panel.', 1);
+INSERT INTO trello_cards (column_id, title, description, position) VALUES
+    (1, 'Write Trello Tutorial', 'Step-by-step guide for elm-ssr.', 1),
+    (1, 'Review PRs', 'Check the styling pipeline code.', 2),
+    (2, 'Design Debugger UI', 'Build the DevTools panel.', 1);
 ```
 
-Run your migrations to apply these changes locally:
+Apply the migration:
+
 ```sh
 bunx elm-ssr migrate up
 ```
@@ -78,25 +77,28 @@ bunx elm-ssr migrate up
 
 ## Step 2: Generate Type-Safe Db Modules
 
-Next, let `elm-ssr` inspect your new schema and generate the type-safe Elm representations. Run:
+Scan the new tables and generate Elm modules:
+
 ```sh
 bunx elm-ssr query
 ```
 
-This generates two Elm files in your app's Db folder:
-1. `src/<App>/Db/TrelloColumns.elm` (exposing `TrelloColumn` records, decoders, and CRUD utilities)
-2. `src/<App>/Db/TrelloCards.elm` (exposing `TrelloCard` records, decoders, and CRUD utilities)
+This writes two files into `src/<App>/Db/`:
 
-Let's check the generated records:
+- `TrelloColumns.elm` — `TrelloColumn` record, `decoder`, `all`, `byId`, `insert`, `update`, `delete`
+- `TrelloCards.elm` — `TrelloCard` record, `decoder`, `all`, `byId`, `insert`, `update`, `delete`
+
+The generated records (snake_case → camelCase):
+
 ```elm
--- Generated in TrelloColumns.elm:
+-- TrelloColumns.elm
 type alias TrelloColumn =
     { id : Int
     , title : String
     , position : Int
     }
 
--- Generated in TrelloCards.elm:
+-- TrelloCards.elm
 type alias TrelloCard =
     { id : Int
     , columnId : Int
@@ -108,37 +110,31 @@ type alias TrelloCard =
 
 ---
 
-## Step 3: Scaffold Routes & The Island
-
-Let's scaffold our route page and the interactive board island.
+## Step 3: Scaffold Routes
 
 ```sh
-# Scaffold the page route
+# SSR page
 bunx elm-ssr route trello
 
-# Scaffold the API route to save cards
+# JSON API routes
 bunx elm-ssr route api/trello/card --api
-
-# Scaffold the API route to handle card movements
 bunx elm-ssr route api/trello/move --api
 ```
 
-Now, create the island file: `src/<App>/Islands/TrelloBoard.elm`. We will implement it in Step 5.
+Also create the island file manually: `src/<App>/Islands/TrelloBoard.elm`.
 
 ---
 
-## Step 4: Implement the Server-Side Page & Loader
+## Step 4: Implement the Server-Side Page
 
-On the server, we want to fetch all columns and cards in a single page load. We will use the Query DSL to retrieve both lists and combine them.
-
-Open `src/<App>/Routes/Trello.elm` and write the Loader:
+`src/<App>/Routes/Trello.elm` fetches both tables with `Loader.map2` and hands the data to the island as flags.
 
 ```elm
 module Example.Basic.Routes.Trello exposing (page, action)
 
 import ElmSsr.Action as Action exposing (Action)
 import ElmSsr.Document exposing (Document)
-import ElmSsr.Html exposing (div, text)
+import ElmSsr.Html exposing (div)
 import ElmSsr.Html.Attributes exposing (class)
 import ElmSsr.Loader as Loader exposing (Loader)
 import ElmSsr.Page as Page
@@ -148,11 +144,12 @@ import Example.Basic.Db.TrelloCards as TrelloCards
 import Example.Basic.Islands.TrelloBoard as TrelloBoard
 import Example.Basic.View.Shared as Shared
 
--- Define a helper record to pass both collections to our flags
+
 type alias BoardData =
     { columns : List TrelloColumns.TrelloColumn
     , cards : List TrelloCards.TrelloCard
     }
+
 
 page : Request -> Loader (Document Never)
 page _ =
@@ -161,9 +158,11 @@ page _ =
         TrelloCards.all
         |> Loader.map view
 
+
 action : Request -> Action (Document Never)
 action _ =
     Action.fail 405 "Method not allowed"
+
 
 view : BoardData -> Document Never
 view data =
@@ -173,8 +172,7 @@ view data =
         , body =
             [ Shared.shell "Kanban Board"
                 [ div [ class "board-container" ]
-                    [ -- Embed the interactive board island and pass DB records as flags
-                      TrelloBoard.embed
+                    [ TrelloBoard.embed
                         { columns = data.columns
                         , cards = data.cards
                         }
@@ -186,11 +184,13 @@ view data =
 
 ---
 
-## Step 5: Implement the Client-Side Interactive Island
+## Step 5: Implement the Island
 
-Now we will build the client-side interactive board. The board needs to maintain a local copy of columns and cards, draw columns side-by-side, allow adding cards locally, and support moving cards.
+`src/<App>/Islands/TrelloBoard.elm` — a normal `Browser.element` using stock `elm/html` and `elm/http`.
 
-Open `src/<App>/Islands/TrelloBoard.elm`:
+> **How data flows to the island.** The server SSR-renders an `<elm-ssr-island>` marker with the encoded flags. The browser runtime decodes them and feeds them to `init`. No ports required.
+
+> **Sending requests to API routes.** The island posts JSON with **string values** (e.g. `Encode.string (String.fromInt cardId)`). The runtime parses JSON bodies and exposes each field through `Route.formValue` on the Elm server side — and `Route.formValue` decodes values as strings, so ints must be stringified before sending.
 
 ```elm
 module Example.Basic.Islands.TrelloBoard exposing
@@ -204,28 +204,33 @@ import Browser
 import ElmSsr.Html as SsrHtml exposing (Node)
 import ElmSsr.Html.Attributes as SsrAttr
 import ElmSsr.Island as Island
-import Html exposing (Html, button, div, h3, input, p, text, textarea)
-import Html.Attributes exposing (class, placeholder, style, type_, value)
-import Html.Events import onClick, onInput
+import Html exposing (Html, button, div, h3, input, p, text)
+import Html.Attributes exposing (class, placeholder, type_, value)
+import Html.Events exposing (onClick, onInput)
 import Http
 import Json.Decode as Decode
 import Json.Encode as Encode
 
--- 1. Embedding properties
+
+-- 1. SSR embed helper (called from the page)
+
 embed : Flags -> Node msg
 embed =
     Island.embed "TrelloBoard"
         { encodeFlags = encodeFlags
         , fallback = fallback
-        , id = Just "main-trello-board" -- Keep active across SPA page swaps
+        , id = Just "main-trello-board"
         }
 
--- 2. Schema types matching generated database descriptors
+
+-- 2. Types
+
 type alias Column =
     { id : Int
     , title : String
     , position : Int
     }
+
 
 type alias Card =
     { id : Int
@@ -235,33 +240,38 @@ type alias Card =
     , position : Int
     }
 
+
 type alias Flags =
     { columns : List Column
     , cards : List Card
     }
 
+
 type alias Model =
     { columns : List Column
     , cards : List Card
-    -- Local form UI state
-    , newCardTitles : List ( Int, String ) -- Map of columnId -> input value
+    , newCardTitles : List ( Int, String )
     , error : Maybe String
     }
 
+
 type Msg
-    = MoveCard Int Int -- cardId, newColumnId
-    | InputCardTitle Int String -- columnId, value
-    | AddCard Int -- columnId
+    = MoveCard Int Int
+    | InputCardTitle Int String
+    | AddCard Int
     | SaveCardResponse (Result Http.Error Card)
     | MoveCardResponse (Result Http.Error ())
 
--- 3. Hydration & Encoders
+
+-- 3. Encoders (for flags serialised into the SSR marker)
+
 encodeFlags : Flags -> Encode.Value
 encodeFlags flags =
     Encode.object
         [ ( "columns", Encode.list encodeColumn flags.columns )
         , ( "cards", Encode.list encodeCard flags.cards )
         ]
+
 
 encodeColumn : Column -> Encode.Value
 encodeColumn col =
@@ -271,24 +281,36 @@ encodeColumn col =
         , ( "position", Encode.int col.position )
         ]
 
+
 encodeCard : Card -> Encode.Value
 encodeCard card =
     Encode.object
         [ ( "id", Encode.int card.id )
         , ( "columnId", Encode.int card.columnId )
         , ( "title", Encode.string card.title )
-        , ( "description", Maybe.withDefault Encode.null (Maybe.map Encode.string card.description) )
+        , ( "description"
+          , case card.description of
+                Just desc ->
+                    Encode.string desc
+
+                Nothing ->
+                    Encode.null
+          )
         , ( "position", Encode.int card.position )
         ]
 
--- 4. Server-Side Fallback Markup
+
+-- 4. SSR fallback (shown before the island mounts)
+
 fallback : Flags -> List (Node msg)
-fallback flags =
+fallback _ =
     [ SsrHtml.div [ SsrAttr.class "board-fallback" ]
-        [ SsrHtml.p [] [ SsrHtml.text "Loading interactive board..." ] ]
+        [ SsrHtml.p [] [ SsrHtml.text "Loading interactive board…" ] ]
     ]
 
--- 5. Standard Browser Program
+
+-- 5. Standard Browser.element
+
 main : Program Flags Model Msg
 main =
     Browser.element
@@ -297,6 +319,7 @@ main =
         , view = view
         , subscriptions = subscriptions
         }
+
 
 init : Flags -> ( Model, Cmd Msg )
 init flags =
@@ -308,11 +331,14 @@ init flags =
     , Cmd.none
     )
 
+
 subscriptions : Model -> Sub Msg
 subscriptions _ =
     Sub.none
 
--- 6. Interactive State & API Persistence Actions
+
+-- 6. Update
+
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
@@ -324,7 +350,7 @@ update msg model =
             ( { model | newCardTitles = ( colId, val ) :: cleaned }, Cmd.none )
 
         MoveCard cardId newColId ->
-            -- Optimistic UI Update: immediately update locally so it feels instant
+            -- Optimistic update: move the card locally immediately.
             let
                 updatedCards =
                     List.map
@@ -338,14 +364,14 @@ update msg model =
                         model.cards
             in
             ( { model | cards = updatedCards }
-              -- Persist to database via API POST
             , Http.post
                 { url = "/api/trello/move"
+                  -- Send integer IDs as strings so Route.formValue can read them.
                 , body =
                     Http.jsonBody <|
                         Encode.object
-                            [ ( "cardId", Encode.int cardId )
-                            , ( "columnId", Encode.int newColId )
+                            [ ( "cardId", Encode.string (String.fromInt cardId) )
+                            , ( "columnId", Encode.string (String.fromInt newColId) )
                             ]
                 , expect = Http.expectWhatever MoveCardResponse
                 }
@@ -354,9 +380,10 @@ update msg model =
         AddCard colId ->
             let
                 titleVal =
-                    List.filter (\( cid, _ ) -> cid == colId) model.newCardTitles
-                        |> List.map Tuple.second
+                    model.newCardTitles
+                        |> List.filter (\( cid, _ ) -> cid == colId)
                         |> List.head
+                        |> Maybe.map Tuple.second
                         |> Maybe.withDefault ""
                         |> String.trim
             in
@@ -365,13 +392,12 @@ update msg model =
 
             else
                 ( model
-                  -- Persist card to DB
                 , Http.post
                     { url = "/api/trello/card"
                     , body =
                         Http.jsonBody <|
                             Encode.object
-                                [ ( "columnId", Encode.int colId )
+                                [ ( "columnId", Encode.string (String.fromInt colId) )
                                 , ( "title", Encode.string titleVal )
                                 ]
                     , expect = Http.expectJson SaveCardResponse cardDecoder
@@ -381,15 +407,13 @@ update msg model =
         SaveCardResponse result ->
             case result of
                 Ok newCard ->
-                    -- Add new card to local list, and clear input
                     let
-                        updatedCards =
-                            model.cards ++ [ newCard ]
-
                         cleanedInputs =
                             List.filter (\( cid, _ ) -> cid /= newCard.columnId) model.newCardTitles
                     in
-                    ( { model | cards = updatedCards, newCardTitles = cleanedInputs }, Cmd.none )
+                    ( { model | cards = model.cards ++ [ newCard ], newCardTitles = cleanedInputs }
+                    , Cmd.none
+                    )
 
                 Err _ ->
                     ( { model | error = Just "Failed to save card." }, Cmd.none )
@@ -400,9 +424,11 @@ update msg model =
                     ( model, Cmd.none )
 
                 Err _ ->
-                    ( { model | error = Just "Failed to persist movement." }, Cmd.none )
+                    ( { model | error = Just "Failed to persist card movement." }, Cmd.none )
 
--- Card JSON Decoder
+
+-- Card decoder (matches the JSON the server returns)
+
 cardDecoder : Decode.Decoder Card
 cardDecoder =
     Decode.map5 Card
@@ -412,7 +438,9 @@ cardDecoder =
         (Decode.field "description" (Decode.nullable Decode.string))
         (Decode.field "position" Decode.int)
 
--- 7. Presentation View
+
+-- 7. View
+
 view : Model -> Html Msg
 view model =
     div [ class "trello-board" ]
@@ -426,6 +454,7 @@ view model =
             (List.map (viewColumn model.cards model.newCardTitles) model.columns)
         ]
 
+
 viewColumn : List Card -> List ( Int, String ) -> Column -> Html Msg
 viewColumn allCards inputMap col =
     let
@@ -433,19 +462,19 @@ viewColumn allCards inputMap col =
             List.filter (\c -> c.columnId == col.id) allCards
 
         currentInput =
-            List.filter (\( cid, _ ) -> cid == col.id) inputMap
-                |> List.map Tuple.second
+            inputMap
+                |> List.filter (\( cid, _ ) -> cid == col.id)
                 |> List.head
+                |> Maybe.map Tuple.second
                 |> Maybe.withDefault ""
     in
     div [ class "board-column" ]
         [ h3 [ class "column-title" ] [ text col.title ]
-        , div [ class "cards-list" ]
-            (List.map (viewCard col.id) columnCards)
+        , div [ class "cards-list" ] (List.map (viewCard col.id) columnCards)
         , div [ class "card-creator" ]
             [ input
                 [ type_ "text"
-                , placeholder "New card title..."
+                , placeholder "New card title…"
                 , value currentInput
                 , onInput (InputCardTitle col.id)
                 ]
@@ -454,13 +483,13 @@ viewColumn allCards inputMap col =
             ]
         ]
 
+
 viewCard : Int -> Card -> Html Msg
 viewCard currentColId card =
     div [ class "board-card" ]
         [ p [ class "card-title" ] [ text card.title ]
         , div [ class "card-actions" ]
-            [ -- Simple moving mechanism: left and right arrows
-              if currentColId > 1 then
+            [ if currentColId > 1 then
                 button [ onClick (MoveCard card.id (currentColId - 1)) ] [ text "←" ]
 
               else
@@ -476,12 +505,13 @@ viewCard currentColId card =
 
 ---
 
-## Step 6: Implement the Persistence Actions (APIs)
+## Step 6: Implement the API Actions
 
-Now let's implement the server side endpoints that our island calls via `Http.post`.
+### Card creation — `Routes/Api/Trello/Card.elm`
 
-### 1. Card Creation API
-Open `src/<App>/Routes/Api/Trello/Card.elm`:
+Reads `columnId` and `title` from the request body, inserts a new card, then returns the created card as JSON so the island can add it to its local model without refetching.
+
+`Route.formValue` reads both `application/x-www-form-urlencoded` form fields **and** keys from a flat JSON body — which is why the island sends integer IDs as JSON strings.
 
 ```elm
 module Example.Basic.Routes.Api.Trello.Card exposing (page, action)
@@ -494,45 +524,44 @@ import Example.Basic.Db.TrelloCards as TrelloCards
 import Json.Decode as Decode
 import Json.Encode as Encode
 
+
 page : Request -> Loader (Document Never)
 page _ =
-    Loader.fail 405 "GET method not allowed"
+    Loader.fail 405 "GET not allowed"
+
 
 action : Request -> Action (Document Never)
 action request =
-    let
-        -- Decode incoming body JSON
-        bodyDecoder =
-            Decode.map2 (\c t -> { columnId = c, title = t })
-                (Decode.field "columnId" Decode.int)
-                (Decode.field "title" Decode.string)
-    in
-    case Route.bodyJson bodyDecoder request of
-        Just payload ->
-            -- Save to DB (setting default description and position)
-            Action.fromLoader
-                (TrelloCards.insert
-                    { columnId = payload.columnId
-                    , title = payload.title
-                    , description = Nothing
-                    , position = 100 -- Default position
-                    }
-                )
-                |> Action.andThen
-                    (\_ ->
-                        -- Fetch the newly inserted card to return it back to client
-                        Action.fromLoader fetchLastInsertedCard
-                    )
+    case ( Route.formValue "columnId" request, Route.formValue "title" request ) of
+        ( Just colIdStr, Just title ) ->
+            case String.toInt colIdStr of
+                Just colId ->
+                    Action.fromLoader
+                        (TrelloCards.insert
+                            { columnId = colId
+                            , title = title
+                            , description = Nothing
+                            , position = 100
+                            }
+                        )
+                        |> Action.andThen (\_ -> Action.fromLoader (fetchNewCard colId))
+                        |> Action.andThen (\card -> Action.json (encodeCard card))
 
-        Nothing ->
-            Action.fail 400 "Invalid JSON payload"
+                Nothing ->
+                    Action.fail 400 "columnId must be an integer"
 
--- Helper to find the card we just created (highest ID)
-fetchLastInsertedCard : Loader TrelloCards.TrelloCard
-fetchLastInsertedCard =
+        _ ->
+            Action.fail 400 "Missing columnId or title"
+
+
+-- Fetch the most recently inserted card by returning the highest id.
+-- This is safe for single-writer SQLite; for concurrent writers use
+-- RETURNING on PostgreSQL via Loader.softQueryOne.
+fetchNewCard : Int -> Loader TrelloCards.TrelloCard
+fetchNewCard colId =
     Loader.queryOne
-        { sql = "SELECT id, column_id, title, description, position FROM trello_cards ORDER BY id DESC LIMIT 1"
-        , params = []
+        { sql = "SELECT id, column_id, title, description, position FROM trello_cards WHERE column_id = ? ORDER BY id DESC LIMIT 1"
+        , params = [ Encode.int colId ]
         , decoder = TrelloCards.decoder
         }
         |> Loader.andThen
@@ -542,12 +571,31 @@ fetchLastInsertedCard =
                         Loader.succeed card
 
                     Nothing ->
-                        Loader.fail 500 "Failed to retrieve saved card"
+                        Loader.fail 500 "Failed to retrieve inserted card"
             )
+
+
+encodeCard : TrelloCards.TrelloCard -> Encode.Value
+encodeCard card =
+    Encode.object
+        [ ( "id", Encode.int card.id )
+        , ( "columnId", Encode.int card.columnId )
+        , ( "title", Encode.string card.title )
+        , ( "description"
+          , case card.description of
+                Just desc ->
+                    Encode.string desc
+
+                Nothing ->
+                    Encode.null
+          )
+        , ( "position", Encode.int card.position )
+        ]
 ```
 
-### 2. Card Movement API
-Open `src/<App>/Routes/Api/Trello/Move.elm`:
+### Card movement — `Routes/Api/Trello/Move.elm`
+
+Only updates `column_id`. We use a targeted `Loader.execute` with raw SQL rather than the generated `TrelloCards.update`, which would overwrite every field including title and position.
 
 ```elm
 module Example.Basic.Routes.Api.Trello.Move exposing (page, action)
@@ -556,58 +604,44 @@ import ElmSsr.Action as Action exposing (Action)
 import ElmSsr.Document exposing (Document)
 import ElmSsr.Loader as Loader exposing (Loader)
 import ElmSsr.Route as Route exposing (Request)
-import Example.Basic.Db.TrelloCards as TrelloCards
-import Json.Decode as Decode
 import Json.Encode as Encode
+
 
 page : Request -> Loader (Document Never)
 page _ =
-    Loader.fail 405 "GET method not allowed"
+    Loader.fail 405 "GET not allowed"
+
 
 action : Request -> Action (Document Never)
 action request =
-    let
-        bodyDecoder =
-            Decode.map2 (\cid colId -> { cardId = cid, columnId = colId })
-                (Decode.field "cardId" Decode.int)
-                (Decode.field "columnId" Decode.int)
-    in
-    case Route.bodyJson bodyDecoder request of
-        Just payload ->
-            -- Update card record by ID in D1/SQLite
-            Action.fromLoader
-                (TrelloCards.update payload.cardId
-                    { columnId = payload.columnId
-                    -- Keep other values as-is (database handles positional retention)
-                    , title = "" -- Placeholder (update query handles this structure)
-                    , description = Nothing
-                    , position = 0
-                    }
-                )
-                |> Action.andThen
-                    (\_ ->
-                        -- Return simple ok message
-                        Action.json (Encode.object [ ( "ok", Encode.bool True ) ])
-                    )
+    case ( Route.formValue "cardId" request, Route.formValue "columnId" request ) of
+        ( Just cardIdStr, Just colIdStr ) ->
+            case ( String.toInt cardIdStr, String.toInt colIdStr ) of
+                ( Just cardId, Just colId ) ->
+                    Action.fromLoader
+                        (Loader.execute
+                            { sql = "UPDATE trello_cards SET column_id = ? WHERE id = ?"
+                            , params = [ Encode.int colId, Encode.int cardId ]
+                            }
+                        )
+                        |> Action.andThen (\_ -> Action.json (Encode.object [ ( "ok", Encode.bool True ) ]))
 
-        Nothing ->
-            Action.fail 400 "Invalid JSON payload"
+                _ ->
+                    Action.fail 400 "cardId and columnId must be integers"
+
+        _ ->
+            Action.fail 400 "Missing cardId or columnId"
 ```
 
 ---
 
 ## Step 7: Add Styles
 
-Add some CSS styles to your `src/app.css` (or `styles.ts`) to draw columns side-by-side:
+`src/app.css` (or `styles.ts`):
 
 ```css
 .board-container {
   padding: 2rem 0;
-}
-
-.trello-board {
-  display: flex;
-  flex-direction: column;
 }
 
 .columns-wrapper {
@@ -637,7 +671,6 @@ Add some CSS styles to your `src/app.css` (or `styles.ts`) to draw columns side-
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
   padding: 0.75rem;
   margin-bottom: 0.75rem;
-  border: 1px solid rgba(0, 0, 0, 0.04);
 }
 
 .card-title {
@@ -653,6 +686,7 @@ Add some CSS styles to your `src/app.css` (or `styles.ts`) to draw columns side-
 .card-creator {
   display: flex;
   gap: 0.5rem;
+  margin-top: 0.75rem;
 }
 
 .card-creator input {
@@ -661,20 +695,33 @@ Add some CSS styles to your `src/app.css` (or `styles.ts`) to draw columns side-
   border-radius: 4px;
   border: 1px solid rgba(0, 0, 0, 0.15);
 }
+
+.error-banner {
+  background: #fee;
+  border: 1px solid #fcc;
+  border-radius: 4px;
+  padding: 0.5rem 1rem;
+  margin-bottom: 1rem;
+  color: #c00;
+}
 ```
 
 ---
 
 ## Step 8: Build and Run
 
-Build your project to verify both typescript and elm run compilation cleanly:
 ```sh
-bun run check
+bun run check   # verify Elm + TypeScript compile
+bun run dev     # start the dev server
 ```
 
-Start your server local dev server:
-```sh
-bun run dev
-```
+Navigate to `http://localhost:8787/trello`. You will see the board SSR-rendered straight from the database. Use the ← → buttons to move cards between columns and the "Add" form to create new ones; every change persists to SQLite/D1.
 
-Navigate to `http://localhost:8787/trello` in your browser. You will see a Server-Side Rendered Trello board populated straight from your SQL tables. Drag, add, or click movements, and see the modifications persist cleanly inside D1/SQLite!
+---
+
+## What's not in this tutorial
+
+- **Drag-and-drop**: wire a JS drag event through a port and emit `MoveCard` from the port sub.
+- **Optimistic rollback**: `MoveCardResponse (Err _)` currently just shows a banner. Store the old `columnId` before the optimistic update and revert it on error.
+- **Server-push board updates**: see [SSE](../sse.md) for broadcasting card moves to other open tabs via `EventSource`.
+- **CSRF protection**: enable `csrf: true` in `createWorkerApp` and embed `Loader.csrfToken` in the page flags, passing it as a custom header on every island `Http.post`. See [Sessions](../sessions.md).

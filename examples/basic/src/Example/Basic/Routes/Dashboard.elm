@@ -28,7 +28,11 @@ page _ =
 
 action : Request -> Action (Document Never)
 action _ =
-    Action.fail 405 "Method not allowed"
+    -- Action.requireUser: unauthenticated POST redirects to /profile;
+    -- authenticated POST still returns 405 (this page accepts no mutations).
+    Action.requireUser profileDecoder "/profile" (\_ ->
+        Action.fail 405 "Method not allowed"
+    )
 
 
 view : Profile -> Document Never

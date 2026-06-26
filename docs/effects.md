@@ -16,10 +16,13 @@ All effects are available on `Loader`. Actions reuse them via
 | `Loader.fetchJson { url, decoder }` | `fetchJson` | HTTP GET, JSON-decoded. |
 | `Loader.cacheGet { key, decoder }` | `cacheGet` | Cache read; returns `Maybe a`. |
 | `Loader.cachePut { key, value, ttlSeconds }` | `cachePut` | Cache write with optional TTL. |
-| `Loader.query { sql, params, decoder }` | `query` | SQL select, decode rows. |
+| `Loader.query { sql, params, decoder }` | `query` | SQL SELECT, decode all rows. |
 | `Loader.queryOne { sql, params, decoder }` | `queryOne` | First row only (`Maybe a`). |
-| `Loader.execute { sql, params }` | `execute` | INSERT/UPDATE/DELETE; returns `{ rowsAffected }`. |
-| `Loader.env name` | `env` | Read an env var / binding name. |
+| `Loader.execute { sql, params }` | `execute` | INSERT/UPDATE/DELETE; returns `{ rowsAffected }`. Fails the loader on a DB constraint violation. |
+| `Loader.softExecute { sql, params }` | `softExecute` | Like `execute`, but catches DB constraint violations and returns `Err ConstraintError` instead of aborting with 502. Used by `Repo.insert`/`update` on SQLite. |
+| `Loader.softQueryOne { sql, params, decoder }` | `softQueryOne` | Like `queryOne`, but catches constraint violations. Used by `Repo.insert`/`update` on PostgreSQL (`INSERT … RETURNING *`). |
+| `Loader.transaction stmts` | `transaction` | Run a list of `{ sql, params }` statements atomically. Rolls back the entire batch on any failure; returns total `rowsAffected`. Requires `sqlTransaction` in `inMemoryEffects`. |
+| `Loader.env name` | `env` | Read an env var / binding name (async round-trip). For synchronous access to process-start constants use `Route.env` instead. |
 | `Loader.getCookie name` | `cookie` | Read a request cookie (parsed from the `Cookie` header). Returns `Maybe String`. |
 | `Loader.session decoder` | `session` | Read the current session payload (requires `sessionMiddleware`). See [sessions](sessions.md). |
 | `Loader.csrfToken` | `csrfToken` | Read the current CSRF token (requires `sessionMiddleware`). See [sessions](sessions.md). |
@@ -28,6 +31,78 @@ All effects are available on `Loader`. Actions reuse them via
 | `Loader.enqueue { task, payload }` | `enqueue` | Fire-and-forget background work. See [tasks](tasks.md). |
 | `Loader.custom { kind, payload, decoder }` | `<your kind>` | Escape hatch — emit any effect kind your adapter handles. See [recipe: parallel queries](recipes/parallel-queries.md) for the most common use (Promise.all fan-out). |
 | `Loader.startJob { kind, payload }` / `Loader.jobStatus { jobId, decoder }` | `startJob` / `jobStatus` | Submit and poll a long-running background job. Requires `withJobs(runner, { store, handlers })`. See [jobs](jobs.md). |
+
+### `softExecute` and `softQueryOne` — constraint-safe writes
+
+`execute` aborts the entire request with a 502 when the database raises a
+constraint violation. `softExecute` catches those errors and surfaces them as
+`Err ConstraintError` so you can display field-level error messages instead:
+
+```elm
+type alias ConstraintError =
+    { kind : String       -- "unique" | "notNull" | "foreignKey" | "check"
+    , field : Maybe String -- column name when extractable from the driver error
+    }
+
+Loader.softExecute : { sql : String, params : List Encode.Value }
+    -> Loader (Result ConstraintError { rowsAffected : Int })
+
+Loader.softQueryOne : { sql : String, params : List Encode.Value, decoder : Decoder a }
+    -> Loader (Result ConstraintError (Maybe a))
+```
+
+Direct usage (you normally reach for `Repo.insert` / `Repo.update` instead,
+which use these internally):
+
+```elm
+Action.fromLoader
+    (Loader.softExecute
+        { sql = "INSERT INTO users (email) VALUES (?)"
+        , params = [ Encode.string email ]
+        }
+    )
+    |> Action.andThen
+        (\result ->
+            case result of
+                Ok _ ->
+                    Action.redirect "/dashboard"
+
+                Err { kind, field } ->
+                    case kind of
+                        "unique" ->
+                            Action.fail 409 "That email is already taken"
+                        _ ->
+                            Action.fail 422 "Database constraint violation"
+        )
+```
+
+### `transaction` — atomic multi-statement writes
+
+Run multiple INSERT/UPDATE/DELETE statements as a single atomic unit. Any
+failure rolls back all of them; the total `rowsAffected` is returned on success.
+
+```elm
+Loader.transaction : List { sql : String, params : List Encode.Value } -> Loader Int
+```
+
+Build statements from compiled Elmto operations or plain SQL:
+
+```elm
+Action.fromLoader
+    (Loader.transaction
+        [ { sql = "INSERT INTO orders (user_id, total) VALUES (?, ?)"
+          , params = [ Encode.int userId, Encode.float total ]
+          }
+        , { sql = "UPDATE inventory SET quantity = quantity - 1 WHERE id = ?"
+          , params = [ Encode.int itemId ]
+          }
+        ]
+    )
+    |> Action.andThen (\rowsAffected -> Action.redirect "/order/confirm")
+```
+
+Requires the `sqlTransaction` adapter to be wired into `inMemoryEffects`. On
+Cloudflare D1 the runtime uses `db.batch` automatically.
 
 To **write** a cookie on the response, use `Action.setCookie` /
 `Action.clearCookie` / `Action.sessionCookie` from inside an `Action` — see

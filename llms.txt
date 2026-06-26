@@ -70,6 +70,15 @@ operational reference.
   [sessions](docs/sessions.md), [sse](docs/sse.md), [jobs](docs/jobs.md),
   [middleware](docs/middleware.md), [migrations](docs/migrations.md),
   [cli](docs/cli.md), [testing](docs/testing.md).
+- [docs/request-decode.md](docs/request-decode.md) — `ElmSsr.Request.Decode`: type-safe accumulating form/query/param decoder with built-in validators (`email`, `minInt`, `minLength`, …).
+- [docs/api-routes.md](docs/api-routes.md) — JSON API routes (`Action.json`), island ↔ server JSON calls, CSRF on API endpoints.
+- [docs/error-handling.md](docs/error-handling.md) — `Loader.fail`, `Action.fail`, custom error pages, constraint violations, route guard footguns.
+- [docs/spa-navigation.md](docs/spa-navigation.md) — client-side link interception, head sync, island persistence across navigation, `/api/render`.
+
+### Tutorials
+
+- [docs/tutorials/auth-flow.md](docs/tutorials/auth-flow.md) — sessions + CSRF + login/logout + `Loader.requireUser` / `Action.requireUser`.
+- [docs/tutorials/trello-board.md](docs/tutorials/trello-board.md) — Kanban board with islands, API routes, and SQLite.
 
 ## Source of truth
 

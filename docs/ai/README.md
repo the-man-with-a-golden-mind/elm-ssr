@@ -56,3 +56,13 @@ for code generation, then cross-link to the human docs when the user asks
   parallel-queries.
 - [../../AGENTS.md](../../AGENTS.md) — hard rules + footguns specific to
   this repo (NOT a feature reference — orientation only).
+
+## Human docs covering features without an AI reference yet
+
+These topics are documented in the human-oriented `../` folder only.
+Use them directly for code generation — they contain exact signatures and examples.
+
+- [../request-decode.md](../request-decode.md) — `ElmSsr.Request.Decode`: `required`, `optional`, `optionalWithDefault`, `validate`, `custom`, `decodeForm/Query/Params/Raw`, built-in validators.
+- [../api-routes.md](../api-routes.md) — JSON API routes, `Action.json`, island HTTP calls, CSRF on `/api/` endpoints.
+- [../error-handling.md](../error-handling.md) — `Loader.fail`/`Action.fail` semantics, custom error pages (`Page.notFound`, `Page.document`, `Page.error`), `softExecute` constraint handling, route guard 502 footgun.
+- [../spa-navigation.md](../spa-navigation.md) — `/api/render`, island `id` persistence, head sync, form progressive enhancement, `data-no-spa`.

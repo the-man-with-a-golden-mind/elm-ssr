@@ -80,6 +80,80 @@ page request =
 - `param : String -> Request -> Maybe String` — dynamic route segment.
 - `params : Request -> List ( String, String )` — all dynamic segments.
 - `formValue : String -> Request -> Maybe String` — form field, for actions.
+- `env : String -> Request -> Maybe String` — environment variable / binding, synchronous (see below).
+
+## Reading environment variables
+
+`Route.env` reads a variable from the runtime environment **synchronously** —
+no effect round-trip, no `Cmd`. Use it for configuration constants (feature
+flags, dialect strings, API base URLs) that are fixed for the lifetime of the
+process.
+
+```elm
+import ElmSsr.Route as Route exposing (Request)
+
+
+type Dialect = PostgreSQL | SQLite
+
+
+page : Request -> Loader (Document Never)
+page request =
+    let
+        dialect =
+            case Route.env "DB_DIALECT" request of
+                Just "postgres" -> PostgreSQL
+                _               -> SQLite
+    in
+    Loader.map (view dialect) (Repo.all dialect userQuery)
+```
+
+For **per-request** secrets or values that may change between requests (e.g. a
+KV-stored flag), use `Loader.env` instead, which emits an effect and costs one
+runtime round-trip.
+
+## Reading form and JSON body data
+
+`Route.formValue` reads fields from:
+- `application/x-www-form-urlencoded` form submissions.
+- `multipart/form-data` form submissions.
+- The **top-level keys of a flat JSON body** — the runtime pre-parses the JSON
+  and exposes each string-valued field the same way as a form field.
+
+The "flat JSON as form fields" behaviour means islands can post JSON and API
+actions can use `Route.formValue` without any special handling:
+
+```elm
+-- Island (sends JSON with string-encoded integers):
+Http.post
+    { url = "/api/trello/move"
+    , body =
+        Http.jsonBody <|
+            Encode.object
+                [ ( "cardId", Encode.string (String.fromInt cardId) )
+                , ( "columnId", Encode.string (String.fromInt newColId) )
+                ]
+    , expect = Http.expectWhatever MoveCardResponse
+    }
+
+-- Action (reads them with Route.formValue):
+action request =
+    case ( Route.formValue "cardId" request, Route.formValue "columnId" request ) of
+        ( Just cardIdStr, Just colIdStr ) ->
+            case ( String.toInt cardIdStr, String.toInt colIdStr ) of
+                ( Just cardId, Just colId ) ->
+                    -- proceed
+                _ ->
+                    Action.fail 400 "ids must be integers"
+        _ ->
+            Action.fail 400 "Missing cardId or columnId"
+```
+
+> **Integer and boolean values** in the JSON body must be encoded as strings
+> before posting. The runtime decodes JSON values as strings; non-string JSON
+> values (numbers, booleans) are silently dropped. This is a deliberate
+> simplification that keeps the Elm request model uniform across content types.
+> Use form-urlencoded for richer type handling, or use `Loader.custom` with a
+> TS adapter that parses the raw body itself.
 
 ## NotFound
 
@@ -106,3 +180,10 @@ the runtime.
   are pumped.
 - For interactive bits inside a page, embed an island. The page itself stays
   SSR-only; only the island ships JS. See [Islands](islands.md).
+- For JSON API endpoints called by islands, put routes under `Routes/Api/` and
+  return `Action.json`. See [API Routes](api-routes.md).
+- For custom TypeScript endpoints (WebSockets, streaming), scaffold with
+  `elm-ssr route name --ws` or `--sse` — the CLI generates a handler under
+  `src/Endpoints/`. Wire it in `runtime.ts` before the main `worker.fetch`.
+- The client runtime intercepts same-origin link clicks and form submissions
+  on pages that have islands — no full reload. See [SPA Navigation](spa-navigation.md).

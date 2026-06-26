@@ -3,6 +3,123 @@
 All notable changes to the `elm-ssr` package. Dates are ISO; "Unreleased" lives
 at the top until a version is cut.
 
+## 0.99.0 — 2026-06-26
+
+Documentation overhaul, test suite expansion to 263 tests, and example
+improvements. No breaking changes; all exports from 0.98.0 are unchanged.
+
+### Documentation — new files
+
+- **[`docs/request-decode.md`](docs/request-decode.md)** — First documentation
+  for `ElmSsr.Request.Decode`. Covers all runners (`decodeForm`, `decodeQuery`,
+  `decodeParams`, `decodeRaw`), the applicative pipeline (`required`, `optional`,
+  `optionalWithDefault`), every built-in validator (`email`, `nonEmpty`,
+  `minInt`/`maxInt`, `minFloat`/`maxFloat`, `minLength`/`maxLength`), `validate`,
+  `custom`, `andThen`, and the PRG error-display pattern. Previously this module
+  was only discoverable from reading `examples/basic/Routes/Validate.elm`.
+- **[`docs/api-routes.md`](docs/api-routes.md)** — Explains the JSON API route
+  pattern: `Action.json`, calling API routes from islands with `elm/http`, sending
+  string-encoded ints in JSON bodies (because `Route.formValue` decodes as strings),
+  CSRF on API endpoints via `X-CSRF-Token` header, and the `/api/` vs page error
+  format difference.
+- **[`docs/error-handling.md`](docs/error-handling.md)** — Unified error guide
+  consolidating failure modes previously scattered across four docs: `Loader.fail` /
+  `Action.fail` status codes, effect decode failures → 502, `Page.notFound` /
+  `Page.document` / `Page.error` for custom error pages, the `Loader.requireUser`
+  decode-failure footgun (malformed session → 502, not redirect), `softExecute`
+  for constraint-safe writes, and uncaught exception format.
+- **[`docs/spa-navigation.md`](docs/spa-navigation.md)** — Documents the
+  client-side navigation layer: link interception, the `/api/render?path=` endpoint
+  contract, progressive form submissions, island `id` persistence (when to use and
+  when not to), head sync algorithm, SSE connections across navigations, hash and
+  external link handling, `data-no-spa` opt-out.
+- **[`docs/tutorials/auth-flow.md`](docs/tutorials/auth-flow.md)** — Step-by-step
+  login/logout/protected-page tutorial. Covers wiring `sessions:` + `csrf:` in
+  `runtime.ts`, a login page using `Loader.map2` to read session + CSRF token
+  simultaneously, `Loader.setSession`, `Loader.requireUser` and `Action.requireUser`
+  on protected pages, `Loader.clearSession`, and a production checklist.
+
+### Documentation — updated files
+
+- **`docs/query-dsl.md`** — Added a "DSL vs Elmto — which to use" decision table
+  at the top so developers know immediately which layer to reach for. Added a
+  concrete generated module example showing exactly what `elm-ssr query` produces
+  for a `trello_cards` table (phantom type, column descriptors, record alias, decoder,
+  CRUD signatures, camelCase convention, nullable → `Maybe` mapping).
+- **`docs/testing.md`** — Replaced the thin "Writing tests" stub with a
+  comprehensive guide: testing page routes with `renderPath`, form actions (PRG
+  pattern) with a SQLite-backed `inMemoryEffects`, effect runners in isolation,
+  session flows with `createSessionExampleWorker`, and islands with `happy-dom`.
+  Updated test count from "~108 tests" to 260+.
+- **`docs/routing.md`** — Added tips linking to `api-routes.md` and
+  `spa-navigation.md`, and documenting the `--ws`/`--sse` CLI scaffold pattern
+  for custom TypeScript endpoints. Added documentation of `Route.formValue` reading
+  flat JSON bodies (values must be strings) and `Route.env` synchronous access
+  with a concrete dialect-detection example.
+- **`docs/loaders-and-actions.md`** — Added `Loader.redirect` constructor with
+  auth-guard example; `Loader.requireUser` with signature and usage; `Action.requireUser`
+  with signature and usage.
+- **`docs/effects.md`** — Added `Loader.softExecute`, `Loader.softQueryOne`, and
+  `Loader.transaction` to the vocabulary table; added dedicated sections explaining
+  the `ConstraintError` type and transaction rollback semantics.
+- **`docs/README.md`**, **`llms.txt`**, **`docs/ai/README.md`** — Updated to
+  reference all five new files and the auth-flow tutorial.
+- **`docs/tutorials/trello-board.md`** — Fixed five bugs in the tutorial code:
+  invalid Elm import syntax (`import Html.Events import …`), non-existent
+  `Route.bodyJson` replaced with `Route.formValue` pattern, island sending integer
+  JSON values that wouldn't decode (must be string-valued), missing `Action.json`
+  at the end of the card creation API, and `TrelloCards.update` with placeholder
+  zeros overwriting all fields replaced with a targeted `Loader.execute` UPDATE.
+
+### Tests — 21 new test cases across 7 files + 1 new file (263 total)
+
+- **`test/effects.test.ts`** — Added `Loader.map2` (sequential execution),
+  `Loader.softQueryOne` (success, empty result, Postgres UNIQUE violation on
+  `INSERT … RETURNING *`), `Loader.transaction` (success with summed
+  `rowsAffected`, rollback on failure, clear error when `sqlTransaction` not
+  configured), `Loader.softExecute` (success, UNIQUE, NOT NULL), `Route.env`
+  (dedicated test passing env via second argument to `worker.fetch`).
+- **`test/app.test.ts`** — Added `Page.metaCharset`, `Page.metaViewport`,
+  `Page.metaName`, `Page.stylesheet`, `Page.page` (lang + 200 status),
+  `Page.notFound` (404, head helpers still present), `Page.document` (custom 502
+  status propagates).
+- **`test/browser-island.test.ts`** — Added cross-island Shared bus test (Counter
+  broadcasts, Observer receives and updates its view); added `ElmSsr.Island.Sse`
+  port tests (Live island decodes incoming event via `sseEventIn` port; ignores
+  events for a different URL via `Sse.match` filter).
+- **`test/route-guards.test.ts`** — Added `Loader.requireUser` key-rotation test
+  (old-secret cookie rejected by new-secret worker → redirect); `Loader.map2`
+  integration test via `/profile` (session + CSRF token combined); `Action.requireUser`
+  unauthenticated POST → redirect; `Action.requireUser` authenticated POST → action
+  body runs (405); `Loader.requireUser` malformed session → 502 (not redirect) via
+  pre-seeded store.
+- **`test/sse.test.ts`** — Added five `createNamedSseStream` tests: `event:` stamp,
+  auto-incrementing `id:`, SSE headers, data payload delivery, per-stream id reset.
+- **`test/cookies.test.ts`** — Added `Action.defaultCookie` tests: permissive
+  attributes (path=/ only, no HttpOnly/Secure/SameSite/Max-Age), GET renders theme.
+- **`test/elmto-associations.test.ts`** (new file) — End-to-end test for
+  `Repo.loadHasMany` and `Repo.loadBelongsTo` with real SQLite rows. Verifies the
+  in-Elm grouping logic: Alice gets 2 posts, Bob 1, Carol 0 (empty list, not
+  missing); each post matched to its author; orphan (userId=99) → `null`.
+
+### Examples — new and updated files
+
+- **`examples/basic/src/Example/Basic/Routes/Preferences.elm`** (new) —
+  `Action.defaultCookie` reference implementation. POST sets a permissive theme
+  preference cookie (no HttpOnly, no Secure, no SameSite, no Max-Age) to contrast
+  with the hardened `Action.sessionCookie` used in `Session.elm`.
+- **`examples/basic/src/Example/Basic/Routes/Dashboard.elm`** — `action` now uses
+  `Action.requireUser profileDecoder "/profile"` so unauthenticated POSTs redirect
+  to `/profile` rather than returning 405, fully demonstrating `Action.requireUser`.
+- **`examples/basic/src/Example/Basic/Routes/Status.elm`** — Now renders both
+  `Route.env "GREETING"` (synchronous, from request flags) and `Loader.env "GREETING"`
+  (async, from effect runner) side by side, proving both agree and demonstrating
+  the sync/async distinction in a live route.
+- **`examples/basic/runtime.ts`** — `createFlags` now passes string-typed env
+  bindings to Elm flags so `Route.env` works at runtime. `createSessionExampleWorker`
+  accepts an optional `store?` parameter for test injection (pre-seeding sessions
+  with specific payloads without going through the login flow).
+
 ## 0.98.0 — 2026-06-25
 
 ### Added
