@@ -48,10 +48,10 @@ const elmJsonTemplate = () => ({
   }
 });
 
-const sharedTemplate = (namespace) => `module ${namespace}.View.Shared exposing (head, shell)
+const sharedTemplate = (namespace, auth) => `module ${namespace}.View.Shared exposing (head, layout)
 
-import ElmSsr.Html exposing (Node, div, h1, text)
-import ElmSsr.Html.Attributes exposing (class)
+import ElmSsr.Html exposing (Node, a, div, header, main_, nav, span, text)
+import ElmSsr.Html.Attributes exposing (class, href)
 import ElmSsr.Page as Page
 
 
@@ -63,19 +63,33 @@ head =
     ]
 
 
-shell : String -> List (Node msg) -> Node msg
-shell heading body =
-    div [ class "shell" ] (h1 [] [ text heading ] :: body)
+layout : String -> List (Node msg) -> Node msg
+layout pageTitle body =
+    div [ class "page" ]
+        [ header [ class "header" ]
+            [ div [ class "header-inner" ]
+                [ a [ class "brand", href "/" ]
+                    [ span [ class "brand-icon" ] [ text "◆" ]
+                    , text "elm-ssr"
+                    ]
+                , nav [ class "nav" ]
+                    [ a [ class "nav-link", href "/" ] [ text "Home" ]
+                    , a [ class "nav-link", href "/counter" ] [ text "Counter" ]${auth ? `
+                    , a [ class "nav-link", href "/login" ] [ text "Sign in" ]` : ""}
+                    ]
+                ]
+            ]
+        , main_ [ class "main" ]
+            [ div [ class "container" ] body
+            ]
+        ]
 `;
 
-const indexRouteTemplate = (namespace) => `module ${namespace}.Routes.Index exposing (page, action)
-
--- File-based routing: this module maps to GET /.
--- A page is stateless (no Model/Msg) and ships no client JavaScript.
+const indexRouteTemplate = (namespace, auth) => `module ${namespace}.Routes.Index exposing (page, action)
 
 import ElmSsr.Action as Action exposing (Action)
 import ElmSsr.Document exposing (Document)
-import ElmSsr.Html exposing (a, p, text)
+import ElmSsr.Html exposing (a, div, h1, h2, p, section, span, text)
 import ElmSsr.Html.Attributes exposing (class, href)
 import ElmSsr.Loader as Loader exposing (Loader)
 import ElmSsr.Page as Page
@@ -85,10 +99,7 @@ import ${namespace}.View.Shared as Shared
 
 page : Request -> Loader (Document Never)
 page _ =
-    Loader.env "GREETING"
-        |> Loader.map (\\maybeGreeting ->
-            view (Maybe.withDefault "Hello from default env!" maybeGreeting)
-        )
+    Loader.succeed view
 
 
 action : Request -> Action (Document Never)
@@ -96,30 +107,47 @@ action _ =
     Action.fail 405 "Method not allowed"
 
 
-view : String -> Document Never
-view greeting =
+view : Document Never
+view =
     Page.page
-        { title = "Starter | elm-ssr"
+        { title = "elm-ssr"
         , head = Shared.head
         , body =
-            [ Shared.shell "elm-ssr starter"
-                [ p [] [ text ("Greeting from environment: " ++ greeting) ]
-                , p [] [ text "This page is stateless and renders on the edge with no client runtime." ]
-                , p [] [ a [ class "link", href "/counter" ] [ text "Open the interactive counter" ] ]
+            [ Shared.layout "Home"
+                [ section [ class "hero" ]
+                    [ h1 [ class "hero-title" ] [ text "Ship fast." ]
+                    , p [ class "hero-subtitle" ]
+                        [ text "Type-safe server-side rendering with interactive islands. Runs on Cloudflare Workers and Bun." ]
+                    , div [ class "hero-actions" ]
+                        [ a [ class "btn btn-primary", href "/counter" ] [ text "Try the counter" ]${auth ? `
+                        , a [ class "btn btn-secondary", href "/login" ] [ text "Sign in" ]` : ""}
+                        ]
+                    ]
+                , section [ class "features" ]
+                    [ featureCard "⚡" "Edge-first" "Renders in milliseconds at the edge. No cold starts."
+                    , featureCard "🦺" "Fully typed" "End-to-end Elm types from DB to HTML. No runtime surprises."
+                    , featureCard "🏝️" "Islands" "Add interactivity exactly where you need it. Zero JS elsewhere."
+                    ]
                 ]
             ]
         }
+
+
+featureCard : String -> String -> String -> ElmSsr.Html.Node msg
+featureCard icon title_ body =
+    div [ class "feature-card" ]
+        [ span [ class "feature-icon" ] [ text icon ]
+        , h2 [ class "feature-title" ] [ text title_ ]
+        , p [ class "feature-body" ] [ text body ]
+        ]
 `;
 
 const counterRouteTemplate = (namespace) => `module ${namespace}.Routes.Counter exposing (page, action)
 
--- File-based routing: GET /counter. A static page that embeds an interactive
--- island. The page ships no client runtime; the browser mounts the island
--- separately, and only that root updates.
-
 import ElmSsr.Action as Action exposing (Action)
 import ElmSsr.Document exposing (Document)
-import ElmSsr.Html exposing (p, text)
+import ElmSsr.Html exposing (div, h1, p, text)
+import ElmSsr.Html.Attributes exposing (class)
 import ElmSsr.Loader as Loader exposing (Loader)
 import ElmSsr.Page as Page
 import ElmSsr.Route exposing (Request)
@@ -143,9 +171,14 @@ view =
         { title = "Counter | elm-ssr"
         , head = Shared.head
         , body =
-            [ Shared.shell "Counter"
-                [ p [] [ text "This page is static. Only the counter below is an interactive island." ]
-                , Counter.embed { start = 0 }
+            [ Shared.layout "Counter"
+                [ div [ class "page-header" ]
+                    [ h1 [] [ text "Interactive Counter" ]
+                    , p [ class "page-subtitle" ]
+                        [ text "This page is server-rendered. Only the counter widget below is a client-side island — zero JS elsewhere." ]
+                    ]
+                , div [ class "card" ]
+                    [ Counter.embed { start = 0 } ]
                 ]
             ]
         }
@@ -238,19 +271,18 @@ subscriptions _ =
 view : Model -> Html Msg
 view model =
     div [ class "counter" ]
-        [ button [ class "button", type_ "button", onClick Decrement ] [ text "-" ]
-        , span [ class "value" ] [ text (String.fromInt model.count) ]
-        , button [ class "button primary", type_ "button", onClick Increment ] [ text "+" ]
+        [ button [ class "btn btn-secondary btn-square", type_ "button", onClick Decrement ] [ text "−" ]
+        , span [ class "counter-value" ] [ text (String.fromInt model.count) ]
+        , button [ class "btn btn-primary btn-square", type_ "button", onClick Increment ] [ text "+" ]
         ]
 `;
 
 const notFoundRouteTemplate = (namespace) => `module ${namespace}.Routes.NotFound exposing (page, action)
 
--- File-based routing: NotFound is the fallback when no other route matches.
-
 import ElmSsr.Action as Action exposing (Action)
 import ElmSsr.Document exposing (Document)
-import ElmSsr.Html exposing (p, text)
+import ElmSsr.Html exposing (a, div, h1, p, text)
+import ElmSsr.Html.Attributes exposing (class, href)
 import ElmSsr.Loader as Loader exposing (Loader)
 import ElmSsr.Page as Page
 import ElmSsr.Route exposing (Request)
@@ -272,44 +304,63 @@ view =
     Page.notFound
         { title = "Not Found | elm-ssr"
         , head = Shared.head
-        , body = [ Shared.shell "404" [ p [] [ text "This route does not exist." ] ] ]
+        , body =
+            [ Shared.layout "Not Found"
+                [ div [ class "error-page" ]
+                    [ h1 [ class "error-code" ] [ text "404" ]
+                    , p [ class "error-message" ] [ text "This page doesn't exist." ]
+                    , a [ class "btn btn-primary", href "/" ] [ text "Go home" ]
+                    ]
+                ]
+            ]
         }
 `;
+
+const authDisplayName = (authProvider) =>
+  authProvider === "auth0" ? "Auth0" : "BetterAuth";
 
 const loginRouteTemplate = (namespace, authProvider) => `module ${namespace}.Routes.Login exposing (page, action)
 
 import ElmSsr.Action as Action exposing (Action)
 import ElmSsr.Document exposing (Document)
-import ElmSsr.Html exposing (a, div, p, text)
-import ElmSsr.Html.Attributes as Attr
+import ElmSsr.Html exposing (a, div, h1, p, span, text)
+import ElmSsr.Html.Attributes exposing (class, href)
 import ElmSsr.Loader as Loader exposing (Loader)
 import ElmSsr.Page as Page
 import ElmSsr.Route exposing (Request)
 import ${namespace}.View.Shared as Shared
 
+
 page : Request -> Loader (Document Never)
 page _ =
     Loader.succeed view
+
 
 action : Request -> Action (Document Never)
 action _ =
     Action.fail 405 "Method not allowed"
 
+
 view : Document Never
 view =
     Page.page
-        { title = "Login | elm-ssr"
+        { title = "Sign in | elm-ssr"
         , head = Shared.head
         , body =
-            [ Shared.shell "Sign In"
-                [ div [ Attr.class "login-container" ]
-                    [ p [] [ text "Access user authentication example (${authProvider})." ]
-                    , div [ Attr.style "margin-top" "20px" ]
-                        [ a 
-                            [ Attr.class "button primary"
-                            , Attr.href "/api/auth/login"
-                            ] 
-                            [ text "Sign In with Auth Provider" ]
+            [ Shared.layout "Sign in"
+                [ div [ class "auth-page" ]
+                    [ div [ class "auth-card" ]
+                        [ div [ class "auth-header" ]
+                            [ span [ class "auth-logo" ] [ text "◆" ]
+                            , h1 [ class "auth-title" ] [ text "Welcome back" ]
+                            , p [ class "auth-subtitle" ] [ text "Sign in to your account to continue." ]
+                            ]
+                        , div [ class "auth-body" ]
+                            [ a [ class "btn btn-primary btn-full", href "/api/auth/login" ]
+                                [ text "Continue with ${authDisplayName(authProvider)}" ]
+                            ]
+                        , p [ class "auth-footer" ]
+                            [ text "Powered by ${authDisplayName(authProvider)} via elm-ssr" ]
                         ]
                     ]
                 ]
@@ -321,18 +372,20 @@ const profileRouteTemplate = (namespace) => `module ${namespace}.Routes.Profile 
 
 import ElmSsr.Action as Action exposing (Action)
 import ElmSsr.Document exposing (Document)
-import ElmSsr.Html exposing (a, div, h2, p, text)
-import ElmSsr.Html.Attributes as Attr
+import ElmSsr.Html exposing (a, div, h1, p, span, text)
+import ElmSsr.Html.Attributes exposing (class, href)
 import ElmSsr.Loader as Loader exposing (Loader)
 import ElmSsr.Page as Page
-import ElmSsr.Route as Route exposing (Request)
+import ElmSsr.Route exposing (Request)
 import ${namespace}.View.Shared as Shared
 import Json.Decode as Decode
+
 
 type alias UserProfile =
     { email : String
     , name : Maybe String
     }
+
 
 userDecoder : Decode.Decoder UserProfile
 userDecoder =
@@ -340,15 +393,18 @@ userDecoder =
         (Decode.field "email" Decode.string)
         (Decode.maybe (Decode.field "name" Decode.string))
 
+
 page : Request -> Loader (Document Never)
 page _ =
     Loader.requireUser userDecoder "/login" (\\user ->
         Loader.succeed (view user)
     )
 
+
 action : Request -> Action (Document Never)
 action _ =
     Action.fail 405 "Method not allowed"
+
 
 view : UserProfile -> Document Never
 view user =
@@ -356,12 +412,21 @@ view user =
         { title = "Profile | elm-ssr"
         , head = Shared.head
         , body =
-            [ Shared.shell "User Profile"
-                [ div []
-                    [ h2 [] [ text ("Welcome, " ++ (Maybe.withDefault user.email user.name)) ]
-                    , p [] [ text ("Email: " ++ user.email) ]
-                    , p [ Attr.style "margin-top" "20px" ]
-                        [ a [ Attr.class "button", Attr.href "/api/auth/logout" ] [ text "Sign Out" ] ]
+            [ Shared.layout "Profile"
+                [ div [ class "auth-page" ]
+                    [ div [ class "auth-card" ]
+                        [ div [ class "auth-header" ]
+                            [ span [ class "avatar" ]
+                                [ text (String.left 1 (Maybe.withDefault user.email user.name) |> String.toUpper) ]
+                            , h1 [ class "auth-title" ]
+                                [ text (Maybe.withDefault "Your account" user.name) ]
+                            , p [ class "auth-subtitle" ] [ text user.email ]
+                            ]
+                        , div [ class "auth-body" ]
+                            [ a [ class "btn btn-secondary btn-full", href "/api/auth/logout" ]
+                                [ text "Sign out" ]
+                            ]
+                        ]
                     ]
                 ]
             ]
@@ -635,172 +700,289 @@ export default worker;
 const stylesTemplate = () => `export const stylesheet = \`
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
 
-*, *::before, *::after {
-  box-sizing: border-box;
-}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  color-scheme: light;
+  --bg: #f6f5f3;
+  --surface: #ffffff;
+  --border: #e5e2dd;
+  --text: #1a1a1a;
+  --text-muted: #6b6b6b;
+  --accent: #1a1a1a;
+  --accent-hover: #333;
+  --radius: 12px;
+  --header-h: 60px;
   font-family: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
   font-size: 16px;
-  color: #18222f;
+  color: var(--text);
+  background: var(--bg);
 }
 
-body {
-  margin: 0;
-  min-height: 100vh;
-  background:
-    radial-gradient(circle at top, rgba(255, 255, 255, 0.85), transparent 45%),
-    linear-gradient(180deg, #f8f3ea 0%, #efe7dc 100%);
+body { min-height: 100vh; }
+
+/* ── Layout ────────────────────────────────────────── */
+.page { display: flex; flex-direction: column; min-height: 100vh; }
+
+.header {
+  height: var(--header-h);
+  border-bottom: 1px solid var(--border);
+  background: rgba(246, 245, 243, 0.85);
+  backdrop-filter: blur(12px);
+  position: sticky;
+  top: 0;
+  z-index: 10;
 }
 
-.shell {
-  max-width: 44rem;
+.header-inner {
+  max-width: 1100px;
   margin: 0 auto;
-  padding: 4rem 1.5rem;
+  padding: 0 1.5rem;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
-h1 {
-  font-size: 2rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  margin: 0 0 1rem;
-  color: #18222f;
-}
-
-h2 {
-  font-size: 1.4rem;
-  font-weight: 600;
-  margin: 0 0 0.75rem;
-  color: #18222f;
-}
-
-p {
-  line-height: 1.6;
-  margin: 0 0 1rem;
-  color: #4a5568;
-}
-
-a.link {
-  color: #18222f;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-a.link:hover {
-  text-decoration: none;
-}
-
-.button {
-  display: inline-flex;
+.brand {
+  display: flex;
   align-items: center;
   gap: 0.5rem;
-  border-radius: 999px;
-  border: 1.5px solid #18222f;
-  padding: 0.6rem 1.2rem;
-  font: inherit;
-  font-size: 0.9rem;
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--text);
+  text-decoration: none;
+  letter-spacing: -0.01em;
+}
+
+.brand-icon { font-size: 0.85em; opacity: 0.6; }
+
+.nav { display: flex; align-items: center; gap: 0.25rem; }
+
+.nav-link {
+  padding: 0.4rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.875rem;
   font-weight: 500;
-  background: white;
-  color: #18222f;
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: background 0.12s, color 0.12s;
+}
+.nav-link:hover { background: var(--border); color: var(--text); }
+
+.main { flex: 1; padding: 3rem 1.5rem; }
+
+.container { max-width: 1100px; margin: 0 auto; }
+
+/* ── Typography ────────────────────────────────────── */
+h1 { font-size: 2rem; font-weight: 700; letter-spacing: -0.03em; line-height: 1.2; }
+h2 { font-size: 1.25rem; font-weight: 600; letter-spacing: -0.01em; }
+p  { line-height: 1.65; color: var(--text-muted); }
+
+/* ── Buttons ────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.55rem 1.1rem;
+  border-radius: 8px;
+  border: 1.5px solid transparent;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 500;
   cursor: pointer;
   text-decoration: none;
-  transition: background 0.15s, color 0.15s;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  white-space: nowrap;
 }
 
-.button:hover {
-  background: #f0ebe3;
-}
-
-.button.primary {
-  background: #18222f;
+.btn-primary {
+  background: var(--accent);
   color: white;
-  border-color: #18222f;
+  border-color: var(--accent);
+}
+.btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+
+.btn-secondary {
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border);
+}
+.btn-secondary:hover { background: var(--bg); }
+
+.btn-square { width: 2.5rem; height: 2.5rem; padding: 0; font-size: 1.1rem; }
+
+.btn-full { width: 100%; }
+
+/* ── Cards ──────────────────────────────────────────── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.5rem;
 }
 
-.button.primary:hover {
-  background: #2d3748;
+/* ── Hero ────────────────────────────────────────────── */
+.hero {
+  text-align: center;
+  padding: 5rem 0 4rem;
+  max-width: 640px;
+  margin: 0 auto;
 }
 
+.hero-title {
+  font-size: clamp(2.5rem, 6vw, 4rem);
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  margin-bottom: 1rem;
+}
+
+.hero-subtitle {
+  font-size: 1.15rem;
+  margin-bottom: 2rem;
+  max-width: 480px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.hero-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+/* ── Features ────────────────────────────────────────── */
+.features {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  margin-top: 4rem;
+}
+
+.feature-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+}
+
+.feature-icon { font-size: 1.5rem; display: block; margin-bottom: 0.75rem; }
+
+.feature-title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  color: var(--text);
+}
+
+.feature-body { font-size: 0.9rem; }
+
+/* ── Page header ─────────────────────────────────────── */
+.page-header { margin-bottom: 2rem; }
+.page-header h1 { margin-bottom: 0.5rem; }
+.page-subtitle { font-size: 0.95rem; }
+
+/* ── Counter island ──────────────────────────────────── */
 .counter {
   display: grid;
   grid-template-columns: auto 1fr auto;
-  gap: 0.75rem;
   align-items: center;
-  margin: 2rem 0;
-}
-
-.value {
-  text-align: center;
-  font-size: 2.5rem;
-  font-weight: 700;
-  color: #18222f;
-}
-
-.form {
-  display: flex;
-  flex-direction: column;
   gap: 1rem;
+}
+
+.counter-value {
+  text-align: center;
+  font-size: 3rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+/* ── Auth pages ──────────────────────────────────────── */
+.auth-page {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 3rem;
+}
+
+.auth-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 2.5rem;
+  width: 100%;
+  max-width: 380px;
+}
+
+.auth-header { text-align: center; margin-bottom: 2rem; }
+
+.auth-logo {
+  font-size: 1.5rem;
+  display: block;
+  margin-bottom: 1rem;
+}
+
+.auth-title { font-size: 1.5rem; margin-bottom: 0.5rem; }
+.auth-subtitle { font-size: 0.9rem; }
+
+.auth-body { display: flex; flex-direction: column; gap: 0.75rem; }
+
+.auth-footer {
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--text-muted);
   margin-top: 1.5rem;
 }
 
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: 50%;
+  background: var(--accent);
+  color: white;
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-bottom: 1rem;
 }
 
-.field label,
-.field span {
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: #4a5568;
+/* ── Error page ──────────────────────────────────────── */
+.error-page {
+  text-align: center;
+  padding: 5rem 0;
 }
+
+.error-code {
+  font-size: 6rem;
+  font-weight: 800;
+  letter-spacing: -0.05em;
+  color: var(--border);
+  margin-bottom: 0.5rem;
+}
+
+.error-message { margin-bottom: 2rem; }
+
+/* ── Forms ───────────────────────────────────────────── */
+.field { display: flex; flex-direction: column; gap: 0.35rem; }
+.field label, .field span { font-size: 0.875rem; font-weight: 500; }
 
 .input {
   width: 100%;
   border-radius: 8px;
-  border: 1.5px solid #d1cdc7;
-  padding: 0.65rem 0.9rem;
+  border: 1.5px solid var(--border);
+  padding: 0.6rem 0.9rem;
   font: inherit;
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   background: white;
-  color: #18222f;
-  transition: border-color 0.15s;
+  color: var(--text);
+  transition: border-color 0.12s;
 }
+.input:focus { outline: none; border-color: var(--accent); }
 
-.input:focus {
-  outline: none;
-  border-color: #18222f;
-}
-
-.login-container {
-  margin-top: 2rem;
-  padding: 2rem;
-  background: white;
-  border-radius: 12px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  max-width: 22rem;
-}
-
-.card {
-  padding: 1.5rem;
-  background: white;
-  border-radius: 12px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  margin-bottom: 1rem;
-}
-
-.muted {
-  color: #718096;
-  font-size: 0.875rem;
-}
-
-.error {
-  color: #c53030;
-  font-size: 0.875rem;
-  margin-top: 0.25rem;
-}
+.error-hint { color: #c53030; font-size: 0.8rem; margin-top: 0.25rem; }
 \`;
 `;
 
@@ -815,8 +997,8 @@ const filesForApp = (name, appRoot, options = {}) => {
     { path: `${appRoot}/runtime.ts`, content: runtimeTemplate(appRoot, db, auth) },
     { path: `${appRoot}/worker.ts`, content: workerTemplate() },
     { path: `${appRoot}/styles.ts`, content: stylesTemplate() },
-    { path: `${appRoot}/src/${namespace}/View/Shared.elm`, content: sharedTemplate(namespace) },
-    { path: `${appRoot}/src/${namespace}/Routes/Index.elm`, content: indexRouteTemplate(namespace) },
+    { path: `${appRoot}/src/${namespace}/View/Shared.elm`, content: sharedTemplate(namespace, auth) },
+    { path: `${appRoot}/src/${namespace}/Routes/Index.elm`, content: indexRouteTemplate(namespace, auth) },
     { path: `${appRoot}/src/${namespace}/Routes/Counter.elm`, content: counterRouteTemplate(namespace) },
     { path: `${appRoot}/src/${namespace}/Routes/NotFound.elm`, content: notFoundRouteTemplate(namespace) },
     { path: `${appRoot}/src/${namespace}/Islands/Counter.elm`, content: counterIslandTemplate(namespace) },
@@ -872,58 +1054,56 @@ SESSION_SECRET="change-me-to-a-secure-random-hmac-secret-key-that-is-at-least-32
 }
 
 @layer components {
-  .shell {
-    @apply max-w-2xl mx-auto px-6 py-16;
-  }
+  .page { @apply flex flex-col min-h-screen; }
+  .header { @apply sticky top-0 z-10 border-b border-gray-200 bg-white/80 backdrop-blur-md; }
+  .header-inner { @apply max-w-6xl mx-auto px-6 h-16 flex items-center justify-between; }
+  .brand { @apply flex items-center gap-2 font-bold text-gray-900 no-underline; }
+  .nav { @apply flex items-center gap-1; }
+  .nav-link { @apply px-3 py-1.5 rounded-md text-sm font-medium text-gray-500 no-underline hover:bg-gray-100 hover:text-gray-900 transition-colors; }
+  .main { @apply flex-1 px-6 py-12; }
+  .container { @apply max-w-6xl mx-auto; }
+  .card { @apply bg-white border border-gray-200 rounded-xl p-6; }
 
-  .button {
-    @apply inline-flex items-center gap-2 rounded-full border border-gray-900
-           px-5 py-2.5 text-sm font-medium bg-white text-gray-900 no-underline
-           cursor-pointer transition-colors hover:bg-gray-50;
-  }
+  .btn { @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium no-underline cursor-pointer transition-colors whitespace-nowrap; }
+  .btn-primary { @apply bg-gray-900 text-white border-gray-900 hover:bg-gray-700; }
+  .btn-secondary { @apply bg-white text-gray-900 border-gray-200 hover:bg-gray-50; }
+  .btn-square { @apply w-10 h-10 p-0 text-lg; }
+  .btn-full { @apply w-full; }
 
-  .button.primary {
-    @apply bg-gray-900 text-white hover:bg-gray-700;
-  }
+  .hero { @apply text-center py-20 max-w-2xl mx-auto; }
+  .hero-title { @apply text-6xl font-extrabold tracking-tight mb-4; }
+  .hero-subtitle { @apply text-lg text-gray-500 mb-8 max-w-lg mx-auto; }
+  .hero-actions { @apply flex gap-3 justify-center flex-wrap; }
 
-  .counter {
-    @apply my-8 grid items-center gap-3;
-    grid-template-columns: auto 1fr auto;
-  }
+  .features { @apply grid gap-4 mt-16; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  .feature-card { @apply bg-white border border-gray-200 rounded-xl p-6; }
+  .feature-icon { @apply text-2xl block mb-3; }
+  .feature-title { @apply text-base font-semibold mb-2; }
+  .feature-body { @apply text-sm text-gray-500; }
 
-  .value {
-    @apply text-center text-5xl font-bold text-gray-900;
-  }
+  .page-header { @apply mb-8; }
+  .page-subtitle { @apply text-gray-500 mt-2; }
 
-  .form {
-    @apply flex flex-col gap-4 mt-6;
-  }
+  .counter { @apply grid items-center gap-4; grid-template-columns: auto 1fr auto; }
+  .counter-value { @apply text-center text-5xl font-bold tracking-tight; }
 
-  .field {
-    @apply flex flex-col gap-1.5;
-  }
+  .auth-page { @apply flex justify-center pt-12; }
+  .auth-card { @apply bg-white border border-gray-200 rounded-2xl p-10 w-full max-w-sm; }
+  .auth-header { @apply text-center mb-8; }
+  .auth-logo { @apply text-2xl block mb-4; }
+  .auth-title { @apply text-2xl font-bold tracking-tight mb-2; }
+  .auth-subtitle { @apply text-sm text-gray-500; }
+  .auth-body { @apply flex flex-col gap-3; }
+  .auth-footer { @apply text-center text-xs text-gray-400 mt-6; }
+  .avatar { @apply inline-flex items-center justify-center w-14 h-14 rounded-full bg-gray-900 text-white text-2xl font-bold mb-4; }
 
-  .input {
-    @apply w-full rounded-lg border border-gray-300 px-3.5 py-2.5 text-sm
-           bg-white text-gray-900 focus:outline-none focus:border-gray-900
-           transition-colors;
-  }
+  .error-page { @apply text-center py-20; }
+  .error-code { @apply text-8xl font-extrabold text-gray-200 mb-2; }
+  .error-message { @apply text-gray-500 mb-8; }
 
-  .login-container {
-    @apply mt-8 p-8 bg-white rounded-xl border border-gray-100 max-w-sm;
-  }
-
-  .card {
-    @apply p-6 bg-white rounded-xl border border-gray-100 mb-4;
-  }
-
-  .muted {
-    @apply text-gray-500 text-sm;
-  }
-
-  .error {
-    @apply text-red-600 text-sm mt-1;
-  }
+  .field { @apply flex flex-col gap-1.5; }
+  .input { @apply w-full rounded-lg border border-gray-300 px-3.5 py-2.5 text-sm bg-white focus:outline-none focus:border-gray-900 transition-colors; }
+  .error-hint { @apply text-red-600 text-xs mt-1; }
 }
 `
     });

@@ -274,7 +274,7 @@ describe("elm-ssr CLI", () => {
     const res = await worker.fetch(new Request("http://localhost/"));
     expect(res.status).toBe(200);
     const html = await res.text();
-    expect(html).toContain("Hello from default env!");
+    expect(html).toContain("Ship fast.");
   }, 15000);
 
   it("scaffolding commands (like 'init') do not climb parent directories", async () => {
@@ -493,7 +493,7 @@ describe("elm-ssr CLI", () => {
     const res = await worker.fetch(new Request("http://localhost/"));
     expect(res.status).toBe(200);
     const html = await res.text();
-    expect(html).toContain("Hello from default env!");
+    expect(html).toContain("Ship fast.");
   }, 15000);
 
   it("scaffolds a new app with --auth option (betterAuth & invalid check)", async () => {
@@ -562,13 +562,13 @@ describe("elm-ssr CLI", () => {
     const res1 = await worker.fetch(new Request("http://localhost/"));
     expect(res1.status).toBe(200);
     const html1 = await res1.text();
-    expect(html1).toContain("Hello from default env!");
+    expect(html1).toContain("Ship fast.");
 
     // 2. GET /login should return 200 OK
     const res2 = await worker.fetch(new Request("http://localhost/login"));
     expect(res2.status).toBe(200);
     const html2 = await res2.text();
-    expect(html2).toContain("Sign In with Auth Provider");
+    expect(html2).toContain("Continue with BetterAuth");
 
     // 3. GET /profile (unauthenticated) should redirect to /login (requireUser route guard)
     const res3 = await worker.fetch(new Request("http://localhost/profile"));
@@ -592,8 +592,8 @@ describe("elm-ssr CLI", () => {
     }));
     expect(profileRes.status).toBe(200);
     const profileHtml = await profileRes.text();
-    expect(profileHtml).toContain("Welcome, BetterAuth User");
-    expect(profileHtml).toContain("Sign Out");
+    expect(profileHtml).toContain("user@example.com");
+    expect(profileHtml).toContain("Sign out");
 
     // 6. GET /profile with corrupt/invalid cookie -> should redirect to /login
     const corruptRes = await worker.fetch(new Request("http://localhost/profile", {

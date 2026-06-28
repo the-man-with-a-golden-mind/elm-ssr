@@ -95,10 +95,10 @@ describe("Zero-Config Tailwind & CSS Styling Pipeline", () => {
     // Modify index route to include Tailwind utility classes
     const indexPath = resolve(root, "tailwind-app/src/TailwindApp/Routes/Index.elm");
     let indexContent = await readFile(indexPath, "utf8");
-    // Replace 'class "link"' with 'class "bg-red-500 font-extrabold my-custom-button"'
+    // Replace a class that exists in the new template with Tailwind utilities
     indexContent = indexContent.replace(
-      `class "link"`,
-      `class "bg-red-500 font-extrabold my-custom-button"`
+      `class "hero-title"`,
+      `class "bg-red-500 font-extrabold my-custom-button hero-title"`
     );
     await writeFile(indexPath, indexContent, "utf8");
 
