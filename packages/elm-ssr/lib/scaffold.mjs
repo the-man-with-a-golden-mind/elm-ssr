@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { readWorkspaceConfig, writeWorkspaceConfig } from "./workspace.mjs";
 
@@ -633,15 +633,22 @@ export default worker;
 `;
 
 const stylesTemplate = () => `export const stylesheet = \`
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
 :root {
   color-scheme: light;
-  font-family: "IBM Plex Sans", sans-serif;
-  background: #f3efe7;
+  font-family: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  font-size: 16px;
   color: #18222f;
 }
 
 body {
   margin: 0;
+  min-height: 100vh;
   background:
     radial-gradient(circle at top, rgba(255, 255, 255, 0.85), transparent 45%),
     linear-gradient(180deg, #f8f3ea 0%, #efe7dc 100%);
@@ -653,6 +660,68 @@ body {
   padding: 4rem 1.5rem;
 }
 
+h1 {
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 0 0 1rem;
+  color: #18222f;
+}
+
+h2 {
+  font-size: 1.4rem;
+  font-weight: 600;
+  margin: 0 0 0.75rem;
+  color: #18222f;
+}
+
+p {
+  line-height: 1.6;
+  margin: 0 0 1rem;
+  color: #4a5568;
+}
+
+a.link {
+  color: #18222f;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+a.link:hover {
+  text-decoration: none;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: 999px;
+  border: 1.5px solid #18222f;
+  padding: 0.6rem 1.2rem;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 500;
+  background: white;
+  color: #18222f;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.15s, color 0.15s;
+}
+
+.button:hover {
+  background: #f0ebe3;
+}
+
+.button.primary {
+  background: #18222f;
+  color: white;
+  border-color: #18222f;
+}
+
+.button.primary:hover {
+  background: #2d3748;
+}
+
 .counter {
   display: grid;
   grid-template-columns: auto 1fr auto;
@@ -661,32 +730,76 @@ body {
   margin: 2rem 0;
 }
 
-.button,
-.input {
-  border-radius: 999px;
-  border: 1px solid #18222f;
-  padding: 0.85rem 1.1rem;
-  font: inherit;
-  background: white;
-}
-
-.button {
-  cursor: pointer;
-}
-
 .value {
   text-align: center;
-  font-size: 2rem;
+  font-size: 2.5rem;
   font-weight: 700;
+  color: #18222f;
 }
 
 .form {
-  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.field label,
+.field span {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #4a5568;
 }
 
 .input {
   width: 100%;
-  box-sizing: border-box;
+  border-radius: 8px;
+  border: 1.5px solid #d1cdc7;
+  padding: 0.65rem 0.9rem;
+  font: inherit;
+  font-size: 0.95rem;
+  background: white;
+  color: #18222f;
+  transition: border-color 0.15s;
+}
+
+.input:focus {
+  outline: none;
+  border-color: #18222f;
+}
+
+.login-container {
+  margin-top: 2rem;
+  padding: 2rem;
+  background: white;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  max-width: 22rem;
+}
+
+.card {
+  padding: 1.5rem;
+  background: white;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  margin-bottom: 1rem;
+}
+
+.muted {
+  color: #718096;
+  font-size: 0.875rem;
+}
+
+.error {
+  color: #c53030;
+  font-size: 0.875rem;
+  margin-top: 0.25rem;
 }
 \`;
 `;
@@ -749,6 +862,69 @@ SESSION_SECRET="change-me-to-a-secure-random-hmac-secret-key-that-is-at-least-32
       content: `@tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; }
+  h1 { @apply text-3xl font-bold tracking-tight text-gray-900 mb-4; }
+  h2 { @apply text-xl font-semibold text-gray-900 mb-3; }
+  p  { @apply leading-relaxed text-gray-600 mb-4; }
+  a  { @apply text-gray-900 underline underline-offset-2 hover:no-underline; }
+}
+
+@layer components {
+  .shell {
+    @apply max-w-2xl mx-auto px-6 py-16;
+  }
+
+  .button {
+    @apply inline-flex items-center gap-2 rounded-full border border-gray-900
+           px-5 py-2.5 text-sm font-medium bg-white text-gray-900 no-underline
+           cursor-pointer transition-colors hover:bg-gray-50;
+  }
+
+  .button.primary {
+    @apply bg-gray-900 text-white hover:bg-gray-700;
+  }
+
+  .counter {
+    @apply my-8 grid items-center gap-3;
+    grid-template-columns: auto 1fr auto;
+  }
+
+  .value {
+    @apply text-center text-5xl font-bold text-gray-900;
+  }
+
+  .form {
+    @apply flex flex-col gap-4 mt-6;
+  }
+
+  .field {
+    @apply flex flex-col gap-1.5;
+  }
+
+  .input {
+    @apply w-full rounded-lg border border-gray-300 px-3.5 py-2.5 text-sm
+           bg-white text-gray-900 focus:outline-none focus:border-gray-900
+           transition-colors;
+  }
+
+  .login-container {
+    @apply mt-8 p-8 bg-white rounded-xl border border-gray-100 max-w-sm;
+  }
+
+  .card {
+    @apply p-6 bg-white rounded-xl border border-gray-100 mb-4;
+  }
+
+  .muted {
+    @apply text-gray-500 text-sm;
+  }
+
+  .error {
+    @apply text-red-600 text-sm mt-1;
+  }
+}
 `
     });
   }

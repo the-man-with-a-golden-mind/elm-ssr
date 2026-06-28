@@ -76,7 +76,7 @@ const printHelp = () => {
   build         Generate wrapper modules and compile configured Elm SSR apps
   compress      Pre-compress island and app bundles using Gzip for faster edge delivery
   dev           Build and start wrangler dev using the current workspace config
-  init <name>   Initialize a self-contained single-app project in the current directory
+  init <name>   Create ./<name>/ and scaffold a self-contained single-app project inside it
                 (use --db to wire SQLite/migrations, --auth betterAuth|auth0 for auth guards, --tailwind for Tailwind CSS)
   new <name>    Create a new app at <workspace>/<name>/ and register it in elm-ssr.config.json
                 (use --in <subdir> to group, --db for SQLite, --auth betterAuth|auth0 for auth, --tailwind for Tailwind)
@@ -212,8 +212,15 @@ switch (command) {
       }
     }
 
-    const created = await createAppScaffold(rootPath, name, { root: ".", db, auth, tailwind });
-    console.log(`Initialized ${created.name} in current directory`);
+    // Create a dedicated directory for the project — elm-ssr init t creates ./t/
+    // and scaffolds a self-contained single-app project inside it (root: ".").
+    const { mkdir: mkdirFn } = await import("node:fs/promises");
+    const targetDir = resolve(rootPath, name);
+    await mkdirFn(targetDir, { recursive: true });
+
+    const created = await createAppScaffold(targetDir, name, { root: ".", db, auth, tailwind });
+    console.log(`Initialized ${created.name} in ./${name}/`);
+    console.log(`\nNext:\n  cd ${name}\n  bun install\n  bun run build\n  bun run dev`);
     break;
   }
 

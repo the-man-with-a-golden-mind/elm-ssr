@@ -215,9 +215,12 @@ describe("elm-ssr CLI", () => {
 
     expect(exitCode).toBe(0);
     expect(stderr).toBe("");
-    expect(stdout).toContain("Initialized single-app in current directory");
+    // init now creates a subdirectory named after the app
+    expect(stdout).toContain("Initialized single-app in ./single-app/");
 
-    const config = JSON.parse(await readFile(resolve(root, "elm-ssr.config.json"), "utf8")) as {
+    const appDir = resolve(root, "single-app");
+
+    const config = JSON.parse(await readFile(resolve(appDir, "elm-ssr.config.json"), "utf8")) as {
       apps: Array<{ name: string; root: string; module: string }>;
     };
 
@@ -229,21 +232,26 @@ describe("elm-ssr CLI", () => {
       }
     ]);
 
-    // Should create elm.json and runtime.ts at root
-    await stat(resolve(root, "elm.json"));
-    await stat(resolve(root, "runtime.ts"));
-    
+    // Should create elm.json and runtime.ts inside the app directory
+    await stat(resolve(appDir, "elm.json"));
+    await stat(resolve(appDir, "runtime.ts"));
+
     // Should create package.json with scripts and devDependencies
-    const packageJson = JSON.parse(await readFile(resolve(root, "package.json"), "utf8")) as {
+    const packageJson = JSON.parse(await readFile(resolve(appDir, "package.json"), "utf8")) as {
       scripts: Record<string, string>;
       devDependencies: Record<string, string>;
     };
     expect(packageJson.scripts.dev).toBe("elm-ssr dev");
     expect(packageJson.devDependencies["elm-ssr"]).toBe("latest");
 
+    // Symlink node_modules into the app directory so the build can find them
+    const { symlink } = await import("node:fs/promises");
+    await symlink(resolve(process.cwd(), "node_modules"), resolve(appDir, "node_modules"), "dir");
+    await symlink(resolve(process.cwd(), ".elm-home"), resolve(appDir, ".elm-home"), "dir");
+
     // Verify it compiles successfully
     const buildCommand = Bun.spawn(
-      ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "build", "--root", root],
+      ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "build", "--root", appDir],
       {
         cwd: "/Users/michalmajchrzak/Projects/elmssr",
         stdout: "pipe",
@@ -258,7 +266,7 @@ describe("elm-ssr CLI", () => {
     }
     expect(buildExitCode).toBe(0);
 
-    const runtimePath = resolve(root, "runtime.ts");
+    const runtimePath = resolve(appDir, "runtime.ts");
     delete (globalThis as any).Elm;
     const { worker } = (await import(runtimePath)) as { worker: any };
     expect(worker).toBeDefined();
@@ -303,10 +311,13 @@ describe("elm-ssr CLI", () => {
 
     expect(exitCode).toBe(0);
     expect(stderr).toBe("");
-    expect(stdout).toContain("Initialized child-app in current directory");
+    // init creates a subdirectory — "child-app" dir inside childRoot
+    expect(stdout).toContain("Initialized child-app in ./child-app/");
 
-    // Verify child-workspace has its own new elm-ssr.config.json
-    const config = JSON.parse(await readFile(resolve(childRoot, "elm-ssr.config.json"), "utf8")) as {
+    const childAppDir = resolve(childRoot, "child-app");
+
+    // Verify the app directory has its own elm-ssr.config.json (not at childRoot)
+    const config = JSON.parse(await readFile(resolve(childAppDir, "elm-ssr.config.json"), "utf8")) as {
       apps: Array<{ name: string; root: string; module: string }>;
     };
     expect(config.apps).toEqual([
@@ -680,17 +691,27 @@ describe("elm-ssr CLI", () => {
     );
     expect(await command.exited).toBe(0);
 
+    // init creates ./single-auth/ inside root
+    const appDir = resolve(root, "single-auth");
+    const { symlink } = await import("node:fs/promises");
+    await symlink(resolve(process.cwd(), "node_modules"), resolve(appDir, "node_modules"), "dir");
+    await symlink(resolve(process.cwd(), ".elm-home"), resolve(appDir, ".elm-home"), "dir");
+
     const buildCommand = Bun.spawn(
-      ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "build", "--root", root],
+      ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "build", "--root", appDir],
       {
         cwd: "/Users/michalmajchrzak/Projects/elmssr",
         stdout: "pipe",
         stderr: "pipe"
       }
     );
-    expect(await buildCommand.exited).toBe(0);
+    const buildCode = await buildCommand.exited;
+    if (buildCode !== 0) {
+      console.error("Build stderr:", await new Response(buildCommand.stderr).text());
+    }
+    expect(buildCode).toBe(0);
 
-    const runtimePath = resolve(root, "runtime.ts");
+    const runtimePath = resolve(appDir, "runtime.ts");
     delete (globalThis as any).Elm;
     const { worker, sessionStore } = (await import(runtimePath)) as { worker: any; sessionStore: any };
     expect(worker).toBeDefined();

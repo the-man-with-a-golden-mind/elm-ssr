@@ -43,7 +43,7 @@ and start your own entrypoint that calls `worker.fetch`.
 elm-ssr init my-app [--db] [--auth betterAuth|auth0]
 ```
 
-Initializes a self-contained, single-app project directly in the current directory. It creates `elm-ssr.config.json` registering the root as `.` and module as `PascalCase(name)`. It also scaffolds basic routes, a styles helper, and configurations.
+Creates a `./<name>/` directory and scaffolds a self-contained, single-app project inside it. The `elm-ssr.config.json` is written inside `<name>/` with `root: "."`, so the project is fully self-contained. Also scaffolds basic routes, a styles helper, and configurations.
 
 Options:
 - `--db`: Starts the app with SQLite configured (via `bun:sqlite`), generating an initial database schema migration `migrations/0001_init.sql` and registering `inMemoryEffects` in the TS runtime.

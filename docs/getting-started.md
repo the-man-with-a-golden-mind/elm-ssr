@@ -15,13 +15,17 @@ Make sure Bun ≥ 1.3 (`engines.bun` in the package).
 
 ## Scaffold a new project
 
-The quickest way to start a new single-app project is to run `init` in an empty directory:
+The quickest way to start a new project is `init` — it creates the directory for you:
 
 ```sh
 bunx elm-ssr init my-app
+cd my-app
+bun install
+bun run build
+bun run dev
 ```
 
-This automatically generates `package.json`, `elm-ssr.config.json` (with `root: "."`), TypeScript entrypoints, and initial Elm routes.
+`init` creates `./my-app/`, writes `elm-ssr.config.json` (with `root: "."`), and generates the package, TypeScript entrypoints, and initial Elm routes inside it. No need to `mkdir` first.
 
 If you are building a multi-app workspace, you can scaffold new apps using the `new` command:
 
