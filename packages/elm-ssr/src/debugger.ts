@@ -399,30 +399,42 @@ export const injectDebugger = (html: string, data: unknown): string => {
   const islandMutations = new Map();
   const islandActiveStates = new Map();
   const activeObservers = new Map();
-  
+  let scanPending = false;
+
+  // Debounced, rAF-deferred scan so we always read the fully-committed DOM
+  // and any synchronous port messages (stateOut → elm-ssr-state-update) have
+  // had a chance to fire before we render the panel.
+  const scheduleScan = () => {
+    if (scanPending) return;
+    scanPending = true;
+    requestAnimationFrame(() => {
+      scanPending = false;
+      const activeTab = panel.querySelector('.debug-tab.active')?.getAttribute('data-tab');
+      if (activeTab === 'islands') {
+        scanIslands();
+      }
+    });
+  };
+
   const setupMutationObservers = () => {
     for (const obs of activeObservers.values()) {
       obs.disconnect();
     }
     activeObservers.clear();
-    
+
     const markers = Array.from(document.getElementsByTagName('elm-ssr-island'));
     markers.forEach(marker => {
       if (!islandMutations.has(marker)) {
         islandMutations.set(marker, { count: 0, lastUpdate: null });
       }
-      
+
       const observer = new MutationObserver(() => {
         const stats = islandMutations.get(marker);
         stats.count += 1;
         stats.lastUpdate = new Date();
-        
-        const activeTab = panel.querySelector('.debug-tab.active')?.getAttribute('data-tab');
-        if (activeTab === 'islands') {
-          scanIslands();
-        }
+        scheduleScan();
       });
-      
+
       observer.observe(marker, { childList: true, subtree: true, characterData: true, attributes: true });
       activeObservers.set(marker, observer);
     });
@@ -460,17 +472,21 @@ export const injectDebugger = (html: string, data: unknown): string => {
         : 'No client state changes recorded';
       
       const activeState = islandActiveStates.get(marker);
-      const domTextPreview = marker.textContent.trim().replace(/\\s+/g, ' ');
-      
+      // Always read live DOM text — this is current regardless of port timing.
+      const domTextPreview = marker.textContent.trim().replace(/\\s+/g, ' ').slice(0, 200);
+
       let stateSnippet = '';
       if (activeState) {
+        // Model state from stateOut port (may lag one frame behind DOM).
         stateSnippet = \`
-          <div style="font-size: 0.85em; margin-top: 6px; color: #a5b4fc;"><strong>Active Model State:</strong></div>
+          <div style="font-size: 0.85em; margin-top: 6px; color: #a5b4fc;"><strong>Model State:</strong></div>
           <pre class="debug-code" style="font-size: 0.85em; max-height: 120px; overflow-y: auto; color: #818cf8;">\${JSON.stringify(activeState, null, 2)}</pre>
         \`;
-      } else if (domTextPreview) {
-        stateSnippet = \`
-          <div style="font-size: 0.85em; margin-top: 6px; color: #9ca3af;"><strong>DOM Text Preview (Live):</strong></div>
+      }
+      if (domTextPreview) {
+        // DOM text is always live — show it so the panel reflects every render.
+        stateSnippet += \`
+          <div style="font-size: 0.85em; margin-top: 6px; color: #9ca3af;"><strong>Live DOM:</strong></div>
           <div class="debug-code" style="font-size: 0.85em; color: #9ca3af; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">\${domTextPreview}</div>
         \`;
       }
@@ -506,16 +522,13 @@ export const injectDebugger = (html: string, data: unknown): string => {
   panel.querySelector('[data-tab="islands"]').addEventListener('click', scanIslands);
   setupMutationObservers();
 
-  // Listen to explicit state update ports
+  // Listen to explicit state update ports (stateOut)
   window.addEventListener('elm-ssr-state-update', (event) => {
     if (event.detail) {
       const marker = findMarkerByOrigin(event.detail);
       if (marker) {
         islandActiveStates.set(marker, event.detail.state);
-        const activeTab = panel.querySelector('.debug-tab.active')?.getAttribute('data-tab');
-        if (activeTab === 'islands') {
-          scanIslands();
-        }
+        scheduleScan();
       }
     }
   });
@@ -599,11 +612,7 @@ export const injectDebugger = (html: string, data: unknown): string => {
     \`;
     
     setupMutationObservers(); // Observe any newly mounted islands
-    
-    const activeTab = panel.querySelector('.debug-tab.active').getAttribute('data-tab');
-    if (activeTab === 'islands') {
-      scanIslands();
-    }
+    scheduleScan();
   };
 
   window.addEventListener('elm-ssr-debug-update', (event) => {

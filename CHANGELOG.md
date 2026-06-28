@@ -3,6 +3,34 @@
 All notable changes to the `elm-ssr` package. Dates are ISO; "Unreleased" lives
 at the top until a version is cut.
 
+## 1.0.2 — 2026-06-26
+
+### Fixed
+
+- **Debugger Islands tab did not update live.** Island state and DOM text
+  were only visible after switching away and back to the Islands tab.
+
+  Root cause: the `MutationObserver` callback called `scanIslands()`
+  synchronously. For islands that emit model state via the `stateOut` port,
+  the `elm-ssr-state-update` event fires asynchronously — *after* the
+  synchronous `scanIslands()` call — so the panel re-rendered with the
+  previous model state.
+
+  Fix:
+  - `scheduleScan()` — a debounced, `requestAnimationFrame`-deferred
+    wrapper that replaces every direct `scanIslands()` call triggered by
+    DOM mutations or state-update events. The rAF boundary gives the
+    browser one full frame to flush all port messages and dispatch pending
+    events before the panel re-renders, guaranteeing the freshest model
+    state and DOM text are always displayed.
+  - `scanPending` guard prevents duplicate rAF callbacks when multiple
+    mutations arrive in the same frame (e.g. Elm removes old nodes and
+    inserts new ones in one reconcile pass).
+  - Live DOM text is now **always** shown alongside model state (previously
+    it was hidden when `islandActiveStates` had any entry). This means
+    the panel reflects live DOM immediately on every render, even if the
+    model-state port fires slightly later.
+
 ## 1.0.1 — 2026-06-26
 
 ### Fixed
