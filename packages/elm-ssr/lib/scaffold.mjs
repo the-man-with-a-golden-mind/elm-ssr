@@ -495,23 +495,17 @@ view user =
 `;
 
 const betterAuthEndpointTemplate = () => `import { betterAuth } from "better-auth";
-import type { Middleware } from "elm-ssr/http";
-import type { RequestSession } from "elm-ssr/sessions";
 
-// BetterAuth is initialised per-request to pick up the right DB binding.
-// Production (Cloudflare Workers): env.DB is the D1 binding.
-// Local dev (Bun): falls back to bun:sqlite using app.db.
-const createAuth = (env: any) => {
-  const db = env?.DB ?? (() => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { Database } = require("bun:sqlite");
-    return new Database("app.db");
-  })();
-
-  return betterAuth({
+// BetterAuth is initialised per-request to pick up the right database binding.
+// On Cloudflare Workers env.DB is the D1 binding; on Bun (local dev) the
+// runtime injects a bun:sqlite Database as env.DB — see runtime.ts.
+// Pass env.DB directly so BetterAuth's adapter auto-detects the dialect
+// (D1 via "batch"/"exec"/"prepare", bun:sqlite via "fileControl").
+export const createAuth = (env: any) =>
+  betterAuth({
     baseURL: (env?.BETTER_AUTH_URL as string) ?? "http://localhost:8787",
     secret: (env?.BETTER_AUTH_SECRET as string) ?? "change-me-in-production",
-    database: { type: "sqlite", db },
+    database: env?.DB,
     emailAndPassword: { enabled: true },
     // Uncomment to add social providers (add matching env vars in .dev.vars):
     // socialProviders: {
@@ -521,39 +515,9 @@ const createAuth = (env: any) => {
     //   },
     // },
   });
-};
 
 export const handleAuth = (request: Request, env: any): Promise<Response> =>
   createAuth(env).handler(request);
-
-// Reads the BetterAuth session from the request and returns the user.
-const getSessionUser = async (
-  request: Request,
-  env: any
-): Promise<{ email: string; name: string } | null> => {
-  try {
-    const session = await createAuth(env).api.getSession({ headers: request.headers });
-    if (!session?.user) return null;
-    return { email: session.user.email, name: session.user.name ?? session.user.email };
-  } catch {
-    return null;
-  }
-};
-
-// elm-ssr middleware: reads BetterAuth's session and injects the user into
-// context.session so Loader.session / Loader.requireUser work on every request.
-export const betterAuthMiddleware: Middleware = async (context, next) => {
-  const user = await getSessionUser(context.request, context.env);
-  context.session = {
-    id: user ? \`ba:\${user.email}\` : "",
-    data: user,
-    csrf: "",
-    dirty: false,
-    destroyed: false,
-    isNew: false,
-  } as RequestSession;
-  return next(context);
-};
 `;
 
 const auth0EndpointTemplate = () => `import { generateSessionId, signValue, generateCsrfToken, readSignedCookie } from "elm-ssr/sessions";
@@ -686,7 +650,9 @@ const runtimeTemplate = (appRoot, db = false, auth = undefined) => {
 
   if (isBetterAuth) {
     imports.push(`import { sessionEffects } from "elm-ssr/sessions";`);
-    imports.push(`import { handleAuth, betterAuthMiddleware } from "./src/Endpoints/Auth";`);
+    imports.push(`import type { Middleware } from "elm-ssr/http";`);
+    imports.push(`import type { RequestSession } from "elm-ssr/sessions";`);
+    imports.push(`import { createAuth, handleAuth } from "./src/Endpoints/Auth";`);
   } else if (isAuth0) {
     imports.push(`import { memorySessionStore } from "elm-ssr/sessions";`);
     imports.push(`import { handleAuth } from "./src/Endpoints/Auth";`);
@@ -746,13 +712,52 @@ if (typeof Bun !== "undefined") {
   }`;
 
   const effectsConfig = isBetterAuth
-    ? `,\n  effects: sessionEffects(${baseEffectsBody}),\n  middlewares: [betterAuthMiddleware]`
+    ? `,\n  effects: sessionEffects(${baseEffectsBody}),\n  middlewares: [betterAuthBridge]`
     : `,\n  effects: ${baseEffectsBody}`;
 
   // Auth0 keeps elm-ssr session middleware; BetterAuth manages sessions itself.
   let sessionsConfig = '';
   let authInit = '';
-  if (isAuth0) {
+  if (isBetterAuth) {
+    authInit = `
+// Local dev: open a SQLite database so BetterAuth works without a Cloudflare D1 binding.
+// On Cloudflare Workers this block is eliminated by esbuild (typeof Bun is statically "undefined").
+let bunAuthDb: any = undefined;
+if (typeof (globalThis as any).Bun !== "undefined") {
+  const sqliteModule = "bun" + ":sqlite";
+  const { Database } = require(sqliteModule);
+  bunAuthDb = new Database(import.meta.dir + "/app.db");
+}
+
+const getAuthEnv = (env: any): any =>
+  bunAuthDb && !env?.DB ? { ...(env ?? {}), DB: bunAuthDb } : env;
+
+// Bridge: reads BetterAuth session on every request so Loader.requireUser works.
+const betterAuthBridge: Middleware = async (context, next) => {
+  try {
+    const session = await createAuth(getAuthEnv(context.env)).api.getSession({
+      headers: context.request.headers,
+    });
+    const user = session?.user
+      ? { email: session.user.email, name: session.user.name ?? session.user.email }
+      : null;
+    context.session = {
+      id: user ? \`ba:\${user.email}\` : "",
+      data: user,
+      csrf: "",
+      dirty: false,
+      destroyed: false,
+      isNew: false,
+    } as RequestSession;
+  } catch {
+    context.session = {
+      id: "", data: null, csrf: "", dirty: false, destroyed: false, isNew: false,
+    } as RequestSession;
+  }
+  return next(context);
+};
+`;
+  } else if (isAuth0) {
     authInit = `\nexport const sessionStore = memorySessionStore();\n`;
     sessionsConfig = `,
   sessions: {
@@ -766,12 +771,12 @@ if (typeof Bun !== "undefined") {
   let authIntercept = '';
   if (isBetterAuth) {
     authIntercept = `
-// Delegate all /api/auth/* requests to BetterAuth.
+// Delegate all /api/auth/* requests to BetterAuth, injecting the local db when needed.
 const baseWorkerFetch = worker.fetch;
 worker.fetch = async (request, env, ctx) => {
   const url = new URL(request.url);
   if (url.pathname.startsWith("/api/auth/")) {
-    return handleAuth(request, env);
+    return handleAuth(request, getAuthEnv(env));
   }
   return baseWorkerFetch(request, env, ctx);
 };

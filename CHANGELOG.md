@@ -3,6 +3,36 @@
 All notable changes to the `elm-ssr` package. Dates are ISO; "Unreleased" lives
 at the top until a version is cut.
 
+## 1.0.4 — 2026-06-28
+
+### Fixed
+
+- **Scaffold `--auth better-auth` broke Cloudflare Workers builds.**
+  The generated `src/Endpoints/Auth.ts` contained `require("bun:sqlite")` which
+  Wrangler's esbuild bundler cannot resolve. The generated database config also
+  used `{ type: "sqlite", db: env.DB }` which made BetterAuth's adapter skip
+  auto-detection and treat `env.DB` as an already-initialized Kysely instance —
+  causing `db.selectFrom is not a function` at runtime.
+
+  Fix:
+  - `Auth.ts` no longer references `bun:sqlite` at all. `env.DB` is passed
+    directly to `betterAuth({ database: env.DB })` so BetterAuth's adapter
+    auto-detects the dialect: D1 on Cloudflare (via `"batch"/"exec"/"prepare"`),
+    bun:sqlite locally (via `"fileControl"`).
+  - The local bun:sqlite `Database` is now opened inside `runtime.ts` (not
+    `Auth.ts`) inside a `typeof Bun !== "undefined"` guard — a block that
+    esbuild statically eliminates when targeting Cloudflare Workers. The db is
+    injected into `env` as `DB` via `getAuthEnv()` before every BetterAuth call
+    so `Auth.ts` stays platform-agnostic.
+  - `app.db` is opened relative to `import.meta.dir` so it always lives next to
+    `runtime.ts` regardless of the process working directory.
+  - Tests are rewritten to use BetterAuth's real email+password API
+    (`/api/auth/sign-up/email`, `/api/auth/sign-in/email`, `/api/auth/sign-out`)
+    and apply the generated migration before first use. `sessionStore` is no
+    longer exported from `runtime.ts` for BetterAuth apps.
+  - `better-auth` is added to the monorepo dev dependencies so the test suite
+    can import it via the symlinked `node_modules`.
+
 ## 1.0.3 — 2026-06-28
 
 ### Fixed

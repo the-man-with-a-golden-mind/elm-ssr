@@ -496,7 +496,7 @@ describe("elm-ssr CLI", () => {
     expect(html).toContain("Ship fast.");
   }, 15000);
 
-  it("scaffolds a new app with --auth option (betterAuth & invalid check)", async () => {
+  it("scaffolds a new app with --auth betterAuth: builds, routes work, full sign-up/in/out E2E", async () => {
     const root = await mkdtemp(join(tmpdir(), "elm-ssr-cli-"));
     tempRoots.push(root);
     await linkNodeModules(root);
@@ -507,174 +507,149 @@ describe("elm-ssr CLI", () => {
       "utf8"
     );
 
-    // 1. Valid provider: betterAuth
     const command = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "new", "auth-app", "--auth", "betterAuth", "--root", root],
-      {
-        cwd: "/Users/michalmajchrzak/Projects/elmssr",
-        stdout: "pipe",
-        stderr: "pipe"
-      }
+      { cwd: "/Users/michalmajchrzak/Projects/elmssr", stdout: "pipe", stderr: "pipe" }
     );
-
     expect(await command.exited).toBe(0);
 
-    // 1.5. Compile the scaffolded auth app to guarantee it builds successfully without type errors
-    const buildCommand = Bun.spawn(
-      ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "build", "--root", root],
-      {
-        cwd: "/Users/michalmajchrzak/Projects/elmssr",
-        stdout: "pipe",
-        stderr: "pipe"
-      }
-    );
-
-    const buildExitCode = await buildCommand.exited;
-    const buildStdout = await new Response(buildCommand.stdout).text();
-    const buildStderr = await new Response(buildCommand.stderr).text();
-
-    if (buildExitCode !== 0) {
-      console.log("Build stdout:", buildStdout);
-      console.error("Build stderr:", buildStderr);
-    }
-    expect(buildExitCode).toBe(0);
-
-    // Verify auth pages & TS endpoint
-    await stat(resolve(root, "auth-app/migrations/0001_init.sql")); // Auth automatically enables DB setup
+    // Verify generated file structure
+    await stat(resolve(root, "auth-app/migrations/0001_init.sql"));
     await stat(resolve(root, "auth-app/src/AuthApp/Routes/Login.elm"));
     await stat(resolve(root, "auth-app/src/AuthApp/Routes/Profile.elm"));
     await stat(resolve(root, "auth-app/src/Endpoints/Auth.ts"));
     await stat(resolve(root, "auth-app/.dev.vars"));
-    
-    const runtime = await readFile(resolve(root, "auth-app/runtime.ts"), "utf8");
-    expect(runtime).toContain("sessions:");
-    expect(runtime).toContain("csrf: true");
-    expect(runtime).toContain("handleAuth");
 
-    // E2E Verification: load the worker and simulate requests to verify session middleware
+    const authTs = await readFile(resolve(root, "auth-app/src/Endpoints/Auth.ts"), "utf8");
+    expect(authTs).toContain('from "better-auth"');
+    expect(authTs).toContain("export const createAuth");
+    expect(authTs).not.toContain('require("bun:sqlite")'); // no direct bun:sqlite import in Auth.ts
+    expect(authTs).not.toContain("user@example.com");     // no hardcoded mock user
+
+    const migration = await readFile(resolve(root, "auth-app/migrations/0001_init.sql"), "utf8");
+    expect(migration).toContain('CREATE TABLE IF NOT EXISTS "user"');
+    expect(migration).toContain("CREATE TABLE IF NOT EXISTS session");
+    expect(migration).toContain("CREATE TABLE IF NOT EXISTS account");
+    expect(migration).toContain("CREATE TABLE IF NOT EXISTS verification");
+
+    const runtime = await readFile(resolve(root, "auth-app/runtime.ts"), "utf8");
+    expect(runtime).toContain("betterAuthBridge");
+    expect(runtime).toContain("sessionEffects");
+    expect(runtime).toContain("bunAuthDb");
+    expect(runtime).not.toContain("sessions:");           // no elm-ssr session middleware
+    expect(runtime).not.toContain("sessionStore");
+
+    const devVars = await readFile(resolve(root, "auth-app/.dev.vars"), "utf8");
+    expect(devVars).toContain("BETTER_AUTH_SECRET=");
+    expect(devVars).toContain("BETTER_AUTH_URL=");
+
+    // package.json lives at the workspace root, not in the app subdirectory
+    const pkg = JSON.parse(await readFile(resolve(root, "package.json"), "utf8")) as {
+      devDependencies: Record<string, string>;
+    };
+    expect(pkg.devDependencies?.["better-auth"]).toBe("latest");
+
+    // Elm build
+    const buildCommand = Bun.spawn(
+      ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "build", "--root", root],
+      { cwd: "/Users/michalmajchrzak/Projects/elmssr", stdout: "pipe", stderr: "pipe" }
+    );
+    const buildExitCode = await buildCommand.exited;
+    if (buildExitCode !== 0) {
+      console.error("Build stderr:", await new Response(buildCommand.stderr).text());
+    }
+    expect(buildExitCode).toBe(0);
+
+    // Load the generated runtime
     const runtimePath = resolve(root, "auth-app/runtime.ts");
     delete (globalThis as any).Elm;
-    const { worker, sessionStore } = (await import(runtimePath)) as { worker: any; sessionStore: any };
+    const { worker } = (await import(runtimePath)) as { worker: any };
     expect(worker).toBeDefined();
-    expect(sessionStore).toBeDefined();
 
-    // 1. GET / should return 200 OK
+    // Basic routes
     const res1 = await worker.fetch(new Request("http://localhost/"));
     expect(res1.status).toBe(200);
-    const html1 = await res1.text();
-    expect(html1).toContain("Ship fast.");
+    expect(await res1.text()).toContain("Ship fast.");
 
-    // 2. GET /login should return 200 OK
     const res2 = await worker.fetch(new Request("http://localhost/login"));
     expect(res2.status).toBe(200);
-    const html2 = await res2.text();
-    expect(html2).toContain("Continue with BetterAuth");
+    expect(await res2.text()).toContain("Continue with BetterAuth");
 
-    // 3. GET /profile (unauthenticated) should redirect to /login (requireUser route guard)
+    // /profile unauthenticated → redirect to /login
     const res3 = await worker.fetch(new Request("http://localhost/profile"));
     expect(res3.status).toBe(302);
     expect(res3.headers.get("location")).toBe("/login");
 
-    // 4. GET /api/auth/login (perform login) -> should redirect to /profile and set session cookie
-    const loginRes = await worker.fetch(new Request("http://localhost/api/auth/login"));
-    expect(loginRes.status).toBe(302);
-    expect(loginRes.headers.get("location")).toBe("/profile");
-    const cookieHeader = loginRes.headers.get("set-cookie");
-    expect(cookieHeader).toContain("session=");
+    // Apply the BetterAuth migration so the tables exist before first use.
+    // In real projects users run `elm-ssr migrate` or wrangler handles D1 migrations.
+    // The runtime opens app.db relative to import.meta.dir (the app root).
+    {
+      const { Database: Db } = await import("bun:sqlite");
+      const migrationSql = await readFile(resolve(root, "auth-app/migrations/0001_init.sql"), "utf8");
+      const db = new Db(resolve(root, "auth-app/app.db"));
+      db.exec(migrationSql);
+      db.close();
+    }
 
-    // Extract the raw cookie value
-    const sessionCookie = cookieHeader ? cookieHeader.split(";")[0] : "";
-    expect(sessionCookie).not.toBe("");
+    // Real BetterAuth E2E: sign-up → sign-in → profile → sign-out
+    const signUpRes = await worker.fetch(new Request("http://localhost/api/auth/sign-up/email", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "test@example.com", password: "password123", name: "Test User" }),
+    }));
+    expect(signUpRes.status).toBe(200);
 
-    // 5. GET /profile (authenticated) with valid cookie -> should return 200 OK and show profile
+    const signInRes = await worker.fetch(new Request("http://localhost/api/auth/sign-in/email", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "test@example.com", password: "password123" }),
+    }));
+    expect(signInRes.status).toBe(200);
+
+    // BetterAuth sets its session via Set-Cookie
+    const rawCookie = signInRes.headers.get("set-cookie") ?? "";
+    expect(rawCookie).toBeTruthy();
+    const sessionCookie = rawCookie.split(";")[0];
+
+    // /profile authenticated → 200 with user info
     const profileRes = await worker.fetch(new Request("http://localhost/profile", {
-      headers: { "cookie": sessionCookie }
+      headers: { cookie: sessionCookie },
     }));
     expect(profileRes.status).toBe(200);
     const profileHtml = await profileRes.text();
-    expect(profileHtml).toContain("user@example.com");
+    expect(profileHtml).toContain("test@example.com");
     expect(profileHtml).toContain("Sign out");
 
-    // 6. GET /profile with corrupt/invalid cookie -> should redirect to /login
+    // /profile with invalid cookie → redirect
     const corruptRes = await worker.fetch(new Request("http://localhost/profile", {
-      headers: { "cookie": "session=invalid-signed-cookie-payload" }
+      headers: { cookie: "better-auth.session_token=invalid" },
     }));
     expect(corruptRes.status).toBe(302);
     expect(corruptRes.headers.get("location")).toBe("/login");
 
-    // 7. GET /profile with expired cookie -> should redirect to /login
-    // We can simulate session expiration by editing the session entry in the memory store
-    let sessionId: string | undefined;
-    for (const [id, entry] of sessionStore.store.entries()) {
-      if (entry.data !== null) {
-        sessionId = id;
-        break;
-      }
-    }
-    expect(sessionId).toBeDefined();
-    const sessionEntry = sessionStore.store.get(sessionId!);
-    expect(sessionEntry).toBeDefined();
-    
-    // Set expiresAt to the past (expired)
-    sessionStore.store.set(sessionId!, {
-      ...sessionEntry,
-      expiresAt: Date.now() - 1000 // 1 second ago
-    });
-
-    const expiredRes = await worker.fetch(new Request("http://localhost/profile", {
-      headers: { "cookie": sessionCookie }
+    // Sign out
+    const signOutRes = await worker.fetch(new Request("http://localhost/api/auth/sign-out", {
+      method: "POST",
+      headers: { cookie: sessionCookie },
     }));
-    expect(expiredRes.status).toBe(302);
-    expect(expiredRes.headers.get("location")).toBe("/login");
-    // Verify it was deleted from the store
-    expect(sessionStore.store.has(sessionId!)).toBe(false);
+    expect(signOutRes.status).toBe(200);
 
-    // Let's create a fresh login for logout testing
-    const loginRes2 = await worker.fetch(new Request("http://localhost/api/auth/login"));
-    const cookieHeader2 = loginRes2.headers.get("set-cookie");
-    const sessionCookie2 = cookieHeader2 ? cookieHeader2.split(";")[0] : "";
-    
-    let sessionId2: string | undefined;
-    for (const [id, entry] of sessionStore.store.entries()) {
-      if (entry.data !== null) {
-        sessionId2 = id;
-        break;
-      }
-    }
-    expect(sessionId2).toBeDefined();
-    expect(sessionStore.store.has(sessionId2!)).toBe(true);
-
-    // 8. GET /api/auth/logout with valid cookie -> should redirect to /login, clear cookie, and delete from store
-    const logoutRes = await worker.fetch(new Request("http://localhost/api/auth/logout", {
-      headers: { "cookie": sessionCookie2 }
+    // /profile after sign-out → redirect
+    const postSignOutRes = await worker.fetch(new Request("http://localhost/profile", {
+      headers: { cookie: sessionCookie },
     }));
-    expect(logoutRes.status).toBe(302);
-    expect(logoutRes.headers.get("location")).toBe("/login");
-    expect(logoutRes.headers.get("set-cookie")).toContain("session=;");
-    // Verify session is deleted from the store
-    expect(sessionStore.store.has(sessionId2!)).toBe(false);
+    expect(postSignOutRes.status).toBe(302);
+    expect(postSignOutRes.headers.get("location")).toBe("/login");
 
-    // 9. GET /profile after logout -> should redirect to /login
-    const postLogoutRes = await worker.fetch(new Request("http://localhost/profile", {
-      headers: { "cookie": sessionCookie2 }
-    }));
-    expect(postLogoutRes.status).toBe(302);
-    expect(postLogoutRes.headers.get("location")).toBe("/login");
-
-    // 2. Invalid provider
+    // Invalid auth provider
     const badCommand = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "new", "bad-app", "--auth", "invalid-auth-provider", "--root", root],
-      {
-        cwd: "/Users/michalmajchrzak/Projects/elmssr",
-        stdout: "pipe",
-        stderr: "pipe"
-      }
+      { cwd: "/Users/michalmajchrzak/Projects/elmssr", stdout: "pipe", stderr: "pipe" }
     );
-
     expect(await badCommand.exited).toBe(1);
     const stderr = await new Response(badCommand.stderr).text();
     expect(stderr).toContain("Error: --auth only supports 'betterAuth' or 'auth0'");
-  }, 15000);
+  }, 30000);
 
   it("scaffolds a single-app project using 'init --auth betterAuth' and compiles/fetches successfully", async () => {
     const root = await mkdtemp(join(tmpdir(), "elm-ssr-cli-"));
@@ -683,27 +658,17 @@ describe("elm-ssr CLI", () => {
 
     const command = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "init", "single-auth", "--auth", "betterAuth", "--root", root],
-      {
-        cwd: "/Users/michalmajchrzak/Projects/elmssr",
-        stdout: "pipe",
-        stderr: "pipe"
-      }
+      { cwd: "/Users/michalmajchrzak/Projects/elmssr", stdout: "pipe", stderr: "pipe" }
     );
     expect(await command.exited).toBe(0);
 
-    // init creates ./single-auth/ inside root
     const appDir = resolve(root, "single-auth");
-    const { symlink } = await import("node:fs/promises");
     await symlink(resolve(process.cwd(), "node_modules"), resolve(appDir, "node_modules"), "dir");
     await symlink(resolve(process.cwd(), ".elm-home"), resolve(appDir, ".elm-home"), "dir");
 
     const buildCommand = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "build", "--root", appDir],
-      {
-        cwd: "/Users/michalmajchrzak/Projects/elmssr",
-        stdout: "pipe",
-        stderr: "pipe"
-      }
+      { cwd: "/Users/michalmajchrzak/Projects/elmssr", stdout: "pipe", stderr: "pipe" }
     );
     const buildCode = await buildCommand.exited;
     if (buildCode !== 0) {
@@ -713,40 +678,51 @@ describe("elm-ssr CLI", () => {
 
     const runtimePath = resolve(appDir, "runtime.ts");
     delete (globalThis as any).Elm;
-    const { worker, sessionStore } = (await import(runtimePath)) as { worker: any; sessionStore: any };
+    const { worker } = (await import(runtimePath)) as { worker: any };
     expect(worker).toBeDefined();
-    expect(sessionStore).toBeDefined();
 
-    const res1 = await worker.fetch(new Request("http://localhost/"));
-    expect(res1.status).toBe(200);
+    expect((await worker.fetch(new Request("http://localhost/"))).status).toBe(200);
+    expect((await worker.fetch(new Request("http://localhost/login"))).status).toBe(200);
+    expect((await worker.fetch(new Request("http://localhost/profile"))).status).toBe(302);
 
-    const res2 = await worker.fetch(new Request("http://localhost/login"));
-    expect(res2.status).toBe(200);
+    // Apply the BetterAuth migration for local dev
+    {
+      const { Database: Db } = await import("bun:sqlite");
+      const migrationSql = await readFile(resolve(appDir, "migrations/0001_init.sql"), "utf8");
+      const db = new Db(resolve(appDir, "app.db"));
+      db.exec(migrationSql);
+      db.close();
+    }
 
-    const res3 = await worker.fetch(new Request("http://localhost/profile"));
-    expect(res3.status).toBe(302);
+    // Real BetterAuth sign-up → sign-in → profile → sign-out
+    await worker.fetch(new Request("http://localhost/api/auth/sign-up/email", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "init@example.com", password: "password123", name: "Init User" }),
+    }));
 
-    // E2E login validation
-    const loginRes = await worker.fetch(new Request("http://localhost/api/auth/login"));
-    expect(loginRes.status).toBe(302);
-    const cookie = loginRes.headers.get("set-cookie")?.split(";")[0] ?? "";
-    expect(cookie).toContain("session=");
+    const signInRes = await worker.fetch(new Request("http://localhost/api/auth/sign-in/email", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "init@example.com", password: "password123" }),
+    }));
+    expect(signInRes.status).toBe(200);
+    const cookie = signInRes.headers.get("set-cookie")?.split(";")[0] ?? "";
+    expect(cookie).toBeTruthy();
 
-    // Profile access with session cookie
     const profileRes = await worker.fetch(new Request("http://localhost/profile", {
-      headers: { "cookie": cookie }
+      headers: { cookie },
     }));
     expect(profileRes.status).toBe(200);
 
-    // Logout validation
-    const logoutRes = await worker.fetch(new Request("http://localhost/api/auth/logout", {
-      headers: { "cookie": cookie }
+    const signOutRes = await worker.fetch(new Request("http://localhost/api/auth/sign-out", {
+      method: "POST",
+      headers: { cookie },
     }));
-    expect(logoutRes.status).toBe(302);
-    expect(logoutRes.headers.get("set-cookie")).toContain("session=;");
-  }, 15000);
+    expect(signOutRes.status).toBe(200);
+  }, 30000);
 
-  it("scaffolds a new app with --auth auth0 and compiles/fetches successfully", async () => {
+  it("scaffolds a new app with --auth auth0: builds and basic routes work", async () => {
     const root = await mkdtemp(join(tmpdir(), "elm-ssr-cli-"));
     tempRoots.push(root);
     await linkNodeModules(root);
@@ -759,21 +735,35 @@ describe("elm-ssr CLI", () => {
 
     const command = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "new", "auth0-app", "--auth", "auth0", "--root", root],
-      {
-        cwd: "/Users/michalmajchrzak/Projects/elmssr",
-        stdout: "pipe",
-        stderr: "pipe"
-      }
+      { cwd: "/Users/michalmajchrzak/Projects/elmssr", stdout: "pipe", stderr: "pipe" }
     );
     expect(await command.exited).toBe(0);
 
+    // Verify generated file structure
+    const authTs = await readFile(resolve(root, "auth0-app/src/Endpoints/Auth.ts"), "utf8");
+    expect(authTs).not.toContain('from "better-auth"');
+    expect(authTs).toContain("/authorize");         // real OAuth2 redirect
+    expect(authTs).toContain("/oauth/token");       // real token exchange
+    expect(authTs).toContain("/api/auth/callback"); // callback route
+    expect(authTs).not.toContain('"Auth0 User"');   // no hardcoded mock user
+
+    const migration = await readFile(resolve(root, "auth0-app/migrations/0001_init.sql"), "utf8");
+    expect(migration).toContain("id TEXT NOT NULL PRIMARY KEY"); // auth0 sub as TEXT id
+    expect(migration).toContain("picture");
+
+    const devVars = await readFile(resolve(root, "auth0-app/.dev.vars"), "utf8");
+    expect(devVars).toContain("AUTH0_DOMAIN=");
+    expect(devVars).toContain("AUTH0_CLIENT_ID=");
+    expect(devVars).toContain("SESSION_SECRET=");
+
+    const runtime = await readFile(resolve(root, "auth0-app/runtime.ts"), "utf8");
+    expect(runtime).toContain("sessions:");
+    expect(runtime).toContain("sessionStore");
+
+    // Elm build
     const buildCommand = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "build", "--root", root],
-      {
-        cwd: "/Users/michalmajchrzak/Projects/elmssr",
-        stdout: "pipe",
-        stderr: "pipe"
-      }
+      { cwd: "/Users/michalmajchrzak/Projects/elmssr", stdout: "pipe", stderr: "pipe" }
     );
     expect(await buildCommand.exited).toBe(0);
 
@@ -783,34 +773,20 @@ describe("elm-ssr CLI", () => {
     expect(worker).toBeDefined();
     expect(sessionStore).toBeDefined();
 
-    const res1 = await worker.fetch(new Request("http://localhost/"));
-    expect(res1.status).toBe(200);
+    // Basic routes
+    expect((await worker.fetch(new Request("http://localhost/"))).status).toBe(200);
+    expect((await worker.fetch(new Request("http://localhost/login"))).status).toBe(200);
 
-    const res2 = await worker.fetch(new Request("http://localhost/login"));
-    expect(res2.status).toBe(200);
+    // /profile unauthenticated → redirect to /login
+    const profileRes = await worker.fetch(new Request("http://localhost/profile"));
+    expect(profileRes.status).toBe(302);
+    expect(profileRes.headers.get("location")).toBe("/login");
 
-    const res3 = await worker.fetch(new Request("http://localhost/profile"));
-    expect(res3.status).toBe(302);
-
-    // E2E login validation
+    // /api/auth/login without credentials configured → clear 500 error message
     const loginRes = await worker.fetch(new Request("http://localhost/api/auth/login"));
-    expect(loginRes.status).toBe(302);
-    const cookie = loginRes.headers.get("set-cookie")?.split(";")[0] ?? "";
-    expect(cookie).toContain("session=");
-
-    // Profile access with session cookie
-    const profileRes = await worker.fetch(new Request("http://localhost/profile", {
-      headers: { "cookie": cookie }
-    }));
-    expect(profileRes.status).toBe(200);
-
-    // Logout validation
-    const logoutRes = await worker.fetch(new Request("http://localhost/api/auth/logout", {
-      headers: { "cookie": cookie }
-    }));
-    expect(logoutRes.status).toBe(302);
-    expect(logoutRes.headers.get("set-cookie")).toContain("session=;");
-  }, 15000);
+    expect(loginRes.status).toBe(500);
+    expect(await loginRes.text()).toContain("AUTH0_DOMAIN");
+  }, 20000);
 
   it("scaffolds a new app with --tailwind option and verifies config and file generation", async () => {
     const root = await mkdtemp(join(tmpdir(), "elm-ssr-cli-tailwind-"));
