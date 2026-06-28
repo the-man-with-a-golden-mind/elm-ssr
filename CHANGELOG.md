@@ -3,6 +3,46 @@
 All notable changes to the `elm-ssr` package. Dates are ISO; "Unreleased" lives
 at the top until a version is cut.
 
+## 1.0.3 — 2026-06-28
+
+### Fixed
+
+- **Scaffold `--auth better-auth` generated a mock stub instead of a real integration.**
+  The migration had only a single `users` table with an `INTEGER AUTOINCREMENT` id.
+  `src/Endpoints/Auth.ts` hardcoded `user@example.com` and never imported `better-auth`.
+  `runtime.ts` used elm-ssr's own session cookie alongside the mock.
+
+  Fix:
+  - Migration now emits all 4 tables BetterAuth requires (`user`, `session`, `account`,
+    `verification`) with correct column types (`TEXT` primary keys, camelCase names,
+    `ON DELETE CASCADE` foreign keys).
+  - `Auth.ts` imports `betterAuth` from `better-auth`, initialises it per-request
+    (D1 on Cloudflare, `bun:sqlite` locally), and exports `handleAuth` (delegates to
+    `auth.handler(request)`) and `betterAuthMiddleware` (reads BetterAuth's session and
+    injects the user into `context.session` so `Loader.requireUser` works).
+  - `runtime.ts` wraps the effect runner with `sessionEffects` directly instead of
+    configuring elm-ssr's session middleware; `betterAuthMiddleware` is wired via the
+    `middlewares` option; `/api/auth/*` is forwarded to `handleAuth(request, env)` with
+    no extra arguments (BetterAuth owns session state).
+  - `.dev.vars` / `.env` now contain `BETTER_AUTH_SECRET` and `BETTER_AUTH_URL` instead
+    of `SESSION_SECRET`. Social-provider vars are included as commented examples.
+  - `package.json` gains `"better-auth": "latest"` in `devDependencies`.
+
+- **Scaffold `--auth auth0` generated a mock stub instead of a real OAuth2 flow.**
+  The migration was a generic `users` table with an integer id. `Auth.ts` hardcoded the
+  user and never redirected to Auth0.
+
+  Fix:
+  - Migration creates a `users` table with `id TEXT` (Auth0 subject), `picture`, and
+    camelCase `createdAt`/`updatedAt` columns.
+  - `Auth.ts` implements the real Authorization Code flow: `/api/auth/login` redirects
+    to `https://{AUTH0_DOMAIN}/authorize`; `/api/auth/callback` exchanges the code at
+    `/oauth/token`, decodes the ID token JWT payload, and writes the user into elm-ssr's
+    session store; `/api/auth/logout` clears the session and redirects to Auth0's OIDC
+    logout endpoint. No extra npm package required.
+  - `.dev.vars` / `.env` now contain `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID`,
+    `AUTH0_CLIENT_SECRET`, and `AUTH0_CALLBACK_URL` alongside `SESSION_SECRET`.
+
 ## 1.0.2 — 2026-06-26
 
 ### Fixed
