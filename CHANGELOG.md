@@ -3,6 +3,33 @@
 All notable changes to the `elm-ssr` package. Dates are ISO; "Unreleased" lives
 at the top until a version is cut.
 
+## 1.0.1 — 2026-06-26
+
+### Fixed
+
+- **Generated app had no layout, header, or navigation.** `Shared.elm` emitted
+  a bare `div + h1`. All pages looked like unstyled text. Replaced with a full
+  design system:
+  - Sticky header with brand (`◆ elm-ssr`) and nav links. Auth-aware: includes
+    a **Sign in** link when `--auth` is set.
+  - **Index** — hero section with `Ship fast.` heading, CTA buttons, three
+    feature cards (Edge-first / Fully typed / Islands).
+  - **Counter** — page header + white card wrapping the island.
+  - **Login** — centred auth card: logo, `Welcome back`, `Continue with BetterAuth/Auth0`.
+  - **Profile** — avatar circle with name initial, name + email, sign-out button.
+  - **NotFound** — large `404` in muted grey, `Go home` button.
+  - **CSS** — complete design system (`--bg`, `--surface`, `--border`, `--text`
+    custom properties; `.header`, `.nav`, `.hero`, `.features`, `.card`,
+    `.btn`/`.btn-primary`/`.btn-secondary`, `.auth-card`, `.counter`,
+    `.error-page`, form components). Font via Google Fonts (Inter) with
+    system-font fallback.
+  - **Tailwind** `@layer components` updated to match all new class names so
+    `elm-ssr init … --tailwind` compiles real CSS immediately after
+    `bun run build`.
+- **`authDisplayName` helper** — the sign-in button showed `"Continue with
+  better-auth"` (internal normalised id) instead of `"Continue with
+  BetterAuth"`. Fixed: `better-auth` → `BetterAuth`, `auth0` → `Auth0`.
+
 ## 1.0.0 — 2026-06-26
 
 ### Fixed
