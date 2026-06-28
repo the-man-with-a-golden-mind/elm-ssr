@@ -3,6 +3,35 @@
 All notable changes to the `elm-ssr` package. Dates are ISO; "Unreleased" lives
 at the top until a version is cut.
 
+## 1.0.0 — 2026-06-26
+
+### Fixed
+
+- **`elm-ssr init <name>` now creates a directory.** Previously `init t`
+  dumped all files directly into the current working directory. It now
+  creates `./t/` and scaffolds the self-contained project inside it
+  (`elm-ssr.config.json` at `./t/` with `root: "."`). Prints next-steps
+  guidance (`cd t && bun install && bun run build && bun run dev`).
+
+- **Scaffold stylesheet was missing essential CSS.** The generated
+  `styles.ts` had no font loading, no `h1`/`h2`/`p`/`a` base styles, no
+  `.link`, no `.button.primary`, no `.login-container`. Login and profile
+  pages were completely unstyled. Fixed: adds Google Fonts (Inter), base
+  typography, and all class names referenced by the Elm templates.
+
+- **Tailwind scaffold generated no CSS.** `src/app.css` was three
+  bare directives. Tailwind scanned Elm templates for utility classes,
+  found none (templates use custom class names like `.shell`, `.button`),
+  and emitted nothing. Fixed: `@layer base` (h1/h2/p/a) and `@layer
+  components` (`@apply`-based definitions for every class name the
+  templates use) are now emitted so a freshly scaffolded Tailwind app
+  looks correct immediately.
+
+- **`stat` not imported in `scaffold.mjs`.** Was used inside
+  `createAppScaffold` but missing from the `node:fs/promises` import,
+  causing the `.env` existence check to silently fail (caught by the
+  surrounding try/catch). Fixed.
+
 ## 0.99.0 — 2026-06-26
 
 Documentation overhaul, test suite expansion to 263 tests, and example
