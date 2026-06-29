@@ -655,21 +655,38 @@ describe("elm-ssr CLI", () => {
     expect(unknownAuthRes.status).toBe(404);
     expect(await unknownAuthRes.text()).toBe(""); // BetterAuth empty body, not elm-ssr HTML
 
-    // BetterAuth dashboard validation — the BetterAuth online dashboard calls this
-    // GET endpoint to confirm the server is reachable before saving config changes.
-    // Must return 200, not 404 (which would block dashboard operations like saving a new secret).
+    // /api/auth/dash/* — BetterAuth's online dashboard calls these endpoints to
+    // manage the instance. They are NOT in BetterAuth's npm package and must be
+    // handled by our middleware. Without them the dashboard retries until timeout.
+
+    // validate: confirm the server is reachable before saving config changes
     const dashValidateRes = await worker.fetch(
       new Request("http://localhost/api/auth/dash/validate")
     );
     expect(dashValidateRes.status).toBe(200);
     expect(await dashValidateRes.json()).toEqual({ ok: true });
 
-    // Challenge-response variant used by some dashboard flows
+    // validate: challenge-response variant
     const challengeRes = await worker.fetch(
       new Request("http://localhost/api/auth/dash/validate?challenge=abc123")
     );
     expect(challengeRes.status).toBe(200);
     expect(await challengeRes.text()).toBe("abc123");
+
+    // config: dashboard loads auth config after validate succeeds
+    const dashConfigRes = await worker.fetch(
+      new Request("http://localhost/api/auth/dash/config")
+    );
+    expect(dashConfigRes.status).toBe(200);
+    const dashConfig = await dashConfigRes.json() as { ok: boolean; baseURL: string };
+    expect(dashConfig.ok).toBe(true);
+    expect(dashConfig.baseURL).toBeTruthy();
+
+    // any other /dash/* endpoint: also returns 200 (future-proof)
+    const dashOtherRes = await worker.fetch(
+      new Request("http://localhost/api/auth/dash/unknown-future-endpoint")
+    );
+    expect(dashOtherRes.status).toBe(200);
 
     // /api/auth/get-session returns 200 with null (no session) — proves BetterAuth
     // processed the request rather than elm-ssr returning 404.

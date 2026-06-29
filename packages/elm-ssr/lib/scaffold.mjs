@@ -744,18 +744,30 @@ const getAuthEnv = (env: any): any =>
 let _auth: ReturnType<typeof createAuth> | null = null;
 const getAuth = (env: any) => (_auth ??= createAuth(getAuthEnv(env)));
 
-// Handles all /api/auth/* requests: BetterAuth routes + the dashboard validation endpoint.
+// Handles all /api/auth/* requests: BetterAuth routes + the dashboard endpoints.
 const betterAuthHandler: Middleware = async (context, next) => {
   if (!context.url.pathname.startsWith("/api/auth/")) return next(context);
-  // BetterAuth's online dashboard calls this to confirm the server is reachable
-  // before saving configuration changes. Not in BetterAuth's npm package.
-  if (context.url.pathname === "/api/auth/dash/validate") {
-    const challenge = context.url.searchParams.get("challenge");
-    return new Response(challenge ?? JSON.stringify({ ok: true }), {
+
+  // /api/auth/dash/* — BetterAuth's online dashboard calls these to manage the
+  // instance (validate reachability, load config, etc.). They are not registered
+  // in BetterAuth's npm package and must be handled here.
+  if (context.url.pathname.startsWith("/api/auth/dash/")) {
+    if (context.url.pathname === "/api/auth/dash/validate") {
+      const challenge = context.url.searchParams.get("challenge");
+      return new Response(challenge ?? JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": challenge ? "text/plain" : "application/json" },
+      });
+    }
+    // All other /dash/* endpoints (e.g. /dash/config): return current auth config.
+    const baseURL = (context.env?.BETTER_AUTH_URL as string)
+      ?? new URL(context.request.url).origin;
+    return new Response(JSON.stringify({ ok: true, baseURL }), {
       status: 200,
-      headers: { "content-type": challenge ? "text/plain" : "application/json" },
+      headers: { "content-type": "application/json" },
     });
   }
+
   return getAuth(context.env).handler(context.request);
 };
 
