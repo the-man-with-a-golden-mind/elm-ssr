@@ -688,6 +688,15 @@ describe("elm-ssr CLI", () => {
     );
     expect(dashOtherRes.status).toBe(200);
 
+    // /api/auth/login — must serve an HTML login form (BetterAuth has no hosted page)
+    const loginPageRes = await worker.fetch(new Request("http://localhost/api/auth/login"));
+    expect(loginPageRes.status).toBe(200);
+    expect(loginPageRes.headers.get("content-type")).toContain("text/html");
+    const loginHtml = await loginPageRes.text();
+    expect(loginHtml).toContain("/api/auth/sign-in/email");   // form POSTs here
+    expect(loginHtml).toContain("/api/auth/sign-up/email");   // sign-up too
+    expect(loginHtml).toContain("Sign in");
+
     // /api/auth/get-session returns 200 with null (no session) — proves BetterAuth
     // processed the request rather than elm-ssr returning 404.
     const noSessionRes = await worker.fetch(

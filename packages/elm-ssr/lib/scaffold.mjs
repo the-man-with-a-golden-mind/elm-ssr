@@ -744,9 +744,105 @@ const getAuthEnv = (env: any): any =>
 let _auth: ReturnType<typeof createAuth> | null = null;
 const getAuth = (env: any) => (_auth ??= createAuth(getAuthEnv(env)));
 
+const betterAuthLoginHtml = \`<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Sign in</title>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:ui-sans-serif,system-ui,-apple-system,sans-serif;background:#f6f5f3;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:1rem}
+    .card{background:#fff;border:1px solid #e5e2dd;border-radius:16px;padding:2.5rem;width:100%;max-width:380px}
+    .logo{font-size:1.5rem;text-align:center;margin-bottom:.75rem}
+    h1{font-size:1.5rem;font-weight:700;text-align:center;margin-bottom:.5rem;letter-spacing:-.02em}
+    .sub{font-size:.9rem;color:#6b6b6b;text-align:center;margin-bottom:2rem}
+    label{display:block;font-size:.875rem;font-weight:500;margin-bottom:.35rem}
+    input{width:100%;border:1.5px solid #e5e2dd;border-radius:8px;padding:.6rem .9rem;font:inherit;font-size:.9rem;margin-bottom:1rem;transition:border-color .12s}
+    input:focus{outline:none;border-color:#1a1a1a}
+    .btn{width:100%;padding:.6rem;background:#1a1a1a;color:#fff;border:none;border-radius:8px;font:inherit;font-size:.9rem;font-weight:500;cursor:pointer;transition:background .12s}
+    .btn:hover{background:#333}
+    .btn:disabled{opacity:.5;cursor:not-allowed}
+    .error{color:#c53030;font-size:.8rem;margin-bottom:1rem;display:none}
+    .footer{text-align:center;font-size:.8rem;color:#6b6b6b;margin-top:1.5rem}
+    .footer a{color:#1a1a1a;text-decoration:underline;text-underline-offset:2px}
+    .tabs{display:flex;gap:.5rem;margin-bottom:1.5rem}
+    .tab{flex:1;padding:.5rem;border:none;border-radius:8px;font:inherit;font-size:.875rem;font-weight:500;cursor:pointer;background:#f6f5f3;color:#6b6b6b;transition:all .12s}
+    .tab.active{background:#1a1a1a;color:#fff}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">◆</div>
+    <h1 id="title">Welcome back</h1>
+    <p class="sub" id="sub">Sign in to your account to continue.</p>
+    <div class="tabs">
+      <button class="tab active" id="tab-in" onclick="switchTab('in')">Sign in</button>
+      <button class="tab" id="tab-up" onclick="switchTab('up')">Sign up</button>
+    </div>
+    <div class="error" id="err"></div>
+    <form id="form" onsubmit="submit(event)">
+      <div id="name-field" style="display:none">
+        <label for="name">Name</label>
+        <input type="text" id="name" autocomplete="name">
+      </div>
+      <label for="email">Email</label>
+      <input type="email" id="email" autocomplete="email" required>
+      <label for="password">Password</label>
+      <input type="password" id="password" autocomplete="current-password" required>
+      <button class="btn" type="submit" id="btn">Sign in</button>
+    </form>
+    <div class="footer" id="footer">
+      Powered by elm-ssr + BetterAuth
+    </div>
+  </div>
+  <script>
+    let mode = 'in';
+    function switchTab(m) {
+      mode = m;
+      document.getElementById('tab-in').className = 'tab' + (m==='in' ? ' active' : '');
+      document.getElementById('tab-up').className = 'tab' + (m==='up' ? ' active' : '');
+      document.getElementById('title').textContent = m==='in' ? 'Welcome back' : 'Create account';
+      document.getElementById('sub').textContent = m==='in' ? 'Sign in to your account to continue.' : 'Sign up to get started.';
+      document.getElementById('name-field').style.display = m==='up' ? 'block' : 'none';
+      document.getElementById('btn').textContent = m==='in' ? 'Sign in' : 'Sign up';
+      document.getElementById('password').autocomplete = m==='in' ? 'current-password' : 'new-password';
+      document.getElementById('err').style.display = 'none';
+    }
+    async function submit(e) {
+      e.preventDefault();
+      const btn = document.getElementById('btn');
+      const err = document.getElementById('err');
+      btn.disabled = true;
+      err.style.display = 'none';
+      const url = mode === 'in' ? '/api/auth/sign-in/email' : '/api/auth/sign-up/email';
+      const body = { email: document.getElementById('email').value, password: document.getElementById('password').value };
+      if (mode === 'up') body.name = document.getElementById('name').value;
+      try {
+        const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+        if (res.ok) { location.href = '/profile'; return; }
+        const data = await res.json().catch(() => ({}));
+        err.textContent = data.message || (mode==='in' ? 'Invalid email or password.' : 'Could not create account.');
+        err.style.display = 'block';
+      } catch { err.textContent = 'Network error. Please try again.'; err.style.display = 'block'; }
+      btn.disabled = false;
+    }
+  </script>
+</body>
+</html>\`;
+
 // Handles all /api/auth/* requests: BetterAuth routes + the dashboard endpoints.
 const betterAuthHandler: Middleware = async (context, next) => {
   if (!context.url.pathname.startsWith("/api/auth/")) return next(context);
+
+  // /api/auth/login — serve a sign-in / sign-up form.
+  // BetterAuth is API-only (no hosted login page); we provide the UI here.
+  if (context.url.pathname === "/api/auth/login") {
+    return new Response(betterAuthLoginHtml, {
+      status: 200,
+      headers: { "content-type": "text/html; charset=utf-8" },
+    });
+  }
 
   // /api/auth/dash/* — BetterAuth's online dashboard calls these to manage the
   // instance (validate reachability, load config, etc.). They are not registered
