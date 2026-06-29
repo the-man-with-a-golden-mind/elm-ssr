@@ -695,8 +695,6 @@ CREATE TABLE IF NOT EXISTS users (
 );
 `;
 
-const authDisplayName = (authProvider) =>
-  authProvider === "auth0" ? "Auth0" : "BetterAuth";
 
 const loginRouteTemplateBetterAuth = (namespace) => `module ${namespace}.Routes.Login exposing (page, action)
 
