@@ -533,11 +533,14 @@ describe("elm-ssr CLI", () => {
     expect(migration).toContain("CREATE TABLE IF NOT EXISTS verification");
 
     const runtime = await readFile(resolve(root, "auth-app/runtime.ts"), "utf8");
-    expect(runtime).toContain("betterAuthBridge");
+    expect(runtime).toContain("betterAuthHandler");       // auth routes in middleware
+    expect(runtime).toContain("betterAuthBridge");        // session bridge in middleware
     expect(runtime).toContain("sessionEffects");
     expect(runtime).toContain("bunAuthDb");
+    expect(runtime).toContain("middlewares: [betterAuthHandler, betterAuthBridge]");
     expect(runtime).not.toContain("sessions:");           // no elm-ssr session middleware
     expect(runtime).not.toContain("sessionStore");
+    expect(runtime).not.toContain("baseWorkerFetch");     // no worker.fetch wrapping
 
     const devVars = await readFile(resolve(root, "auth-app/.dev.vars"), "utf8");
     expect(devVars).toContain("BETTER_AUTH_SECRET=");
@@ -804,8 +807,12 @@ describe("elm-ssr CLI", () => {
     expect(devVars).toContain("SESSION_SECRET=");
 
     const runtime = await readFile(resolve(root, "auth0-app/runtime.ts"), "utf8");
+    expect(runtime).toContain("auth0Handler");            // auth routes in middleware
+    expect(runtime).toContain("middlewares: [auth0Handler]");
     expect(runtime).toContain("sessions:");
     expect(runtime).toContain("sessionStore");
+    expect(runtime).toContain('skipPaths: ["/api/auth/"]');
+    expect(runtime).not.toContain("baseWorkerFetch");     // no worker.fetch wrapping
 
     // Elm build
     const buildCommand = Bun.spawn(
@@ -833,6 +840,43 @@ describe("elm-ssr CLI", () => {
     const loginRes = await worker.fetch(new Request("http://localhost/api/auth/login"));
     expect(loginRes.status).toBe(500);
     expect(await loginRes.text()).toContain("AUTH0_DOMAIN");
+
+    // ── Authenticated session lifecycle ────────────────────────────────────────
+    // We can't call real Auth0 without credentials, so we seed a session directly.
+    // This validates the full middleware path: session middleware reads cookie,
+    // Elm requireUser sees user data, logout clears the store entry.
+    const { generateSessionId, generateCsrfToken, signValue } = await import("elm-ssr/sessions");
+    const sessionId = generateSessionId();
+    const secret = "change-me-to-a-secure-random-hmac-secret-key-that-is-at-least-32-chars";
+    await sessionStore.set(sessionId, {
+      data: { email: "auth0user@example.com", name: "Auth0 User" },
+      csrf: generateCsrfToken(),
+    });
+    const signed = await signValue(secret, sessionId);
+    const sessionCookie = `session=${signed}`;
+
+    // Authenticated /profile → 200 with user info
+    const authedProfileRes = await worker.fetch(new Request("http://localhost/profile", {
+      headers: { cookie: sessionCookie },
+    }));
+    expect(authedProfileRes.status).toBe(200);
+    const authedHtml = await authedProfileRes.text();
+    expect(authedHtml).toContain("auth0user@example.com");
+    expect(authedHtml).toContain("Sign out");
+
+    // /api/auth/logout → clears session cookie (302 to Auth0 logout URL)
+    const logoutRes = await worker.fetch(new Request("http://localhost/api/auth/logout", {
+      headers: { cookie: sessionCookie },
+    }));
+    expect(logoutRes.status).toBe(302);
+    expect(logoutRes.headers.get("set-cookie")).toContain("session=;");
+
+    // After logout: same cookie no longer grants access
+    const postLogoutRes = await worker.fetch(new Request("http://localhost/profile", {
+      headers: { cookie: sessionCookie },
+    }));
+    expect(postLogoutRes.status).toBe(302);
+    expect(postLogoutRes.headers.get("location")).toBe("/login");
   }, 20000);
 
   it("scaffolds a new app with --tailwind option and verifies config and file generation", async () => {

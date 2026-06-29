@@ -655,6 +655,7 @@ const runtimeTemplate = (appRoot, db = false, auth = undefined) => {
     imports.push(`import { createAuth } from "./src/Endpoints/Auth";`);
   } else if (isAuth0) {
     imports.push(`import { memorySessionStore } from "elm-ssr/sessions";`);
+    imports.push(`import type { Middleware } from "elm-ssr/http";`);
     imports.push(`import { handleAuth } from "./src/Endpoints/Auth";`);
   }
 
@@ -712,7 +713,9 @@ if (typeof Bun !== "undefined") {
   }`;
 
   const effectsConfig = isBetterAuth
-    ? `,\n  effects: sessionEffects(${baseEffectsBody}),\n  middlewares: [betterAuthBridge]`
+    ? `,\n  effects: sessionEffects(${baseEffectsBody}),\n  middlewares: [betterAuthHandler, betterAuthBridge]`
+    : isAuth0
+    ? `,\n  effects: ${baseEffectsBody},\n  middlewares: [auth0Handler]`
     : `,\n  effects: ${baseEffectsBody}`;
 
   // Auth0 keeps elm-ssr session middleware; BetterAuth manages sessions itself.
@@ -736,6 +739,21 @@ const getAuthEnv = (env: any): any =>
 // Cloudflare's D1 binding is stable within an isolate; bun:sqlite is module-level too.
 let _auth: ReturnType<typeof createAuth> | null = null;
 const getAuth = (env: any) => (_auth ??= createAuth(getAuthEnv(env)));
+
+// Handles all /api/auth/* requests: BetterAuth routes + the dashboard validation endpoint.
+const betterAuthHandler: Middleware = async (context, next) => {
+  if (!context.url.pathname.startsWith("/api/auth/")) return next(context);
+  // BetterAuth's online dashboard calls this to confirm the server is reachable
+  // before saving configuration changes. Not in BetterAuth's npm package.
+  if (context.url.pathname === "/api/auth/dash/validate") {
+    const challenge = context.url.searchParams.get("challenge");
+    return new Response(challenge ?? JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "content-type": challenge ? "text/plain" : "application/json" },
+    });
+  }
+  return getAuth(context.env).handler(context.request);
+};
 
 // Bridge: reads BetterAuth session before every Elm render so Loader.requireUser works.
 const betterAuthBridge: Middleware = async (context, next) => {
@@ -763,53 +781,31 @@ const betterAuthBridge: Middleware = async (context, next) => {
 };
 `;
   } else if (isAuth0) {
-    authInit = `\nexport const sessionStore = memorySessionStore();\n`;
+    authInit = `
+export const sessionStore = memorySessionStore();
+
+// Handles all /api/auth/* requests (login redirect, OAuth callback, logout).
+// Runs inside elm-ssr's middleware stack so logging and error handling apply.
+// Sets session.isNew = false to prevent sessionMiddleware from appending a
+// competing Set-Cookie on top of the one the auth handler already set.
+const auth0Handler: Middleware = async (context, next) => {
+  if (!context.url.pathname.startsWith("/api/auth/")) return next(context);
+  if (context.session) context.session.isNew = false;
+  const secret = (context.env?.SESSION_SECRET as string) || "change-me-to-a-secure-random-hmac-secret-key-that-is-at-least-32-chars";
+  return handleAuth(context.request, context.env, { store: sessionStore, secret });
+};
+`;
     sessionsConfig = `,
   sessions: {
     secret: (env) => (env?.SESSION_SECRET as string) || "change-me-to-a-secure-random-hmac-secret-key-that-is-at-least-32-chars",
     store: sessionStore,
     secure: false
   },
-  csrf: true`;
+  csrf: { skipPaths: ["/api/auth/"] }`;
   }
 
-  let authIntercept = '';
-  if (isBetterAuth) {
-    authIntercept = `
-// Delegate all /api/auth/* requests to BetterAuth using the shared singleton.
-const baseWorkerFetch = worker.fetch;
-worker.fetch = async (request, env, ctx) => {
-  const url = new URL(request.url);
-  if (url.pathname.startsWith("/api/auth/")) {
-    // BetterAuth's online dashboard calls GET /api/auth/dash/validate to confirm
-    // the server is reachable before saving configuration changes (e.g. a new secret).
-    // This route is not registered in BetterAuth's npm package — it must be handled here.
-    if (url.pathname === "/api/auth/dash/validate") {
-      const challenge = url.searchParams.get("challenge");
-      return new Response(challenge ?? JSON.stringify({ ok: true }), {
-        status: 200,
-        headers: { "content-type": challenge ? "text/plain" : "application/json" },
-      });
-    }
-    return getAuth(env).handler(request);
-  }
-  return baseWorkerFetch(request, env, ctx);
-};
-`;
-  } else if (isAuth0) {
-    authIntercept = `
-// Delegate all /api/auth/* requests to the Auth0 handler.
-const baseWorkerFetch = worker.fetch;
-worker.fetch = async (request, env, ctx) => {
-  const url = new URL(request.url);
-  if (url.pathname.startsWith("/api/auth/")) {
-    const secret = (env?.SESSION_SECRET as string) || "change-me-to-a-secure-random-hmac-secret-key-that-is-at-least-32-chars";
-    return handleAuth(request, env, { store: sessionStore, secret });
-  }
-  return baseWorkerFetch(request, env, ctx);
-};
-`;
-  }
+  // Auth routing is handled entirely through elm-ssr's middlewares option —
+  // no worker.fetch wrapping needed.
 
   return `${imports.join("\n")}
 
@@ -903,7 +899,6 @@ export const worker = createWorkerApp({
   routes,
   createFlags${sessionsConfig}${effectsConfig}
 });
-${authIntercept}
 `;
 };
 
