@@ -831,17 +831,22 @@ const betterAuthLoginHtml = \`<!doctype html>
 </body>
 </html>\`;
 
-// Handles all /api/auth/* requests: BetterAuth routes + the dashboard endpoints.
+// Handles /login and all /api/auth/* requests for BetterAuth.
 const betterAuthHandler: Middleware = async (context, next) => {
-  if (!context.url.pathname.startsWith("/api/auth/")) return next(context);
-
-  // /api/auth/login — serve a sign-in / sign-up form.
-  // BetterAuth is API-only (no hosted login page); we provide the UI here.
-  if (context.url.pathname === "/api/auth/login") {
+  // /login — serve the login form directly at the canonical path so "Sign in"
+  // links go straight to the form with no redirect.
+  if (context.url.pathname === "/login") {
     return new Response(betterAuthLoginHtml, {
       status: 200,
       headers: { "content-type": "text/html; charset=utf-8" },
     });
+  }
+
+  if (!context.url.pathname.startsWith("/api/auth/")) return next(context);
+
+  // /api/auth/login — alias kept for direct navigation; redirect to /login.
+  if (context.url.pathname === "/api/auth/login") {
+    return new Response(null, { status: 302, headers: { location: "/login" } });
   }
 
   // /api/auth/dash/* — BetterAuth's online dashboard calls these to manage the

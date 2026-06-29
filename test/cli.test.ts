@@ -576,7 +576,9 @@ describe("elm-ssr CLI", () => {
 
     const res2 = await worker.fetch(new Request("http://localhost/login"));
     expect(res2.status).toBe(200);
-    expect(await res2.text()).toContain("Continue with BetterAuth");
+    expect(res2.headers.get("content-type")).toContain("text/html");
+    const loginBody = await res2.text();
+    expect(loginBody).toContain("sign-in/email"); // login form, not a redirect button
 
     // /profile unauthenticated → redirect to /login
     const res3 = await worker.fetch(new Request("http://localhost/profile"));
@@ -688,14 +690,20 @@ describe("elm-ssr CLI", () => {
     );
     expect(dashOtherRes.status).toBe(200);
 
-    // /api/auth/login — must serve an HTML login form (BetterAuth has no hosted page)
-    const loginPageRes = await worker.fetch(new Request("http://localhost/api/auth/login"));
+    // GET /login — must serve the HTML login form directly (no redirect).
+    // The nav "Sign in" link points to /login; the form must be there, not at /api/auth/login.
+    const loginPageRes = await worker.fetch(new Request("http://localhost/login"));
     expect(loginPageRes.status).toBe(200);
     expect(loginPageRes.headers.get("content-type")).toContain("text/html");
     const loginHtml = await loginPageRes.text();
     expect(loginHtml).toContain("/api/auth/sign-in/email");   // form POSTs here
     expect(loginHtml).toContain("/api/auth/sign-up/email");   // sign-up too
     expect(loginHtml).toContain("Sign in");
+
+    // GET /api/auth/login — legacy alias, redirects to /login (no double form)
+    const loginAliasRes = await worker.fetch(new Request("http://localhost/api/auth/login"), { redirect: "manual" } as any);
+    expect(loginAliasRes.status).toBe(302);
+    expect(loginAliasRes.headers.get("location")).toBe("/login");
 
     // /api/auth/get-session returns 200 with null (no session) — proves BetterAuth
     // processed the request rather than elm-ssr returning 404.
