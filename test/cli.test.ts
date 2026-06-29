@@ -523,9 +523,10 @@ describe("elm-ssr CLI", () => {
 
     const authTs = await readFile(resolve(root, "auth-app/src/Endpoints/Auth.ts"), "utf8");
     expect(authTs).toContain('from "better-auth"');
-    expect(authTs).toContain("export const createAuth");
-    expect(authTs).not.toContain('require("bun:sqlite")'); // no direct bun:sqlite import in Auth.ts
-    expect(authTs).not.toContain("user@example.com");     // no hardcoded mock user
+    expect(authTs).toContain("export const getAuth");
+    expect(authTs).toContain("createBetterAuthMiddleware");  // factory for runtime injection
+    expect(authTs).not.toContain('require("bun:sqlite")');   // no bun-specific code in Auth.ts
+    expect(authTs).not.toContain("user@example.com");        // no hardcoded mock user
 
     const migration = await readFile(resolve(root, "auth-app/migrations/0001_init.sql"), "utf8");
     expect(migration).toContain('CREATE TABLE IF NOT EXISTS "user"');
@@ -536,27 +537,29 @@ describe("elm-ssr CLI", () => {
     await stat(resolve(root, "auth-app/src/AuthApp/Islands/Login.elm")); // Login island exists
 
     const loginElm = await readFile(resolve(root, "auth-app/src/AuthApp/Islands/Login.elm"), "utf8");
-    expect(loginElm).toContain("port module");              // uses navigateTo port
+    expect(loginElm).toContain("port module");
     expect(loginElm).toContain("port navigateTo");
-    expect(loginElm).toContain("Http.post");                // calls BetterAuth API
-    expect(loginElm).toContain("/api/auth/sign-in/email");
-    expect(loginElm).toContain("/api/auth/sign-up/email");
+    expect(loginElm).toContain("Http.post");
+    expect(loginElm).toContain("/api/auth/sign-in");     // our endpoint, not BetterAuth's direct
+    expect(loginElm).toContain("/api/auth/sign-up");
+    expect(loginElm).not.toContain("/api/auth/sign-in/email"); // island must not bypass our layer
 
     const loginRoute = await readFile(resolve(root, "auth-app/src/AuthApp/Routes/Login.elm"), "utf8");
-    expect(loginRoute).toContain("LoginIsland.embed");      // embeds the island, no hardcoded form
+    expect(loginRoute).toContain("LoginIsland.embed");
 
     const elmJson = JSON.parse(await readFile(resolve(root, "auth-app/elm.json"), "utf8"));
-    expect(elmJson.dependencies.direct["elm/http"]).toBe("2.0.0"); // http dep for island
+    expect(elmJson.dependencies.direct["elm/http"]).toBe("2.0.0");
 
     const runtime = await readFile(resolve(root, "auth-app/runtime.ts"), "utf8");
-    expect(runtime).toContain("betterAuthDashShim");      // dashboard shim (separate responsibility)
-    expect(runtime).toContain("betterAuthHandler");       // forwards /api/auth/* to BetterAuth
-    expect(runtime).toContain("betterAuthBridge");        // session bridge for Elm pages
-    expect(runtime).toContain("sessionEffects");
+    // elm-ssr sessions are the single source of auth state for both providers
+    expect(runtime).toContain("sessions:");
+    expect(runtime).toContain("sessionStore");
+    expect(runtime).toContain("createBetterAuthMiddleware");
     expect(runtime).toContain("bunAuthDb");
-    expect(runtime).toContain("middlewares: [betterAuthDashShim, betterAuthHandler, betterAuthBridge]");
-    expect(runtime).not.toContain("sessions:");           // no elm-ssr session middleware
-    expect(runtime).not.toContain("sessionStore");
+    expect(runtime).toContain("middlewares: [betterAuthMiddleware]");
+    // No more magic session bridge — elm-ssr sessionMiddleware handles cookies
+    expect(runtime).not.toContain("sessionEffects");
+    expect(runtime).not.toContain("betterAuthBridge");
     expect(runtime).not.toContain("baseWorkerFetch");     // no worker.fetch wrapping
 
     const devVars = await readFile(resolve(root, "auth-app/.dev.vars"), "utf8");
@@ -567,7 +570,7 @@ describe("elm-ssr CLI", () => {
     const pkg = JSON.parse(await readFile(resolve(root, "package.json"), "utf8")) as {
       devDependencies: Record<string, string>;
     };
-    expect(pkg.devDependencies?.["better-auth"]).toBe("latest");
+    expect(pkg.devDependencies?.["better-auth"]).toBe("1.6.22");
 
     // Elm build
     const buildCommand = Bun.spawn(
@@ -616,15 +619,16 @@ describe("elm-ssr CLI", () => {
       db.close();
     }
 
-    // Real BetterAuth E2E: sign-up → sign-in → profile → sign-out
-    const signUpRes = await worker.fetch(new Request("http://localhost/api/auth/sign-up/email", {
+    // Real E2E via our auth endpoints (which call BetterAuth internally).
+    const signUpRes = await worker.fetch(new Request("http://localhost/api/auth/sign-up", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ email: "test@example.com", password: "password123", name: "Test User" }),
     }));
     expect(signUpRes.status).toBe(200);
+    expect(await signUpRes.json()).toEqual({ ok: true });
 
-    const signInRes = await worker.fetch(new Request("http://localhost/api/auth/sign-in/email", {
+    const signInRes = await worker.fetch(new Request("http://localhost/api/auth/sign-in", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ email: "test@example.com", password: "password123" }),
@@ -652,12 +656,11 @@ describe("elm-ssr CLI", () => {
     expect(corruptRes.status).toBe(302);
     expect(corruptRes.headers.get("location")).toBe("/login");
 
-    // Sign out
-    const signOutRes = await worker.fetch(new Request("http://localhost/api/auth/sign-out", {
-      method: "POST",
+    // Logout via our endpoint (destroys elm-ssr session, sessionMiddleware clears cookie)
+    const signOutRes = await worker.fetch(new Request("http://localhost/api/auth/logout", {
       headers: { cookie: sessionCookie },
     }));
-    expect(signOutRes.status).toBe(200);
+    expect(signOutRes.status).toBe(302);
 
     // /profile after sign-out → redirect
     const postSignOutRes = await worker.fetch(new Request("http://localhost/profile", {
@@ -730,46 +733,44 @@ describe("elm-ssr CLI", () => {
     expect(noSessionRes.status).toBe(200);
     expect(await noSessionRes.json()).toBeNull();
 
-    // betterAuthBridge must NOT run for /api/auth/* routes (auth intercept returns early).
-    // If the bridge ran, it would call getAuth().api.getSession() before BetterAuth handles
-    // the request — causing double-initialization. We verify this indirectly: a POST to
-    // an auth route must work correctly without the elm-ssr CSRF check firing.
-    const signIn2Res = await worker.fetch(new Request("http://localhost/api/auth/sign-in/email", {
+    // CSRF is skipped for /api/auth/* (skipPaths config). A POST to our sign-in endpoint
+    // must succeed — if CSRF middleware was not skipped it would return 403.
+    const csrfCheckRes = await worker.fetch(new Request("http://localhost/api/auth/sign-in", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ email: "test@example.com", password: "password123" }),
     }));
-    // elm-ssr CSRF would reject POSTs with 403; BetterAuth handles them with 200
-    expect(signIn2Res.status).toBe(200);
+    expect(csrfCheckRes.status).toBe(200); // 403 would mean CSRF fired incorrectly
+    expect(await csrfCheckRes.json()).toEqual({ ok: true });
 
     // ── Error cases ────────────────────────────────────────────────────────────
-    // Wrong password → 401 INVALID_EMAIL_OR_PASSWORD
-    const wrongPwdRes = await worker.fetch(new Request("http://localhost/api/auth/sign-in/email", {
+    // Wrong password → 401 proxied from BetterAuth
+    const wrongPwdRes = await worker.fetch(new Request("http://localhost/api/auth/sign-in", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ email: "test@example.com", password: "wrong-password" }),
     }));
     expect(wrongPwdRes.status).toBe(401);
-    const wrongPwdBody = await wrongPwdRes.json() as { code: string };
-    expect(wrongPwdBody.code).toBe("INVALID_EMAIL_OR_PASSWORD");
+    const wrongPwdBody = await wrongPwdRes.json() as { ok: boolean; message: string };
+    expect(wrongPwdBody.ok).toBe(false);
 
     // Non-existent user → same 401 (BetterAuth doesn't leak user existence)
-    const unknownUserRes = await worker.fetch(new Request("http://localhost/api/auth/sign-in/email", {
+    const unknownUserRes = await worker.fetch(new Request("http://localhost/api/auth/sign-in", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ email: "nobody@example.com", password: "password123" }),
     }));
     expect(unknownUserRes.status).toBe(401);
 
-    // Duplicate sign-up → 422 USER_ALREADY_EXISTS
-    const dupRes = await worker.fetch(new Request("http://localhost/api/auth/sign-up/email", {
+    // Duplicate sign-up → 422 proxied from BetterAuth
+    const dupRes = await worker.fetch(new Request("http://localhost/api/auth/sign-up", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ email: "test@example.com", password: "password123", name: "Dupe" }),
     }));
     expect(dupRes.status).toBe(422);
-    const dupBody = await dupRes.json() as { code: string };
-    expect(dupBody.code).toContain("USER_ALREADY_EXISTS");
+    const dupBody = await dupRes.json() as { ok: boolean; message: string };
+    expect(dupBody.ok).toBe(false);
 
     // Invalid auth provider
     const badCommand = Bun.spawn(
@@ -826,32 +827,33 @@ describe("elm-ssr CLI", () => {
       db.close();
     }
 
-    // Real BetterAuth sign-up → sign-in → profile → sign-out
-    await worker.fetch(new Request("http://localhost/api/auth/sign-up/email", {
+    // E2E: sign-up → sign-in → profile → logout via our auth endpoints
+    await worker.fetch(new Request("http://localhost/api/auth/sign-up", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ email: "init@example.com", password: "password123", name: "Init User" }),
     }));
 
-    const signInRes = await worker.fetch(new Request("http://localhost/api/auth/sign-in/email", {
+    const signInRes = await worker.fetch(new Request("http://localhost/api/auth/sign-in", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ email: "init@example.com", password: "password123" }),
     }));
     expect(signInRes.status).toBe(200);
+    expect(await signInRes.json()).toEqual({ ok: true });
+    // elm-ssr sessionMiddleware sets the cookie on the response
     const cookie = signInRes.headers.get("set-cookie")?.split(";")[0] ?? "";
-    expect(cookie).toBeTruthy();
+    expect(cookie).toMatch(/^session=/);
 
     const profileRes = await worker.fetch(new Request("http://localhost/profile", {
       headers: { cookie },
     }));
     expect(profileRes.status).toBe(200);
 
-    const signOutRes = await worker.fetch(new Request("http://localhost/api/auth/sign-out", {
-      method: "POST",
+    const logoutRes = await worker.fetch(new Request("http://localhost/api/auth/logout", {
       headers: { cookie },
     }));
-    expect(signOutRes.status).toBe(200);
+    expect(logoutRes.status).toBe(302);
   }, 30000);
 
   it("scaffolds a new app with --auth auth0: builds and basic routes work", async () => {
@@ -889,12 +891,13 @@ describe("elm-ssr CLI", () => {
     expect(devVars).toContain("SESSION_SECRET=");
 
     const runtime = await readFile(resolve(root, "auth0-app/runtime.ts"), "utf8");
-    expect(runtime).toContain("auth0Handler");            // auth routes in middleware
-    expect(runtime).toContain("middlewares: [auth0Handler]");
+    expect(runtime).toContain("auth0Middleware");
+    expect(runtime).toContain("middlewares: [auth0Middleware]");
     expect(runtime).toContain("sessions:");
     expect(runtime).toContain("sessionStore");
     expect(runtime).toContain('skipPaths: ["/api/auth/"]');
-    expect(runtime).not.toContain("baseWorkerFetch");     // no worker.fetch wrapping
+    expect(runtime).not.toContain("baseWorkerFetch");
+    expect(runtime).not.toContain("isNew = false"); // no session hacks
 
     // Elm build
     const buildCommand = Bun.spawn(
@@ -924,16 +927,12 @@ describe("elm-ssr CLI", () => {
     expect(await loginRes.text()).toContain("AUTH0_DOMAIN");
 
     // ── Full OAuth2 flow via Bun mock server ───────────────────────────────────
-    // Spin up a local HTTP server that mimics Auth0's token endpoint.
+    // Spin up a local HTTP server that mimics Auth0's token + userinfo endpoints.
     // The generated handler uses http:// for localhost domains so no TLS needed.
-    const makeJwt = (payload: Record<string, unknown>) => {
-      const h = btoa(JSON.stringify({ alg: "none", typ: "JWT" }));
-      const p = btoa(JSON.stringify(payload));
-      return `${h}.${p}.sig`;
-    };
+    // No JWT decoding — user is validated via the userinfo endpoint (server-to-server).
 
     const mockAuth0 = Bun.serve({
-      port: 0, // OS assigns a free port
+      port: 0,
       async fetch(req) {
         const url = new URL(req.url);
         if (req.method === "POST" && url.pathname === "/oauth/token") {
@@ -941,10 +940,14 @@ describe("elm-ssr CLI", () => {
           if (body.code !== "valid-code") {
             return Response.json({ error: "invalid_grant" }, { status: 400 });
           }
-          return Response.json({
-            id_token: makeJwt({ sub: "auth0|mock123", email: "oauth@example.com", name: "OAuth User" }),
-            access_token: "mock-access-token",
-          });
+          return Response.json({ access_token: "mock-access-token" });
+        }
+        // userinfo: validates the access token server-to-server (no JWT decode)
+        if (req.method === "GET" && url.pathname === "/userinfo") {
+          if (req.headers.get("authorization") !== "Bearer mock-access-token") {
+            return Response.json({ error: "unauthorized" }, { status: 401 });
+          }
+          return Response.json({ sub: "auth0|mock123", email: "oauth@example.com", name: "OAuth User" });
         }
         return new Response("not found", { status: 404 });
       },
@@ -960,7 +963,7 @@ describe("elm-ssr CLI", () => {
         SESSION_SECRET: "change-me-to-a-secure-random-hmac-secret-key-that-is-at-least-32-chars",
       };
 
-      // 1. Login → 302 to Auth0 authorize URL with correct params
+      // 1. Login → 302 to Auth0 authorize URL with state param (CSRF protection)
       const mockLoginRes = await worker.fetch(
         new Request("http://localhost:8787/api/auth/login"),
         mockEnv
@@ -972,18 +975,25 @@ describe("elm-ssr CLI", () => {
       expect(authorizeUrl.searchParams.get("client_id")).toBe("mock-client-id");
       expect(authorizeUrl.searchParams.get("response_type")).toBe("code");
       expect(authorizeUrl.searchParams.get("scope")).toBe("openid profile email");
+      const state = authorizeUrl.searchParams.get("state");
+      expect(state).toBeTruthy(); // state is set for CSRF protection
+      // elm-ssr session cookie is set with pending OAuth state
+      const loginSessionCookie = (mockLoginRes.headers.get("set-cookie") ?? "").split(";")[0];
+      expect(loginSessionCookie).toMatch(/^session=/);
 
-      // 2. Callback with valid code → token exchange → session created → /profile
+      // 2. Callback with valid code + correct state → userinfo validated → /profile
       const callbackRes = await worker.fetch(
-        new Request("http://localhost:8787/api/auth/callback?code=valid-code"),
+        new Request(`http://localhost:8787/api/auth/callback?code=valid-code&state=${state}`, {
+          headers: { cookie: loginSessionCookie },
+        }),
         mockEnv
       );
       expect(callbackRes.status).toBe(302);
       expect(callbackRes.headers.get("location")).toBe("/profile");
       const oauthCookie = (callbackRes.headers.get("set-cookie") ?? "").split(";")[0];
-      expect(oauthCookie).toMatch(/^session=.+/);
+      expect(oauthCookie).toMatch(/^session=/);
 
-      // 3. Authenticated /profile → 200 with user decoded from JWT
+      // 3. Authenticated /profile → 200 with user from Auth0 userinfo
       const oauthProfileRes = await worker.fetch(
         new Request("http://localhost:8787/profile", { headers: { cookie: oauthCookie } }),
         mockEnv
@@ -993,14 +1003,30 @@ describe("elm-ssr CLI", () => {
       expect(oauthHtml).toContain("oauth@example.com");
       expect(oauthHtml).toContain("Sign out");
 
-      // 4. Callback with invalid code → token exchange fails → 502
+      // 4. Callback with wrong state → rejected (CSRF protection)
+      const wrongStateRes = await worker.fetch(
+        new Request(`http://localhost:8787/api/auth/callback?code=valid-code&state=wrong-state`, {
+          headers: { cookie: loginSessionCookie },
+        }),
+        mockEnv
+      );
+      expect(wrongStateRes.status).toBe(400);
+
+      // 5. Callback with invalid code → token exchange fails → 502
+      const freshLoginRes = await worker.fetch(
+        new Request("http://localhost:8787/api/auth/login"), mockEnv
+      );
+      const freshState = new URL(freshLoginRes.headers.get("location") ?? "").searchParams.get("state");
+      const freshCookie = (freshLoginRes.headers.get("set-cookie") ?? "").split(";")[0];
       const badCallbackRes = await worker.fetch(
-        new Request("http://localhost:8787/api/auth/callback?code=bad-code"),
+        new Request(`http://localhost:8787/api/auth/callback?code=bad-code&state=${freshState}`, {
+          headers: { cookie: freshCookie },
+        }),
         mockEnv
       );
       expect(badCallbackRes.status).toBe(502);
 
-      // 5. Logout → clears session cookie + redirects to Auth0 OIDC logout
+      // 6. Logout → elm-ssr session cleared + redirect to Auth0 OIDC logout
       const mockLogoutRes = await worker.fetch(
         new Request("http://localhost:8787/api/auth/logout", { headers: { cookie: oauthCookie } }),
         mockEnv
@@ -1010,9 +1036,10 @@ describe("elm-ssr CLI", () => {
       expect(logoutUrl.hostname).toBe("localhost");
       expect(logoutUrl.pathname).toBe("/oidc/logout");
       expect(logoutUrl.searchParams.get("client_id")).toBe("mock-client-id");
+      // elm-ssr sessionMiddleware clears the cookie (Set-Cookie: session=; Max-Age=0)
       expect(mockLogoutRes.headers.get("set-cookie")).toContain("session=;");
 
-      // 6. After logout: old cookie no longer grants access
+      // 7. After logout: old cookie no longer grants access
       const postLogoutRes = await worker.fetch(
         new Request("http://localhost:8787/profile", { headers: { cookie: oauthCookie } }),
         mockEnv

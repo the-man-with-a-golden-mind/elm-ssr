@@ -413,10 +413,10 @@ submit model =
         url =
             case model.mode of
                 SignIn ->
-                    "/api/auth/sign-in/email"
+                    "/api/auth/sign-in"
 
                 SignUp ->
-                    "/api/auth/sign-up/email"
+                    "/api/auth/sign-up"
 
         body =
             case model.mode of
@@ -844,17 +844,19 @@ view user =
 `;
 
 const betterAuthEndpointTemplate = () => `import { betterAuth } from "better-auth";
+import type { Middleware } from "elm-ssr/http";
 
-// BetterAuth is initialised per-request to pick up the right database binding.
-// On Cloudflare Workers env.DB is the D1 binding; on Bun (local dev) the
-// runtime injects a bun:sqlite Database as env.DB — see runtime.ts.
-// Pass env.DB directly so BetterAuth's adapter auto-detects the dialect
-// (D1 via "batch"/"exec"/"prepare", bun:sqlite via "fileControl").
-export const createAuth = (env: any) =>
-  betterAuth({
+// Stable singleton per isolate — recreated only if the DB reference changes.
+let _auth: ReturnType<typeof betterAuth> | null = null;
+let _authDb: any = undefined;
+
+export const getAuth = (env: any) => {
+  const db = env?.DB;
+  if (_auth !== null && _authDb === db) return _auth;
+  _auth = betterAuth({
     baseURL: (env?.BETTER_AUTH_URL as string) ?? "http://localhost:8787",
     secret: (env?.BETTER_AUTH_SECRET as string) ?? "change-me-in-production",
-    database: env?.DB,
+    database: db,
     emailAndPassword: { enabled: true },
     // Uncomment to add social providers (add matching env vars in .dev.vars):
     // socialProviders: {
@@ -864,12 +866,94 @@ export const createAuth = (env: any) =>
     //   },
     // },
   });
+  _authDb = db;
+  return _auth;
+};
 
-export const handleAuth = (request: Request, env: any): Promise<Response> =>
-  createAuth(env).handler(request);
+// Calls BetterAuth for credential operations and returns normalised user data.
+const callBetterAuth = async (
+  auth: ReturnType<typeof getAuth>,
+  path: string,
+  body: Record<string, string>
+): Promise<{ ok: true; email: string; name: string | null } | { ok: false; status: number; message: string }> => {
+  const res = await auth.handler(
+    new Request(\`http://localhost\${path}\`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    })
+  );
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({})) as { message?: string };
+    return { ok: false, status: res.status, message: err.message ?? "Authentication failed" };
+  }
+  const data = await res.json() as { user?: { email: string; name?: string | null } };
+  if (!data.user?.email) {
+    return { ok: false, status: 500, message: "Unexpected response from auth provider" };
+  }
+  return { ok: true, email: data.user.email, name: data.user.name ?? null };
+};
+
+// Factory so runtime.ts can inject the correct database env (D1 on Cloudflare,
+// bun:sqlite locally) without Auth.ts knowing about the runtime environment.
+export const createBetterAuthMiddleware = (
+  getEnv: (env: any) => any = (env) => env
+): Middleware =>
+  async (context, next) => {
+    const env = getEnv(context.env);
+    const auth = getAuth(env);
+    const session = context.session;
+    const { pathname } = context.url;
+
+    if (!pathname.startsWith("/api/auth/")) return next(context);
+
+    // sign-in: validate credentials via BetterAuth, write user into elm-ssr session.
+    if (pathname === "/api/auth/sign-in" && context.request.method === "POST") {
+      if (!session) return Response.json({ ok: false, message: "Session middleware required" }, { status: 500 });
+      const { email = "", password = "" } = await context.request.json().catch(() => ({})) as Record<string, string>;
+      const result = await callBetterAuth(auth, "/api/auth/sign-in/email", { email, password });
+      if (!result.ok) return Response.json({ ok: false, message: result.message }, { status: result.status });
+      session.data = { email: result.email, name: result.name };
+      session.dirty = true;
+      return Response.json({ ok: true });
+    }
+
+    // sign-up: create account via BetterAuth, write user into elm-ssr session.
+    if (pathname === "/api/auth/sign-up" && context.request.method === "POST") {
+      if (!session) return Response.json({ ok: false, message: "Session middleware required" }, { status: 500 });
+      const { email = "", password = "", name = "" } = await context.request.json().catch(() => ({})) as Record<string, string>;
+      const result = await callBetterAuth(auth, "/api/auth/sign-up/email", { email, password, name });
+      if (!result.ok) return Response.json({ ok: false, message: result.message }, { status: result.status });
+      session.data = { email: result.email, name: result.name };
+      session.dirty = true;
+      return Response.json({ ok: true });
+    }
+
+    // logout: elm-ssr session middleware handles cookie clearing on response.
+    if (pathname === "/api/auth/logout") {
+      if (session) session.destroyed = true;
+      return new Response(null, { status: 302, headers: { location: "/login" } });
+    }
+
+    // /api/auth/dash/* — BetterAuth cloud dashboard (not in the npm package).
+    if (pathname.startsWith("/api/auth/dash/")) {
+      if (pathname === "/api/auth/dash/validate") {
+        const challenge = context.url.searchParams.get("challenge");
+        return new Response(challenge ?? JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": challenge ? "text/plain" : "application/json" },
+        });
+      }
+      const baseURL = (env?.BETTER_AUTH_URL as string) ?? new URL(context.request.url).origin;
+      return Response.json({ ok: true, baseURL });
+    }
+
+    // All other /api/auth/* (social providers, BetterAuth built-in routes, etc.).
+    return auth.handler(context.request);
+  };
 `;
 
-const auth0EndpointTemplate = () => `import { generateSessionId, signValue, generateCsrfToken, readSignedCookie } from "elm-ssr/sessions";
+const auth0EndpointTemplate = () => `import type { Middleware } from "elm-ssr/http";
 
 interface Auth0Config {
   domain: string;
@@ -889,34 +973,51 @@ const getConfig = (env: any): Auth0Config => ({
 const proto = (domain: string) =>
   domain.startsWith("localhost") || domain.startsWith("127.") ? "http" : "https";
 
-export const handleAuth = async (
-  request: Request,
-  env: any,
-  options?: { store?: any; secret?: string }
-): Promise<Response> => {
-  const url = new URL(request.url);
-  const config = getConfig(env);
+export const auth0Middleware: Middleware = async (context, next) => {
+  const { pathname } = context.url;
+  const config = getConfig(context.env);
+  const session = context.session;
 
-  if (url.pathname === "/api/auth/login") {
+  if (!pathname.startsWith("/api/auth/")) return next(context);
+  if (!session) return new Response("Session middleware required", { status: 500 });
+
+  // Initiate OAuth2 flow: generate state, store in session, redirect to Auth0.
+  if (pathname === "/api/auth/login") {
     if (!config.domain || !config.clientId) {
       return new Response(
         "Auth0 not configured — set AUTH0_DOMAIN and AUTH0_CLIENT_ID in .dev.vars",
         { status: 500 }
       );
     }
+    const state = crypto.randomUUID();
+    session.data = { pendingOAuth: { state } };
+    session.dirty = true;
     const params = new URLSearchParams({
       response_type: "code",
       client_id: config.clientId,
       redirect_uri: config.callbackUrl,
       scope: "openid profile email",
+      state,
     });
-    return Response.redirect(\`\${proto(config.domain)}://\${config.domain}/authorize?\${params}\`, 302);
+    return new Response(null, {
+      status: 302,
+      headers: { location: \`\${proto(config.domain)}://\${config.domain}/authorize?\${params}\` },
+    });
   }
 
-  if (url.pathname === "/api/auth/callback") {
-    const code = url.searchParams.get("code");
-    if (!code) return new Response("Missing code", { status: 400 });
+  // Handle callback: validate state, exchange code, verify user via userinfo endpoint.
+  if (pathname === "/api/auth/callback") {
+    const code = context.url.searchParams.get("code");
+    const state = context.url.searchParams.get("state");
+    if (!code || !state) return new Response("Missing code or state", { status: 400 });
 
+    // Validate OAuth2 state parameter to prevent CSRF attacks.
+    const pending = session.data as { pendingOAuth?: { state: string } } | null;
+    if (!pending?.pendingOAuth?.state || pending.pendingOAuth.state !== state) {
+      return new Response("Invalid OAuth state — possible CSRF attack", { status: 400 });
+    }
+
+    // Exchange authorisation code for tokens.
     const tokenRes = await fetch(\`\${proto(config.domain)}://\${config.domain}/oauth/token\`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -928,55 +1029,41 @@ export const handleAuth = async (
         redirect_uri: config.callbackUrl,
       }),
     });
+    if (!tokenRes.ok) return new Response("Token exchange with Auth0 failed", { status: 502 });
+    const { access_token } = await tokenRes.json() as { access_token: string };
 
-    if (!tokenRes.ok) {
-      return new Response("Token exchange with Auth0 failed", { status: 502 });
-    }
+    // Validate the user by calling Auth0's userinfo endpoint (server-to-server).
+    // This avoids trusting an unverified JWT payload from the client.
+    const userRes = await fetch(\`\${proto(config.domain)}://\${config.domain}/userinfo\`, {
+      headers: { authorization: \`Bearer \${access_token}\` },
+    });
+    if (!userRes.ok) return new Response("Failed to fetch user info from Auth0", { status: 502 });
+    const user = await userRes.json() as { email: string; name?: string; sub: string };
 
-    const tokens = await tokenRes.json() as { id_token: string };
-    const [, payloadB64] = tokens.id_token.split(".");
-    const user = JSON.parse(atob(payloadB64)) as { email: string; name?: string; sub: string };
+    // Replace the pending OAuth state with the authenticated user in the elm-ssr session.
+    // elm-ssr's sessionMiddleware will persist this and set the cookie on the response.
+    session.data = { email: user.email, name: user.name ?? null };
+    session.dirty = true;
+    return new Response(null, { status: 302, headers: { location: "/profile" } });
+  }
 
-    if (options?.store && options?.secret) {
-      const sessionId = generateSessionId();
-      await options.store.set(sessionId, {
-        data: { email: user.email, name: user.name ?? user.email },
-        csrf: generateCsrfToken(),
+  // Logout: destroy elm-ssr session (cookie cleared by sessionMiddleware) + redirect to Auth0.
+  if (pathname === "/api/auth/logout") {
+    session.destroyed = true;
+    if (config.domain && config.clientId) {
+      const params = new URLSearchParams({
+        client_id: config.clientId,
+        returnTo: new URL(context.request.url).origin,
       });
-      const signed = await signValue(options.secret, sessionId);
       return new Response(null, {
         status: 302,
-        headers: {
-          Location: "/profile",
-          "Set-Cookie": \`session=\${signed}; Path=/; HttpOnly; SameSite=Lax\`,
-        },
+        headers: { location: \`\${proto(config.domain)}://\${config.domain}/oidc/logout?\${params}\` },
       });
     }
-    return new Response(null, { status: 302, headers: { Location: "/profile" } });
+    return new Response(null, { status: 302, headers: { location: "/login" } });
   }
 
-  if (url.pathname === "/api/auth/logout") {
-    if (options?.store && options?.secret) {
-      const incoming = request.headers.get("cookie");
-      if (incoming) {
-        const sessionId = await readSignedCookie(incoming, "session", options.secret);
-        if (sessionId) await options.store.delete(sessionId);
-      }
-    }
-    const params = new URLSearchParams({
-      client_id: config.clientId,
-      returnTo: new URL(request.url).origin,
-    });
-    return new Response(null, {
-      status: 302,
-      headers: {
-        "Set-Cookie": "session=; Path=/; Max-Age=0; HttpOnly",
-        Location: \`\${proto(config.domain)}://\${config.domain}/oidc/logout?\${params}\`,
-      },
-    });
-  }
-
-  return new Response("Not found", { status: 404 });
+  return next(context);
 };
 `;
 
@@ -1002,14 +1089,11 @@ const runtimeTemplate = (appRoot, db = false, auth = undefined) => {
   ];
 
   if (isBetterAuth) {
-    imports.push(`import { sessionEffects } from "elm-ssr/sessions";`);
-    imports.push(`import type { Middleware } from "elm-ssr/http";`);
-    imports.push(`import type { RequestSession } from "elm-ssr/sessions";`);
-    imports.push(`import { createAuth } from "./src/Endpoints/Auth";`);
+    imports.push(`import { memorySessionStore } from "elm-ssr/sessions";`);
+    imports.push(`import { createBetterAuthMiddleware } from "./src/Endpoints/Auth";`);
   } else if (isAuth0) {
     imports.push(`import { memorySessionStore } from "elm-ssr/sessions";`);
-    imports.push(`import type { Middleware } from "elm-ssr/http";`);
-    imports.push(`import { handleAuth } from "./src/Endpoints/Auth";`);
+    imports.push(`import { auth0Middleware } from "./src/Endpoints/Auth";`);
   }
 
   let dbInit = '';
@@ -1020,7 +1104,7 @@ if (typeof Bun !== "undefined") {
   try {
     const sqliteModule = "bun" + ":sqlite";
     const { Database } = require(sqliteModule);
-    const db = new Database("app.db");
+    const db = new Database(import.meta.dir + "/app.db");
     sqlHandler = (query: any) => {
       const statement = db.query(query.sql);
       if (query.mode === "all") {
@@ -1065,19 +1149,25 @@ if (typeof Bun !== "undefined") {
     })(effect, context);
   }`;
 
-  const effectsConfig = isBetterAuth
-    ? `,\n  effects: sessionEffects(${baseEffectsBody}),\n  middlewares: [betterAuthDashShim, betterAuthHandler, betterAuthBridge]`
-    : isAuth0
-    ? `,\n  effects: ${baseEffectsBody},\n  middlewares: [auth0Handler]`
+  // Both auth providers use elm-ssr sessions as the single source of truth.
+  const effectsConfig = auth
+    ? `,\n  effects: ${baseEffectsBody},\n  middlewares: [${isBetterAuth ? "betterAuthMiddleware" : "auth0Middleware"}]`
     : `,\n  effects: ${baseEffectsBody}`;
 
-  // Auth0 keeps elm-ssr session middleware; BetterAuth manages sessions itself.
   let sessionsConfig = '';
   let authInit = '';
+
   if (isBetterAuth) {
+    sessionsConfig = `,
+  sessions: {
+    secret: (env) => (env?.BETTER_AUTH_SECRET as string) || "change-me-to-a-secure-random-hmac-secret-key-that-is-at-least-32-chars",
+    store: sessionStore,
+    secure: false
+  },
+  csrf: { skipPaths: ["/api/auth/"] }`;
     authInit = `
-// Local dev: open a SQLite database so BetterAuth works without a Cloudflare D1 binding.
-// On Cloudflare Workers this block is eliminated by esbuild (typeof Bun is statically "undefined").
+// Local dev: open bun:sqlite so BetterAuth works without a Cloudflare D1 binding.
+// On Cloudflare Workers this block is eliminated by esbuild (typeof Bun is "undefined").
 let bunAuthDb: any = undefined;
 if (typeof (globalThis as any).Bun !== "undefined") {
   const sqliteModule = "bun" + ":sqlite";
@@ -1085,80 +1175,17 @@ if (typeof (globalThis as any).Bun !== "undefined") {
   bunAuthDb = new Database(import.meta.dir + "/app.db");
 }
 
+// Injects the local SQLite database as env.DB for Bun dev so getAuth()
+// auto-detects the correct dialect (bun:sqlite via "fileControl").
 const getAuthEnv = (env: any): any =>
   bunAuthDb && !env?.DB ? { ...(env ?? {}), DB: bunAuthDb } : env;
 
-// Singleton: BetterAuth is initialised once per worker isolate, not per request.
-// Cloudflare's D1 binding is stable within an isolate; bun:sqlite is module-level too.
-let _auth: ReturnType<typeof createAuth> | null = null;
-const getAuth = (env: any) => (_auth ??= createAuth(getAuthEnv(env)));
-
-// Shim for BetterAuth's online dashboard endpoints.
-// These are NOT in BetterAuth's npm package — the cloud dashboard calls them
-// to confirm reachability and load config before saving changes.
-const betterAuthDashShim: Middleware = async (context, next) => {
-  if (!context.url.pathname.startsWith("/api/auth/dash/")) return next(context);
-  if (context.url.pathname === "/api/auth/dash/validate") {
-    const challenge = context.url.searchParams.get("challenge");
-    return new Response(challenge ?? JSON.stringify({ ok: true }), {
-      status: 200,
-      headers: { "content-type": challenge ? "text/plain" : "application/json" },
-    });
-  }
-  const baseURL = (context.env?.BETTER_AUTH_URL as string)
-    ?? new URL(context.request.url).origin;
-  return new Response(JSON.stringify({ ok: true, baseURL }), {
-    status: 200,
-    headers: { "content-type": "application/json" },
-  });
-};
-
-// Forwards all /api/auth/* requests to BetterAuth.
-const betterAuthHandler: Middleware = async (context, next) => {
-  if (!context.url.pathname.startsWith("/api/auth/")) return next(context);
-  return getAuth(context.env).handler(context.request);
-};
-
-// Bridge: reads BetterAuth session before every Elm render so Loader.requireUser works.
-const betterAuthBridge: Middleware = async (context, next) => {
-  try {
-    const session = await getAuth(context.env).api.getSession({
-      headers: context.request.headers,
-    });
-    const user = session?.user
-      ? { email: session.user.email, name: session.user.name ?? session.user.email }
-      : null;
-    context.session = {
-      id: user ? \`ba:\${user.email}\` : "",
-      data: user,
-      csrf: "",
-      dirty: false,
-      destroyed: false,
-      isNew: false,
-    } as RequestSession;
-  } catch {
-    context.session = {
-      id: "", data: null, csrf: "", dirty: false, destroyed: false, isNew: false,
-    } as RequestSession;
-  }
-  return next(context);
-};
-`;
-  } else if (isAuth0) {
-    authInit = `
 export const sessionStore = memorySessionStore();
 
-// Handles all /api/auth/* requests (login redirect, OAuth callback, logout).
-// Runs inside elm-ssr's middleware stack so logging and error handling apply.
-// Sets session.isNew = false to prevent sessionMiddleware from appending a
-// competing Set-Cookie on top of the one the auth handler already set.
-const auth0Handler: Middleware = async (context, next) => {
-  if (!context.url.pathname.startsWith("/api/auth/")) return next(context);
-  if (context.session) context.session.isNew = false;
-  const secret = (context.env?.SESSION_SECRET as string) || "change-me-to-a-secure-random-hmac-secret-key-that-is-at-least-32-chars";
-  return handleAuth(context.request, context.env, { store: sessionStore, secret });
-};
+// createBetterAuthMiddleware receives getAuthEnv so Auth.ts stays platform-agnostic.
+const betterAuthMiddleware = createBetterAuthMiddleware(getAuthEnv);
 `;
+  } else if (isAuth0) {
     sessionsConfig = `,
   sessions: {
     secret: (env) => (env?.SESSION_SECRET as string) || "change-me-to-a-secure-random-hmac-secret-key-that-is-at-least-32-chars",
@@ -1166,6 +1193,9 @@ const auth0Handler: Middleware = async (context, next) => {
     secure: false
   },
   csrf: { skipPaths: ["/api/auth/"] }`;
+    authInit = `
+export const sessionStore = memorySessionStore();
+`;
   }
 
   // Auth routing is handled entirely through elm-ssr's middlewares option —
@@ -1813,7 +1843,7 @@ const ensurePackageJson = async (rootPath, appName, options = {}) => {
 
   const extraDeps = {};
   if (options.auth === "better-auth") {
-    extraDeps["better-auth"] = "latest";
+    extraDeps["better-auth"] = "1.6.22";
   }
 
   packageJson.devDependencies = {
