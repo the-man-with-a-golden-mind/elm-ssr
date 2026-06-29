@@ -642,7 +642,7 @@ describe("elm-ssr CLI", () => {
     expect(postSignOutRes.headers.get("location")).toBe("/login");
 
     // ── Route isolation ────────────────────────────────────────────────────────
-    // /api/auth/* must be handled by BetterAuth, NOT by elm-ssr.
+    // /api/auth/* must be handled by BetterAuth (or our intercept), NOT by elm-ssr.
     // BetterAuth returns 404 with an EMPTY body for unregistered routes.
     // elm-ssr returns 404 with HTML (the Elm NotFound page).
     // This assertion proves the intercept is active and routes reach BetterAuth.
@@ -651,6 +651,22 @@ describe("elm-ssr CLI", () => {
     );
     expect(unknownAuthRes.status).toBe(404);
     expect(await unknownAuthRes.text()).toBe(""); // BetterAuth empty body, not elm-ssr HTML
+
+    // BetterAuth dashboard validation — the BetterAuth online dashboard calls this
+    // GET endpoint to confirm the server is reachable before saving config changes.
+    // Must return 200, not 404 (which would block dashboard operations like saving a new secret).
+    const dashValidateRes = await worker.fetch(
+      new Request("http://localhost/api/auth/dash/validate")
+    );
+    expect(dashValidateRes.status).toBe(200);
+    expect(await dashValidateRes.json()).toEqual({ ok: true });
+
+    // Challenge-response variant used by some dashboard flows
+    const challengeRes = await worker.fetch(
+      new Request("http://localhost/api/auth/dash/validate?challenge=abc123")
+    );
+    expect(challengeRes.status).toBe(200);
+    expect(await challengeRes.text()).toBe("abc123");
 
     // /api/auth/get-session returns 200 with null (no session) — proves BetterAuth
     // processed the request rather than elm-ssr returning 404.

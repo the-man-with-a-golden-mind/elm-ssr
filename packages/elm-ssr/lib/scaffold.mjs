@@ -781,6 +781,16 @@ const baseWorkerFetch = worker.fetch;
 worker.fetch = async (request, env, ctx) => {
   const url = new URL(request.url);
   if (url.pathname.startsWith("/api/auth/")) {
+    // BetterAuth's online dashboard calls GET /api/auth/dash/validate to confirm
+    // the server is reachable before saving configuration changes (e.g. a new secret).
+    // This route is not registered in BetterAuth's npm package — it must be handled here.
+    if (url.pathname === "/api/auth/dash/validate") {
+      const challenge = url.searchParams.get("challenge");
+      return new Response(challenge ?? JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": challenge ? "text/plain" : "application/json" },
+      });
+    }
     return getAuth(env).handler(request);
   }
   return baseWorkerFetch(request, env, ctx);

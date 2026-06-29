@@ -3,6 +3,24 @@
 All notable changes to the `elm-ssr` package. Dates are ISO; "Unreleased" lives
 at the top until a version is cut.
 
+## 1.0.7 — 2026-06-29
+
+### Fixed
+
+- **BetterAuth dashboard validation endpoint was missing.** The BetterAuth online
+  dashboard (`https://better-auth.com/dashboard`) calls `GET /api/auth/dash/validate`
+  before saving configuration changes such as a new secret. This route is not
+  registered in BetterAuth's npm package — it is an external callback that the
+  dashboard makes to confirm the server is reachable and properly configured.
+  Our generated handler was passing it to BetterAuth's internal router, which
+  returned an empty 404, causing dashboard operations to fail silently.
+
+  Fix: the auth intercept in the generated `runtime.ts` now handles
+  `GET /api/auth/dash/validate` directly before delegating to BetterAuth:
+  - Plain `GET /api/auth/dash/validate` → `200 { "ok": true }` (JSON)
+  - `GET /api/auth/dash/validate?challenge=<token>` → `200 <token>` (text, for
+    challenge-response validation flows)
+
 ## 1.0.6 — 2026-06-29
 
 ### Fixed
