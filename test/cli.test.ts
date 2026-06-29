@@ -641,6 +641,37 @@ describe("elm-ssr CLI", () => {
     expect(postSignOutRes.status).toBe(302);
     expect(postSignOutRes.headers.get("location")).toBe("/login");
 
+    // ── Route isolation ────────────────────────────────────────────────────────
+    // /api/auth/* must be handled by BetterAuth, NOT by elm-ssr.
+    // BetterAuth returns 404 with an EMPTY body for unregistered routes.
+    // elm-ssr returns 404 with HTML (the Elm NotFound page).
+    // This assertion proves the intercept is active and routes reach BetterAuth.
+    const unknownAuthRes = await worker.fetch(
+      new Request("http://localhost/api/auth/this-route-does-not-exist")
+    );
+    expect(unknownAuthRes.status).toBe(404);
+    expect(await unknownAuthRes.text()).toBe(""); // BetterAuth empty body, not elm-ssr HTML
+
+    // /api/auth/get-session returns 200 with null (no session) — proves BetterAuth
+    // processed the request rather than elm-ssr returning 404.
+    const noSessionRes = await worker.fetch(
+      new Request("http://localhost/api/auth/get-session")
+    );
+    expect(noSessionRes.status).toBe(200);
+    expect(await noSessionRes.json()).toBeNull();
+
+    // betterAuthBridge must NOT run for /api/auth/* routes (auth intercept returns early).
+    // If the bridge ran, it would call getAuth().api.getSession() before BetterAuth handles
+    // the request — causing double-initialization. We verify this indirectly: a POST to
+    // an auth route must work correctly without the elm-ssr CSRF check firing.
+    const signIn2Res = await worker.fetch(new Request("http://localhost/api/auth/sign-in/email", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "test@example.com", password: "password123" }),
+    }));
+    // elm-ssr CSRF would reject POSTs with 403; BetterAuth handles them with 200
+    expect(signIn2Res.status).toBe(200);
+
     // Invalid auth provider
     const badCommand = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "new", "bad-app", "--auth", "invalid-auth-provider", "--root", root],

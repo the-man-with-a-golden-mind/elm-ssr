@@ -652,7 +652,7 @@ const runtimeTemplate = (appRoot, db = false, auth = undefined) => {
     imports.push(`import { sessionEffects } from "elm-ssr/sessions";`);
     imports.push(`import type { Middleware } from "elm-ssr/http";`);
     imports.push(`import type { RequestSession } from "elm-ssr/sessions";`);
-    imports.push(`import { createAuth, handleAuth } from "./src/Endpoints/Auth";`);
+    imports.push(`import { createAuth } from "./src/Endpoints/Auth";`);
   } else if (isAuth0) {
     imports.push(`import { memorySessionStore } from "elm-ssr/sessions";`);
     imports.push(`import { handleAuth } from "./src/Endpoints/Auth";`);
@@ -732,10 +732,15 @@ if (typeof (globalThis as any).Bun !== "undefined") {
 const getAuthEnv = (env: any): any =>
   bunAuthDb && !env?.DB ? { ...(env ?? {}), DB: bunAuthDb } : env;
 
-// Bridge: reads BetterAuth session on every request so Loader.requireUser works.
+// Singleton: BetterAuth is initialised once per worker isolate, not per request.
+// Cloudflare's D1 binding is stable within an isolate; bun:sqlite is module-level too.
+let _auth: ReturnType<typeof createAuth> | null = null;
+const getAuth = (env: any) => (_auth ??= createAuth(getAuthEnv(env)));
+
+// Bridge: reads BetterAuth session before every Elm render so Loader.requireUser works.
 const betterAuthBridge: Middleware = async (context, next) => {
   try {
-    const session = await createAuth(getAuthEnv(context.env)).api.getSession({
+    const session = await getAuth(context.env).api.getSession({
       headers: context.request.headers,
     });
     const user = session?.user
@@ -771,12 +776,12 @@ const betterAuthBridge: Middleware = async (context, next) => {
   let authIntercept = '';
   if (isBetterAuth) {
     authIntercept = `
-// Delegate all /api/auth/* requests to BetterAuth, injecting the local db when needed.
+// Delegate all /api/auth/* requests to BetterAuth using the shared singleton.
 const baseWorkerFetch = worker.fetch;
 worker.fetch = async (request, env, ctx) => {
   const url = new URL(request.url);
   if (url.pathname.startsWith("/api/auth/")) {
-    return handleAuth(request, getAuthEnv(env));
+    return getAuth(env).handler(request);
   }
   return baseWorkerFetch(request, env, ctx);
 };

@@ -3,6 +3,33 @@
 All notable changes to the `elm-ssr` package. Dates are ISO; "Unreleased" lives
 at the top until a version is cut.
 
+## 1.0.6 — 2026-06-29
+
+### Fixed
+
+- **BetterAuth instance was re-created on every request.** The generated
+  `runtime.ts` called `createAuth(env)` in both `betterAuthBridge` (on every
+  Elm page load) and in the auth intercept (on every `/api/auth/*` call).
+  Each call initialized a new Kysely database connection, re-applied plugins,
+  and rebuilt the router — all wasted work repeated hundreds of times.
+
+  Fix: a lazy singleton `_auth ??= createAuth(getAuthEnv(env))` is created once
+  per worker isolate. `betterAuthBridge` and the auth intercept both use it.
+  On Cloudflare the D1 binding is stable within an isolate; on Bun `bunAuthDb`
+  is module-level — so the singleton is safe in both environments.
+
+### Improved
+
+- **BetterAuth route isolation is now explicitly tested.** New assertions verify
+  that `/api/auth/*` requests reach BetterAuth and not elm-ssr:
+  - An unregistered auth route (`/api/auth/this-route-does-not-exist`) returns
+    404 with an **empty body** (BetterAuth's response), not 404 with HTML
+    (elm-ssr's NotFound page). This confirms the auth intercept is active.
+  - `GET /api/auth/get-session` returns 200 + `null` when unauthenticated,
+    proving BetterAuth processed it.
+  - A POST to an auth route returns 200 (not 403), proving elm-ssr's CSRF
+    middleware does not fire for auth routes (the intercept returns early).
+
 ## 1.0.5 — 2026-06-29
 
 ### Added
