@@ -523,10 +523,12 @@ describe("elm-ssr CLI", () => {
 
     const authTs = await readFile(resolve(root, "auth-app/src/Endpoints/Auth.ts"), "utf8");
     expect(authTs).toContain('from "better-auth"');
-    expect(authTs).toContain("export const getAuth");
-    expect(authTs).toContain("createBetterAuthMiddleware");  // factory for runtime injection
-    expect(authTs).not.toContain('require("bun:sqlite")');   // no bun-specific code in Auth.ts
-    expect(authTs).not.toContain("user@example.com");        // no hardcoded mock user
+    expect(authTs).toContain("export interface AuthUser");      // shared contract
+    expect(authTs).toContain("export const setAuthUser");       // session helper
+    expect(authTs).toContain("export const composeAuthProviders");
+    expect(authTs).toContain("export const betterAuthProvider"); // factory pattern
+    expect(authTs).not.toContain('require("bun:sqlite")');
+    expect(authTs).not.toContain("user@example.com");
 
     const migration = await readFile(resolve(root, "auth-app/migrations/0001_init.sql"), "utf8");
     expect(migration).toContain('CREATE TABLE IF NOT EXISTS "user"');
@@ -551,13 +553,12 @@ describe("elm-ssr CLI", () => {
     expect(elmJson.dependencies.direct["elm/http"]).toBe("2.0.0");
 
     const runtime = await readFile(resolve(root, "auth-app/runtime.ts"), "utf8");
-    // elm-ssr sessions are the single source of auth state for both providers
     expect(runtime).toContain("sessions:");
     expect(runtime).toContain("sessionStore");
-    expect(runtime).toContain("createBetterAuthMiddleware");
+    expect(runtime).toContain("composeAuthProviders");         // unified provider pattern
+    expect(runtime).toContain("betterAuthProvider");
     expect(runtime).toContain("bunAuthDb");
-    expect(runtime).toContain("middlewares: [betterAuthMiddleware]");
-    // No more magic session bridge — elm-ssr sessionMiddleware handles cookies
+    expect(runtime).toContain("middlewares: [authMiddleware]");
     expect(runtime).not.toContain("sessionEffects");
     expect(runtime).not.toContain("betterAuthBridge");
     expect(runtime).not.toContain("baseWorkerFetch");     // no worker.fetch wrapping
@@ -876,6 +877,10 @@ describe("elm-ssr CLI", () => {
     // Verify generated file structure
     const authTs = await readFile(resolve(root, "auth0-app/src/Endpoints/Auth.ts"), "utf8");
     expect(authTs).not.toContain('from "better-auth"');
+    expect(authTs).toContain("export interface AuthUser");       // shared contract
+    expect(authTs).toContain("export const setAuthUser");
+    expect(authTs).toContain("export const getPendingOAuth");    // state validation helper
+    expect(authTs).toContain("export const auth0Provider");      // provider factory
     expect(authTs).toContain("/authorize");         // real OAuth2 redirect
     expect(authTs).toContain("/oauth/token");       // real token exchange
     expect(authTs).toContain("/api/auth/callback"); // callback route
@@ -891,13 +896,14 @@ describe("elm-ssr CLI", () => {
     expect(devVars).toContain("SESSION_SECRET=");
 
     const runtime = await readFile(resolve(root, "auth0-app/runtime.ts"), "utf8");
-    expect(runtime).toContain("auth0Middleware");
-    expect(runtime).toContain("middlewares: [auth0Middleware]");
+    expect(runtime).toContain("composeAuthProviders");
+    expect(runtime).toContain("auth0Provider");
+    expect(runtime).toContain("middlewares: [authMiddleware]");
     expect(runtime).toContain("sessions:");
     expect(runtime).toContain("sessionStore");
     expect(runtime).toContain('skipPaths: ["/api/auth/"]');
     expect(runtime).not.toContain("baseWorkerFetch");
-    expect(runtime).not.toContain("isNew = false"); // no session hacks
+    expect(runtime).not.toContain("isNew = false");
 
     // Elm build
     const buildCommand = Bun.spawn(
@@ -1057,8 +1063,10 @@ describe("elm-ssr CLI", () => {
     const { generateSessionId, generateCsrfToken, signValue } = await import("elm-ssr/sessions");
     const sessionId = generateSessionId();
     const secret = "change-me-to-a-secure-random-hmac-secret-key-that-is-at-least-32-chars";
+    // Seed with the AuthSessionData shape setAuthUser() produces:
+    // { user: AuthUser | null, auth?: { pendingOAuth?: ... } }
     await sessionStore.set(sessionId, {
-      data: { email: "auth0user@example.com", name: "Auth0 User" },
+      data: { user: { email: "auth0user@example.com", name: "Auth0 User", provider: "auth0" } },
       csrf: generateCsrfToken(),
     });
     const signed = await signValue(secret, sessionId);

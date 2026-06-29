@@ -794,14 +794,22 @@ import Json.Decode as Decode
 type alias UserProfile =
     { email : String
     , name : Maybe String
+    , picture : Maybe String
     }
 
 
+-- Decodes the user nested inside the auth session payload:
+--   { user: { email, name, picture, ... }, auth: { ... } }
+-- Loader.requireUser redirects to /login when this decoder returns Nothing
+-- (session absent, expired, or user field is null / missing).
 userDecoder : Decode.Decoder UserProfile
 userDecoder =
-    Decode.map2 UserProfile
-        (Decode.field "email" Decode.string)
-        (Decode.maybe (Decode.field "name" Decode.string))
+    Decode.field "user"
+        (Decode.map3 UserProfile
+            (Decode.field "email" Decode.string)
+            (Decode.maybe (Decode.field "name" Decode.string))
+            (Decode.maybe (Decode.field "picture" Decode.string))
+        )
 
 
 page : Request -> Loader (Document Never)
@@ -843,14 +851,103 @@ view user =
         }
 `;
 
-const betterAuthEndpointTemplate = () => `import { betterAuth } from "better-auth";
-import type { Middleware } from "elm-ssr/http";
+// ─── Shared auth contract (included in every provider's Auth.ts) ─────────────
+// Single source for the session shape Elm reads and all TS providers write.
+const authContractSnippet = `import type { AppContext } from "elm-ssr/http";
 
-// Stable singleton per isolate — recreated only if the DB reference changes.
+// Stable shape that every auth provider normalises its user into.
+// Elm reads only this — never raw provider-specific session payloads.
+export interface AuthUser {
+  id?: string;
+  email: string;
+  name?: string | null;
+  picture?: string | null;
+  provider?: string;
+}
+
+// The full session payload shape — provider-neutral.
+// session.user drives Elm guards; session.auth holds transient OAuth state.
+interface AuthSessionData {
+  user: AuthUser | null;
+  auth?: {
+    pendingOAuth?: { provider: string; state: string; returnTo?: string };
+  };
+}
+
+// Writes the authenticated user into the elm-ssr session.
+// sessionMiddleware persists and sets the cookie automatically on response.
+export const setAuthUser = (context: AppContext, user: AuthUser): void => {
+  const existing = (context.session?.data ?? {}) as Partial<AuthSessionData>;
+  context.session!.data = { ...existing, user };
+  context.session!.dirty = true;
+};
+
+// Destroys the elm-ssr session — sessionMiddleware clears the cookie.
+export const clearAuthUser = (context: AppContext): void => {
+  context.session!.destroyed = true;
+};
+
+// Stores transient OAuth state so the callback can verify it (CSRF protection).
+export const setPendingOAuth = (
+  context: AppContext,
+  provider: string,
+  state: string,
+  returnTo?: string
+): void => {
+  const existing = (context.session?.data ?? {}) as Partial<AuthSessionData>;
+  context.session!.data = {
+    ...existing,
+    auth: { pendingOAuth: { provider, state, ...(returnTo ? { returnTo } : {}) } },
+  };
+  context.session!.dirty = true;
+};
+
+// Reads pending OAuth state and verifies it belongs to the expected provider.
+export const getPendingOAuth = (
+  context: AppContext,
+  provider: string
+): { state: string; returnTo?: string } | null => {
+  const data = (context.session?.data ?? null) as AuthSessionData | null;
+  const p = data?.auth?.pendingOAuth;
+  if (!p || p.provider !== provider) return null;
+  return { state: p.state, returnTo: p.returnTo };
+};
+
+// Result of a credential or OAuth operation before writing to the session.
+export type AuthResult =
+  | { ok: true; user: AuthUser }
+  | { ok: false; status: number; message: string };
+
+// Contract each provider must satisfy.
+export interface AuthProvider {
+  name: string;
+  /** URL path prefixes this provider owns (e.g. ["/api/auth/"]). */
+  routes: string[];
+  middleware: import("elm-ssr/http").Middleware;
+}
+
+// Chains providers: first whose routes match handles the request.
+export const composeAuthProviders = (
+  providers: AuthProvider[]
+): import("elm-ssr/http").Middleware =>
+  async (context, next) => {
+    for (const provider of providers) {
+      if (provider.routes.some((r) => context.url.pathname.startsWith(r))) {
+        return provider.middleware(context, next);
+      }
+    }
+    return next(context);
+  };
+`;
+
+const betterAuthEndpointTemplate = () => authContractSnippet + `
+import { betterAuth } from "better-auth";
+
+// Singleton per isolate — recreated only when the DB binding changes.
 let _auth: ReturnType<typeof betterAuth> | null = null;
 let _authDb: any = undefined;
 
-export const getAuth = (env: any) => {
+const getAuth = (env: any) => {
   const db = env?.DB;
   if (_auth !== null && _authDb === db) return _auth;
   _auth = betterAuth({
@@ -858,24 +955,19 @@ export const getAuth = (env: any) => {
     secret: (env?.BETTER_AUTH_SECRET as string) ?? "change-me-in-production",
     database: db,
     emailAndPassword: { enabled: true },
-    // Uncomment to add social providers (add matching env vars in .dev.vars):
     // socialProviders: {
-    //   github: {
-    //     clientId: env?.GITHUB_CLIENT_ID as string,
-    //     clientSecret: env?.GITHUB_CLIENT_SECRET as string,
-    //   },
+    //   github: { clientId: env?.GITHUB_CLIENT_ID, clientSecret: env?.GITHUB_CLIENT_SECRET },
     // },
   });
   _authDb = db;
   return _auth;
 };
 
-// Calls BetterAuth for credential operations and returns normalised user data.
 const callBetterAuth = async (
   auth: ReturnType<typeof getAuth>,
   path: string,
   body: Record<string, string>
-): Promise<{ ok: true; email: string; name: string | null } | { ok: false; status: number; message: string }> => {
+): Promise<AuthResult> => {
   const res = await auth.handler(
     new Request(\`http://localhost\${path}\`, {
       method: "POST",
@@ -887,73 +979,74 @@ const callBetterAuth = async (
     const err = await res.json().catch(() => ({})) as { message?: string };
     return { ok: false, status: res.status, message: err.message ?? "Authentication failed" };
   }
-  const data = await res.json() as { user?: { email: string; name?: string | null } };
-  if (!data.user?.email) {
-    return { ok: false, status: 500, message: "Unexpected response from auth provider" };
-  }
-  return { ok: true, email: data.user.email, name: data.user.name ?? null };
+  const data = await res.json() as { user?: { email: string; name?: string | null; image?: string | null } };
+  if (!data.user?.email) return { ok: false, status: 500, message: "Unexpected auth response" };
+  return {
+    ok: true,
+    user: { email: data.user.email, name: data.user.name, picture: data.user.image, provider: "better-auth" },
+  };
 };
 
-// Factory so runtime.ts can inject the correct database env (D1 on Cloudflare,
-// bun:sqlite locally) without Auth.ts knowing about the runtime environment.
-export const createBetterAuthMiddleware = (
-  getEnv: (env: any) => any = (env) => env
-): Middleware =>
-  async (context, next) => {
-    const env = getEnv(context.env);
-    const auth = getAuth(env);
-    const session = context.session;
-    const { pathname } = context.url;
+// Factory: runtime.ts passes getEnv so Auth.ts stays platform-agnostic.
+// getEnv injects bun:sqlite locally; on Cloudflare env.DB is the D1 binding.
+export const betterAuthProvider = (
+  options: { getEnv?: (env: any) => any } = {}
+): AuthProvider => {
+  const resolveEnv = options.getEnv ?? ((env: any) => env);
+  return {
+    name: "better-auth",
+    routes: ["/api/auth/"],
+    middleware: async (context, next) => {
+      const env = resolveEnv(context.env);
+      const auth = getAuth(env);
+      const session = context.session;
+      const { pathname } = context.url;
 
-    if (!pathname.startsWith("/api/auth/")) return next(context);
-
-    // sign-in: validate credentials via BetterAuth, write user into elm-ssr session.
-    if (pathname === "/api/auth/sign-in" && context.request.method === "POST") {
+      if (!pathname.startsWith("/api/auth/")) return next(context);
       if (!session) return Response.json({ ok: false, message: "Session middleware required" }, { status: 500 });
-      const { email = "", password = "" } = await context.request.json().catch(() => ({})) as Record<string, string>;
-      const result = await callBetterAuth(auth, "/api/auth/sign-in/email", { email, password });
-      if (!result.ok) return Response.json({ ok: false, message: result.message }, { status: result.status });
-      session.data = { email: result.email, name: result.name };
-      session.dirty = true;
-      return Response.json({ ok: true });
-    }
 
-    // sign-up: create account via BetterAuth, write user into elm-ssr session.
-    if (pathname === "/api/auth/sign-up" && context.request.method === "POST") {
-      if (!session) return Response.json({ ok: false, message: "Session middleware required" }, { status: 500 });
-      const { email = "", password = "", name = "" } = await context.request.json().catch(() => ({})) as Record<string, string>;
-      const result = await callBetterAuth(auth, "/api/auth/sign-up/email", { email, password, name });
-      if (!result.ok) return Response.json({ ok: false, message: result.message }, { status: result.status });
-      session.data = { email: result.email, name: result.name };
-      session.dirty = true;
-      return Response.json({ ok: true });
-    }
-
-    // logout: elm-ssr session middleware handles cookie clearing on response.
-    if (pathname === "/api/auth/logout") {
-      if (session) session.destroyed = true;
-      return new Response(null, { status: 302, headers: { location: "/login" } });
-    }
-
-    // /api/auth/dash/* — BetterAuth cloud dashboard (not in the npm package).
-    if (pathname.startsWith("/api/auth/dash/")) {
-      if (pathname === "/api/auth/dash/validate") {
-        const challenge = context.url.searchParams.get("challenge");
-        return new Response(challenge ?? JSON.stringify({ ok: true }), {
-          status: 200,
-          headers: { "content-type": challenge ? "text/plain" : "application/json" },
-        });
+      if (pathname === "/api/auth/sign-in" && context.request.method === "POST") {
+        const { email = "", password = "" } = await context.request.json().catch(() => ({})) as Record<string, string>;
+        const result = await callBetterAuth(auth, "/api/auth/sign-in/email", { email, password });
+        if (!result.ok) return Response.json({ ok: false, message: result.message }, { status: result.status });
+        setAuthUser(context, result.user);
+        return Response.json({ ok: true });
       }
-      const baseURL = (env?.BETTER_AUTH_URL as string) ?? new URL(context.request.url).origin;
-      return Response.json({ ok: true, baseURL });
-    }
 
-    // All other /api/auth/* (social providers, BetterAuth built-in routes, etc.).
-    return auth.handler(context.request);
+      if (pathname === "/api/auth/sign-up" && context.request.method === "POST") {
+        const { email = "", password = "", name = "" } = await context.request.json().catch(() => ({})) as Record<string, string>;
+        const result = await callBetterAuth(auth, "/api/auth/sign-up/email", { email, password, name });
+        if (!result.ok) return Response.json({ ok: false, message: result.message }, { status: result.status });
+        setAuthUser(context, result.user);
+        return Response.json({ ok: true });
+      }
+
+      if (pathname === "/api/auth/logout") {
+        clearAuthUser(context);
+        return new Response(null, { status: 302, headers: { location: "/login" } });
+      }
+
+      // BetterAuth cloud dashboard (routes not in the npm package).
+      if (pathname.startsWith("/api/auth/dash/")) {
+        if (pathname === "/api/auth/dash/validate") {
+          const challenge = context.url.searchParams.get("challenge");
+          return new Response(challenge ?? JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { "content-type": challenge ? "text/plain" : "application/json" },
+          });
+        }
+        const baseURL = (env?.BETTER_AUTH_URL as string) ?? new URL(context.request.url).origin;
+        return Response.json({ ok: true, baseURL });
+      }
+
+      // All other /api/auth/* (social providers, BetterAuth built-in routes).
+      return auth.handler(context.request);
+    },
   };
+};
 `;
 
-const auth0EndpointTemplate = () => `import type { Middleware } from "elm-ssr/http";
+const auth0EndpointTemplate = () => authContractSnippet + `
 
 interface Auth0Config {
   domain: string;
@@ -969,102 +1062,92 @@ const getConfig = (env: any): Auth0Config => ({
   callbackUrl: (env?.AUTH0_CALLBACK_URL as string) ?? "http://localhost:8787/api/auth/callback",
 });
 
-// Use http for localhost (dev/test mock servers), https for real Auth0 domains.
+// http for localhost (dev/test), https for real Auth0 domains.
 const proto = (domain: string) =>
   domain.startsWith("localhost") || domain.startsWith("127.") ? "http" : "https";
 
-export const auth0Middleware: Middleware = async (context, next) => {
-  const { pathname } = context.url;
-  const config = getConfig(context.env);
-  const session = context.session;
+export const auth0Provider = (): AuthProvider => ({
+  name: "auth0",
+  routes: ["/api/auth/"],
+  middleware: async (context, next) => {
+    const { pathname } = context.url;
+    const config = getConfig(context.env);
+    const session = context.session;
 
-  if (!pathname.startsWith("/api/auth/")) return next(context);
-  if (!session) return new Response("Session middleware required", { status: 500 });
+    if (!pathname.startsWith("/api/auth/")) return next(context);
+    if (!session) return new Response("Session middleware required", { status: 500 });
 
-  // Initiate OAuth2 flow: generate state, store in session, redirect to Auth0.
-  if (pathname === "/api/auth/login") {
-    if (!config.domain || !config.clientId) {
-      return new Response(
-        "Auth0 not configured — set AUTH0_DOMAIN and AUTH0_CLIENT_ID in .dev.vars",
-        { status: 500 }
-      );
-    }
-    const state = crypto.randomUUID();
-    session.data = { pendingOAuth: { state } };
-    session.dirty = true;
-    const params = new URLSearchParams({
-      response_type: "code",
-      client_id: config.clientId,
-      redirect_uri: config.callbackUrl,
-      scope: "openid profile email",
-      state,
-    });
-    return new Response(null, {
-      status: 302,
-      headers: { location: \`\${proto(config.domain)}://\${config.domain}/authorize?\${params}\` },
-    });
-  }
-
-  // Handle callback: validate state, exchange code, verify user via userinfo endpoint.
-  if (pathname === "/api/auth/callback") {
-    const code = context.url.searchParams.get("code");
-    const state = context.url.searchParams.get("state");
-    if (!code || !state) return new Response("Missing code or state", { status: 400 });
-
-    // Validate OAuth2 state parameter to prevent CSRF attacks.
-    const pending = session.data as { pendingOAuth?: { state: string } } | null;
-    if (!pending?.pendingOAuth?.state || pending.pendingOAuth.state !== state) {
-      return new Response("Invalid OAuth state — possible CSRF attack", { status: 400 });
-    }
-
-    // Exchange authorisation code for tokens.
-    const tokenRes = await fetch(\`\${proto(config.domain)}://\${config.domain}/oauth/token\`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        grant_type: "authorization_code",
-        client_id: config.clientId,
-        client_secret: config.clientSecret,
-        code,
-        redirect_uri: config.callbackUrl,
-      }),
-    });
-    if (!tokenRes.ok) return new Response("Token exchange with Auth0 failed", { status: 502 });
-    const { access_token } = await tokenRes.json() as { access_token: string };
-
-    // Validate the user by calling Auth0's userinfo endpoint (server-to-server).
-    // This avoids trusting an unverified JWT payload from the client.
-    const userRes = await fetch(\`\${proto(config.domain)}://\${config.domain}/userinfo\`, {
-      headers: { authorization: \`Bearer \${access_token}\` },
-    });
-    if (!userRes.ok) return new Response("Failed to fetch user info from Auth0", { status: 502 });
-    const user = await userRes.json() as { email: string; name?: string; sub: string };
-
-    // Replace the pending OAuth state with the authenticated user in the elm-ssr session.
-    // elm-ssr's sessionMiddleware will persist this and set the cookie on the response.
-    session.data = { email: user.email, name: user.name ?? null };
-    session.dirty = true;
-    return new Response(null, { status: 302, headers: { location: "/profile" } });
-  }
-
-  // Logout: destroy elm-ssr session (cookie cleared by sessionMiddleware) + redirect to Auth0.
-  if (pathname === "/api/auth/logout") {
-    session.destroyed = true;
-    if (config.domain && config.clientId) {
+    // Start OAuth2 flow: generate state, persist under session.auth.pendingOAuth.
+    if (pathname === "/api/auth/login") {
+      if (!config.domain || !config.clientId) {
+        return new Response("Auth0 not configured — set AUTH0_DOMAIN and AUTH0_CLIENT_ID in .dev.vars", { status: 500 });
+      }
+      const state = crypto.randomUUID();
+      setPendingOAuth(context, "auth0", state);
       const params = new URLSearchParams({
+        response_type: "code",
         client_id: config.clientId,
-        returnTo: new URL(context.request.url).origin,
+        redirect_uri: config.callbackUrl,
+        scope: "openid profile email",
+        state,
       });
       return new Response(null, {
         status: 302,
-        headers: { location: \`\${proto(config.domain)}://\${config.domain}/oidc/logout?\${params}\` },
+        headers: { location: \`\${proto(config.domain)}://\${config.domain}/authorize?\${params}\` },
       });
     }
-    return new Response(null, { status: 302, headers: { location: "/login" } });
-  }
 
-  return next(context);
-};
+    // Finish OAuth2 flow: validate state, exchange code, fetch user via userinfo.
+    if (pathname === "/api/auth/callback") {
+      const code = context.url.searchParams.get("code");
+      const state = context.url.searchParams.get("state");
+      if (!code || !state) return new Response("Missing code or state", { status: 400 });
+
+      const pending = getPendingOAuth(context, "auth0");
+      if (!pending || pending.state !== state) {
+        return new Response("Invalid OAuth state — possible CSRF attack", { status: 400 });
+      }
+
+      const tokenRes = await fetch(\`\${proto(config.domain)}://\${config.domain}/oauth/token\`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          grant_type: "authorization_code",
+          client_id: config.clientId,
+          client_secret: config.clientSecret,
+          code,
+          redirect_uri: config.callbackUrl,
+        }),
+      });
+      if (!tokenRes.ok) return new Response("Token exchange with Auth0 failed", { status: 502 });
+      const { access_token } = await tokenRes.json() as { access_token: string };
+
+      // Server-to-server user validation — never trust an unverified JWT payload.
+      const userRes = await fetch(\`\${proto(config.domain)}://\${config.domain}/userinfo\`, {
+        headers: { authorization: \`Bearer \${access_token}\` },
+      });
+      if (!userRes.ok) return new Response("Failed to fetch user info from Auth0", { status: 502 });
+      const user = await userRes.json() as { email: string; name?: string; picture?: string; sub: string };
+
+      setAuthUser(context, { id: user.sub, email: user.email, name: user.name, picture: user.picture, provider: "auth0" });
+      return new Response(null, { status: 302, headers: { location: pending.returnTo ?? "/profile" } });
+    }
+
+    if (pathname === "/api/auth/logout") {
+      clearAuthUser(context);
+      if (config.domain && config.clientId) {
+        const params = new URLSearchParams({ client_id: config.clientId, returnTo: new URL(context.request.url).origin });
+        return new Response(null, {
+          status: 302,
+          headers: { location: \`\${proto(config.domain)}://\${config.domain}/oidc/logout?\${params}\` },
+        });
+      }
+      return new Response(null, { status: 302, headers: { location: "/login" } });
+    }
+
+    return next(context);
+  },
+});
 `;
 
 const runtimeTemplate = (appRoot, db = false, auth = undefined) => {
@@ -1090,10 +1173,10 @@ const runtimeTemplate = (appRoot, db = false, auth = undefined) => {
 
   if (isBetterAuth) {
     imports.push(`import { memorySessionStore } from "elm-ssr/sessions";`);
-    imports.push(`import { createBetterAuthMiddleware } from "./src/Endpoints/Auth";`);
+    imports.push(`import { betterAuthProvider, composeAuthProviders } from "./src/Endpoints/Auth";`);
   } else if (isAuth0) {
     imports.push(`import { memorySessionStore } from "elm-ssr/sessions";`);
-    imports.push(`import { auth0Middleware } from "./src/Endpoints/Auth";`);
+    imports.push(`import { auth0Provider, composeAuthProviders } from "./src/Endpoints/Auth";`);
   }
 
   let dbInit = '';
@@ -1150,8 +1233,9 @@ if (typeof Bun !== "undefined") {
   }`;
 
   // Both auth providers use elm-ssr sessions as the single source of truth.
+  // authMiddleware is always composeAuthProviders([...provider]) — same shape regardless of provider.
   const effectsConfig = auth
-    ? `,\n  effects: ${baseEffectsBody},\n  middlewares: [${isBetterAuth ? "betterAuthMiddleware" : "auth0Middleware"}]`
+    ? `,\n  effects: ${baseEffectsBody},\n  middlewares: [authMiddleware]`
     : `,\n  effects: ${baseEffectsBody}`;
 
   let sessionsConfig = '';
@@ -1160,7 +1244,7 @@ if (typeof Bun !== "undefined") {
   if (isBetterAuth) {
     sessionsConfig = `,
   sessions: {
-    secret: (env) => (env?.BETTER_AUTH_SECRET as string) || "change-me-to-a-secure-random-hmac-secret-key-that-is-at-least-32-chars",
+    secret: (env) => (env?.SESSION_SECRET as string) || (env?.BETTER_AUTH_SECRET as string) || "change-me-to-a-secure-random-hmac-secret-key-that-is-at-least-32-chars",
     store: sessionStore,
     secure: false
   },
@@ -1175,15 +1259,15 @@ if (typeof (globalThis as any).Bun !== "undefined") {
   bunAuthDb = new Database(import.meta.dir + "/app.db");
 }
 
-// Injects the local SQLite database as env.DB for Bun dev so getAuth()
-// auto-detects the correct dialect (bun:sqlite via "fileControl").
+// Injects local SQLite as env.DB for Bun dev; on Cloudflare env.DB is the D1 binding.
 const getAuthEnv = (env: any): any =>
   bunAuthDb && !env?.DB ? { ...(env ?? {}), DB: bunAuthDb } : env;
 
 export const sessionStore = memorySessionStore();
 
-// createBetterAuthMiddleware receives getAuthEnv so Auth.ts stays platform-agnostic.
-const betterAuthMiddleware = createBetterAuthMiddleware(getAuthEnv);
+const authMiddleware = composeAuthProviders([
+  betterAuthProvider({ getEnv: getAuthEnv }),
+]);
 `;
   } else if (isAuth0) {
     sessionsConfig = `,
@@ -1195,6 +1279,10 @@ const betterAuthMiddleware = createBetterAuthMiddleware(getAuthEnv);
   csrf: { skipPaths: ["/api/auth/"] }`;
     authInit = `
 export const sessionStore = memorySessionStore();
+
+const authMiddleware = composeAuthProviders([
+  auth0Provider(),
+]);
 `;
   }
 
