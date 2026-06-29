@@ -3,51 +3,6 @@
 All notable changes to the `elm-ssr` package. Dates are ISO; "Unreleased" lives
 at the top until a version is cut.
 
-## 1.0.7 — 2026-06-29
-
-### Fixed
-
-- **BetterAuth dashboard validation endpoint was missing.** The BetterAuth online
-  dashboard (`https://better-auth.com/dashboard`) calls `GET /api/auth/dash/validate`
-  before saving configuration changes such as a new secret. This route is not
-  registered in BetterAuth's npm package — it is an external callback that the
-  dashboard makes to confirm the server is reachable and properly configured.
-  Our generated handler was passing it to BetterAuth's internal router, which
-  returned an empty 404, causing dashboard operations to fail silently.
-
-  Fix: the auth intercept in the generated `runtime.ts` now handles
-  `GET /api/auth/dash/validate` directly before delegating to BetterAuth:
-  - Plain `GET /api/auth/dash/validate` → `200 { "ok": true }` (JSON)
-  - `GET /api/auth/dash/validate?challenge=<token>` → `200 <token>` (text, for
-    challenge-response validation flows)
-
-## 1.0.6 — 2026-06-29
-
-### Fixed
-
-- **BetterAuth instance was re-created on every request.** The generated
-  `runtime.ts` called `createAuth(env)` in both `betterAuthBridge` (on every
-  Elm page load) and in the auth intercept (on every `/api/auth/*` call).
-  Each call initialized a new Kysely database connection, re-applied plugins,
-  and rebuilt the router — all wasted work repeated hundreds of times.
-
-  Fix: a lazy singleton `_auth ??= createAuth(getAuthEnv(env))` is created once
-  per worker isolate. `betterAuthBridge` and the auth intercept both use it.
-  On Cloudflare the D1 binding is stable within an isolate; on Bun `bunAuthDb`
-  is module-level — so the singleton is safe in both environments.
-
-### Improved
-
-- **BetterAuth route isolation is now explicitly tested.** New assertions verify
-  that `/api/auth/*` requests reach BetterAuth and not elm-ssr:
-  - An unregistered auth route (`/api/auth/this-route-does-not-exist`) returns
-    404 with an **empty body** (BetterAuth's response), not 404 with HTML
-    (elm-ssr's NotFound page). This confirms the auth intercept is active.
-  - `GET /api/auth/get-session` returns 200 + `null` when unauthenticated,
-    proving BetterAuth processed it.
-  - A POST to an auth route returns 200 (not 403), proving elm-ssr's CSRF
-    middleware does not fire for auth routes (the intercept returns early).
-
 ## 1.0.5 — 2026-06-29
 
 ### Added
@@ -55,6 +10,30 @@ at the top until a version is cut.
 - **CLI now shows its version.** `elm-ssr version`, `elm-ssr --version`, and
   `elm-ssr -v` all print the installed version number. The help header also
   includes the version so it's always visible at a glance.
+
+### Fixed
+
+- **BetterAuth dashboard validation endpoint was missing.** The BetterAuth online
+  dashboard calls `GET /api/auth/dash/validate` before saving configuration
+  changes (e.g. a new secret). This route is not in BetterAuth's npm package —
+  it is an external callback from their cloud dashboard. The generated auth
+  intercept now handles it directly:
+  - `GET /api/auth/dash/validate` → `200 { "ok": true }`
+  - `GET /api/auth/dash/validate?challenge=<token>` → `200 <token>` (echo)
+
+- **BetterAuth instance was re-created on every request.** `createAuth(env)` was
+  called in both `betterAuthBridge` (per page load) and the auth intercept (per
+  auth call), re-initializing Kysely and all plugins each time. Now a lazy
+  singleton `_auth ??= createAuth(getAuthEnv(env))` is shared across all
+  requests within a worker isolate.
+
+### Improved
+
+- **BetterAuth route isolation is now explicitly tested.** Assertions verify that
+  `/api/auth/*` routes reach BetterAuth (empty 404 body, not elm-ssr HTML),
+  `GET /api/auth/get-session` returns 200+null unauthenticated, POST to an
+  auth route is not blocked by elm-ssr's CSRF middleware, and
+  `GET /api/auth/dash/validate` returns 200.
 
 ## 1.0.4 — 2026-06-28
 
