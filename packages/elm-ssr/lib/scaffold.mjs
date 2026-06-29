@@ -25,7 +25,7 @@ const ensureAppMissing = (config, name) => {
   }
 };
 
-const elmJsonTemplate = () => ({
+const elmJsonTemplate = ({ http = false } = {}) => ({
   type: "application",
   "source-directories": [".elm-ssr", "src", ".elm-ssr/src"],
   "elm-version": "0.19.1",
@@ -34,10 +34,12 @@ const elmJsonTemplate = () => ({
       "elm/browser": "1.0.2",
       "elm/core": "1.0.5",
       "elm/html": "1.0.0",
+      ...(http ? { "elm/http": "2.0.0" } : {}),
       "elm/json": "1.1.3",
       "elm/url": "1.0.0"
     },
     indirect: {
+      ...(http ? { "elm/bytes": "1.0.8", "elm/file": "1.0.5" } : {}),
       "elm/time": "1.0.0",
       "elm/virtual-dom": "1.0.3"
     }
@@ -277,6 +279,322 @@ view model =
         ]
 `;
 
+const loginIslandTemplate = (namespace) => `port module ${namespace}.Islands.Login exposing
+    ( embed
+    , Flags, Model, Msg
+    , encodeFlags
+    , init, main, subscriptions, update, view
+    )
+
+import Browser
+import ElmSsr.Html as SsrHtml exposing (Node)
+import ElmSsr.Html.Attributes as SsrAttributes
+import ElmSsr.Island as Island
+import Html exposing (Html, button, div, form, h1, input, label, p, span, text)
+import Html.Attributes as Attr
+import Html.Events exposing (onInput, onSubmit)
+import Http
+import Json.Encode as Encode
+
+
+port navigateTo : String -> Cmd msg
+
+
+embed : Flags -> Node msg
+embed =
+    Island.embed "Login"
+        { encodeFlags = encodeFlags
+        , fallback = fallback
+        , id = Nothing
+        }
+
+
+type alias Flags =
+    {}
+
+
+type Mode
+    = SignIn
+    | SignUp
+
+
+type FormStatus
+    = Idle
+    | Submitting
+    | FormError String
+
+
+type alias Model =
+    { mode : Mode
+    , email : String
+    , password : String
+    , name : String
+    , status : FormStatus
+    }
+
+
+type Msg
+    = SetMode Mode
+    | SetEmail String
+    | SetPassword String
+    | SetName String
+    | Submit
+    | GotResponse (Result Int ())
+
+
+encodeFlags : Flags -> Encode.Value
+encodeFlags _ =
+    Encode.object []
+
+
+fallback : Flags -> List (Node msg)
+fallback _ =
+    [ SsrHtml.div [ SsrAttributes.class "auth-card" ]
+        [ SsrHtml.div [ SsrAttributes.class "auth-header" ]
+            [ SsrHtml.span [ SsrAttributes.class "auth-logo" ] [ SsrHtml.text "◆" ]
+            , SsrHtml.h1 [ SsrAttributes.class "auth-title" ] [ SsrHtml.text "Sign in" ]
+            , SsrHtml.p [ SsrAttributes.class "auth-subtitle" ] [ SsrHtml.text "Loading…" ]
+            ]
+        ]
+    ]
+
+
+main : Program Flags Model Msg
+main =
+    Browser.element
+        { init = init
+        , update = update
+        , view = view
+        , subscriptions = subscriptions
+        }
+
+
+init : Flags -> ( Model, Cmd Msg )
+init _ =
+    ( { mode = SignIn, email = "", password = "", name = "", status = Idle }
+    , Cmd.none
+    )
+
+
+update : Msg -> Model -> ( Model, Cmd Msg )
+update msg model =
+    case msg of
+        SetMode mode ->
+            ( { model | mode = mode, status = Idle }, Cmd.none )
+
+        SetEmail v ->
+            ( { model | email = v }, Cmd.none )
+
+        SetPassword v ->
+            ( { model | password = v }, Cmd.none )
+
+        SetName v ->
+            ( { model | name = v }, Cmd.none )
+
+        Submit ->
+            ( { model | status = Submitting }, submit model )
+
+        GotResponse (Ok ()) ->
+            ( model, navigateTo "/profile" )
+
+        GotResponse (Err 401) ->
+            ( { model | status = FormError "Invalid email or password." }, Cmd.none )
+
+        GotResponse (Err 422) ->
+            ( { model | status = FormError "An account with this email already exists." }, Cmd.none )
+
+        GotResponse (Err _) ->
+            ( { model | status = FormError "Something went wrong. Please try again." }, Cmd.none )
+
+
+submit : Model -> Cmd Msg
+submit model =
+    let
+        url =
+            case model.mode of
+                SignIn ->
+                    "/api/auth/sign-in/email"
+
+                SignUp ->
+                    "/api/auth/sign-up/email"
+
+        body =
+            case model.mode of
+                SignIn ->
+                    Encode.object
+                        [ ( "email", Encode.string model.email )
+                        , ( "password", Encode.string model.password )
+                        ]
+
+                SignUp ->
+                    Encode.object
+                        [ ( "email", Encode.string model.email )
+                        , ( "password", Encode.string model.password )
+                        , ( "name", Encode.string model.name )
+                        ]
+    in
+    Http.post
+        { url = url
+        , body = Http.jsonBody body
+        , expect = Http.expectStringResponse GotResponse httpResult
+        }
+
+
+httpResult : Http.Response String -> Result Int ()
+httpResult response =
+    case response of
+        Http.GoodStatus_ _ _ ->
+            Ok ()
+
+        Http.BadStatus_ meta _ ->
+            Err meta.statusCode
+
+        _ ->
+            Err 0
+
+
+subscriptions : Model -> Sub Msg
+subscriptions _ =
+    Sub.none
+
+
+view : Model -> Html Msg
+view model =
+    div [ Attr.class "auth-card" ]
+        [ div [ Attr.class "auth-header" ]
+            [ span [ Attr.class "auth-logo" ] [ text "◆" ]
+            , h1 [ Attr.class "auth-title" ]
+                [ text
+                    (case model.mode of
+                        SignIn ->
+                            "Welcome back"
+
+                        SignUp ->
+                            "Create account"
+                    )
+                ]
+            , p [ Attr.class "auth-subtitle" ]
+                [ text
+                    (case model.mode of
+                        SignIn ->
+                            "Sign in to your account to continue."
+
+                        SignUp ->
+                            "Sign up to get started."
+                    )
+                ]
+            ]
+        , div [ Attr.class "auth-tabs" ]
+            [ button
+                [ Attr.class
+                    (if model.mode == SignIn then
+                        "auth-tab auth-tab--active"
+
+                     else
+                        "auth-tab"
+                    )
+                , Attr.type_ "button"
+                , Html.Events.onClick (SetMode SignIn)
+                ]
+                [ text "Sign in" ]
+            , button
+                [ Attr.class
+                    (if model.mode == SignUp then
+                        "auth-tab auth-tab--active"
+
+                     else
+                        "auth-tab"
+                    )
+                , Attr.type_ "button"
+                , Html.Events.onClick (SetMode SignUp)
+                ]
+                [ text "Sign up" ]
+            ]
+        , case model.status of
+            FormError message ->
+                div [ Attr.class "auth-error" ] [ text message ]
+
+            _ ->
+                text ""
+        , form [ Attr.class "auth-body", onSubmit Submit ]
+            ((case model.mode of
+                SignUp ->
+                    [ div [ Attr.class "field" ]
+                        [ label [ Attr.for "name" ] [ text "Name" ]
+                        , input
+                            [ Attr.id "name"
+                            , Attr.type_ "text"
+                            , Attr.class "input"
+                            , Attr.value model.name
+                            , Attr.attribute "autocomplete" "name"
+                            , onInput SetName
+                            ]
+                            []
+                        ]
+                    ]
+
+                SignIn ->
+                    []
+             )
+                ++ [ div [ Attr.class "field" ]
+                        [ label [ Attr.for "email" ] [ text "Email" ]
+                        , input
+                            [ Attr.id "email"
+                            , Attr.type_ "email"
+                            , Attr.class "input"
+                            , Attr.value model.email
+                            , Attr.attribute "autocomplete" "email"
+                            , Attr.required True
+                            , Attr.autofocus True
+                            , onInput SetEmail
+                            ]
+                            []
+                        ]
+                   , div [ Attr.class "field" ]
+                        [ label [ Attr.for "password" ] [ text "Password" ]
+                        , input
+                            [ Attr.id "password"
+                            , Attr.type_ "password"
+                            , Attr.class "input"
+                            , Attr.value model.password
+                            , Attr.attribute "autocomplete"
+                                (case model.mode of
+                                    SignIn ->
+                                        "current-password"
+
+                                    SignUp ->
+                                        "new-password"
+                                )
+                            , Attr.required True
+                            , onInput SetPassword
+                            ]
+                            []
+                        ]
+                   , button
+                        [ Attr.type_ "submit"
+                        , Attr.class "btn btn-primary btn-full"
+                        , Attr.disabled (model.status == Submitting)
+                        ]
+                        [ text
+                            (if model.status == Submitting then
+                                "Please wait…"
+
+                             else
+                                case model.mode of
+                                    SignIn ->
+                                        "Sign in"
+
+                                    SignUp ->
+                                        "Sign up"
+                            )
+                        ]
+                   ]
+            )
+        , p [ Attr.class "auth-footer" ]
+            [ text "Powered by elm-ssr + BetterAuth" ]
+        ]
+`;
+
 const notFoundRouteTemplate = (namespace) => `module ${namespace}.Routes.NotFound exposing (page, action)
 
 import ElmSsr.Action as Action exposing (Action)
@@ -380,7 +698,40 @@ CREATE TABLE IF NOT EXISTS users (
 const authDisplayName = (authProvider) =>
   authProvider === "auth0" ? "Auth0" : "BetterAuth";
 
-const loginRouteTemplate = (namespace, authProvider) => `module ${namespace}.Routes.Login exposing (page, action)
+const loginRouteTemplateBetterAuth = (namespace) => `module ${namespace}.Routes.Login exposing (page, action)
+
+import ElmSsr.Action as Action exposing (Action)
+import ElmSsr.Document exposing (Document)
+import ElmSsr.Loader as Loader exposing (Loader)
+import ElmSsr.Page as Page
+import ElmSsr.Route exposing (Request)
+import ${namespace}.Islands.Login as LoginIsland
+import ${namespace}.View.Shared as Shared
+
+
+page : Request -> Loader (Document Never)
+page _ =
+    Loader.succeed view
+
+
+action : Request -> Action (Document Never)
+action _ =
+    Action.fail 405 "Method not allowed"
+
+
+view : Document Never
+view =
+    Page.page
+        { title = "Sign in | elm-ssr"
+        , head = Shared.head
+        , body =
+            [ Shared.layout "Sign in"
+                [ LoginIsland.embed {} ]
+            ]
+        }
+`;
+
+const loginRouteTemplateAuth0 = (namespace) => `module ${namespace}.Routes.Login exposing (page, action)
 
 import ElmSsr.Action as Action exposing (Action)
 import ElmSsr.Document exposing (Document)
@@ -418,10 +769,10 @@ view =
                             ]
                         , div [ class "auth-body" ]
                             [ a [ class "btn btn-primary btn-full", href "/api/auth/login" ]
-                                [ text "Continue with ${authDisplayName(authProvider)}" ]
+                                [ text "Continue with Auth0" ]
                             ]
                         , p [ class "auth-footer" ]
-                            [ text "Powered by ${authDisplayName(authProvider)} via elm-ssr" ]
+                            [ text "Powered by Auth0 via elm-ssr" ]
                         ]
                     ]
                 ]
@@ -717,7 +1068,7 @@ if (typeof Bun !== "undefined") {
   }`;
 
   const effectsConfig = isBetterAuth
-    ? `,\n  effects: sessionEffects(${baseEffectsBody}),\n  middlewares: [betterAuthHandler, betterAuthBridge]`
+    ? `,\n  effects: sessionEffects(${baseEffectsBody}),\n  middlewares: [betterAuthDashShim, betterAuthHandler, betterAuthBridge]`
     : isAuth0
     ? `,\n  effects: ${baseEffectsBody},\n  middlewares: [auth0Handler]`
     : `,\n  effects: ${baseEffectsBody}`;
@@ -744,131 +1095,29 @@ const getAuthEnv = (env: any): any =>
 let _auth: ReturnType<typeof createAuth> | null = null;
 const getAuth = (env: any) => (_auth ??= createAuth(getAuthEnv(env)));
 
-const betterAuthLoginHtml = \`<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Sign in</title>
-  <style>
-    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:ui-sans-serif,system-ui,-apple-system,sans-serif;background:#f6f5f3;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:1rem}
-    .card{background:#fff;border:1px solid #e5e2dd;border-radius:16px;padding:2.5rem;width:100%;max-width:380px}
-    .logo{font-size:1.5rem;text-align:center;margin-bottom:.75rem}
-    h1{font-size:1.5rem;font-weight:700;text-align:center;margin-bottom:.5rem;letter-spacing:-.02em}
-    .sub{font-size:.9rem;color:#6b6b6b;text-align:center;margin-bottom:2rem}
-    label{display:block;font-size:.875rem;font-weight:500;margin-bottom:.35rem}
-    input{width:100%;border:1.5px solid #e5e2dd;border-radius:8px;padding:.6rem .9rem;font:inherit;font-size:.9rem;margin-bottom:1rem;transition:border-color .12s}
-    input:focus{outline:none;border-color:#1a1a1a}
-    .btn{width:100%;padding:.6rem;background:#1a1a1a;color:#fff;border:none;border-radius:8px;font:inherit;font-size:.9rem;font-weight:500;cursor:pointer;transition:background .12s}
-    .btn:hover{background:#333}
-    .btn:disabled{opacity:.5;cursor:not-allowed}
-    .error{color:#c53030;font-size:.8rem;margin-bottom:1rem;display:none}
-    .footer{text-align:center;font-size:.8rem;color:#6b6b6b;margin-top:1.5rem}
-    .footer a{color:#1a1a1a;text-decoration:underline;text-underline-offset:2px}
-    .tabs{display:flex;gap:.5rem;margin-bottom:1.5rem}
-    .tab{flex:1;padding:.5rem;border:none;border-radius:8px;font:inherit;font-size:.875rem;font-weight:500;cursor:pointer;background:#f6f5f3;color:#6b6b6b;transition:all .12s}
-    .tab.active{background:#1a1a1a;color:#fff}
-  </style>
-</head>
-<body>
-  <div class="card">
-    <div class="logo">◆</div>
-    <h1 id="title">Welcome back</h1>
-    <p class="sub" id="sub">Sign in to your account to continue.</p>
-    <div class="tabs">
-      <button class="tab active" id="tab-in" onclick="switchTab('in')">Sign in</button>
-      <button class="tab" id="tab-up" onclick="switchTab('up')">Sign up</button>
-    </div>
-    <div class="error" id="err"></div>
-    <form id="form" onsubmit="submit(event)">
-      <div id="name-field" style="display:none">
-        <label for="name">Name</label>
-        <input type="text" id="name" autocomplete="name">
-      </div>
-      <label for="email">Email</label>
-      <input type="email" id="email" autocomplete="email" required>
-      <label for="password">Password</label>
-      <input type="password" id="password" autocomplete="current-password" required>
-      <button class="btn" type="submit" id="btn">Sign in</button>
-    </form>
-    <div class="footer" id="footer">
-      Powered by elm-ssr + BetterAuth
-    </div>
-  </div>
-  <script>
-    let mode = 'in';
-    function switchTab(m) {
-      mode = m;
-      document.getElementById('tab-in').className = 'tab' + (m==='in' ? ' active' : '');
-      document.getElementById('tab-up').className = 'tab' + (m==='up' ? ' active' : '');
-      document.getElementById('title').textContent = m==='in' ? 'Welcome back' : 'Create account';
-      document.getElementById('sub').textContent = m==='in' ? 'Sign in to your account to continue.' : 'Sign up to get started.';
-      document.getElementById('name-field').style.display = m==='up' ? 'block' : 'none';
-      document.getElementById('btn').textContent = m==='in' ? 'Sign in' : 'Sign up';
-      document.getElementById('password').autocomplete = m==='in' ? 'current-password' : 'new-password';
-      document.getElementById('err').style.display = 'none';
-    }
-    async function submit(e) {
-      e.preventDefault();
-      const btn = document.getElementById('btn');
-      const err = document.getElementById('err');
-      btn.disabled = true;
-      err.style.display = 'none';
-      const url = mode === 'in' ? '/api/auth/sign-in/email' : '/api/auth/sign-up/email';
-      const body = { email: document.getElementById('email').value, password: document.getElementById('password').value };
-      if (mode === 'up') body.name = document.getElementById('name').value;
-      try {
-        const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-        if (res.ok) { location.href = '/profile'; return; }
-        const data = await res.json().catch(() => ({}));
-        err.textContent = data.message || (mode==='in' ? 'Invalid email or password.' : 'Could not create account.');
-        err.style.display = 'block';
-      } catch { err.textContent = 'Network error. Please try again.'; err.style.display = 'block'; }
-      btn.disabled = false;
-    }
-  </script>
-</body>
-</html>\`;
+// Shim for BetterAuth's online dashboard endpoints.
+// These are NOT in BetterAuth's npm package — the cloud dashboard calls them
+// to confirm reachability and load config before saving changes.
+const betterAuthDashShim: Middleware = async (context, next) => {
+  if (!context.url.pathname.startsWith("/api/auth/dash/")) return next(context);
+  if (context.url.pathname === "/api/auth/dash/validate") {
+    const challenge = context.url.searchParams.get("challenge");
+    return new Response(challenge ?? JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "content-type": challenge ? "text/plain" : "application/json" },
+    });
+  }
+  const baseURL = (context.env?.BETTER_AUTH_URL as string)
+    ?? new URL(context.request.url).origin;
+  return new Response(JSON.stringify({ ok: true, baseURL }), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+};
 
-// Handles /login and all /api/auth/* requests for BetterAuth.
+// Forwards all /api/auth/* requests to BetterAuth.
 const betterAuthHandler: Middleware = async (context, next) => {
-  // /login — serve the login form directly at the canonical path so "Sign in"
-  // links go straight to the form with no redirect.
-  if (context.url.pathname === "/login") {
-    return new Response(betterAuthLoginHtml, {
-      status: 200,
-      headers: { "content-type": "text/html; charset=utf-8" },
-    });
-  }
-
   if (!context.url.pathname.startsWith("/api/auth/")) return next(context);
-
-  // /api/auth/login — alias kept for direct navigation; redirect to /login.
-  if (context.url.pathname === "/api/auth/login") {
-    return new Response(null, { status: 302, headers: { location: "/login" } });
-  }
-
-  // /api/auth/dash/* — BetterAuth's online dashboard calls these to manage the
-  // instance (validate reachability, load config, etc.). They are not registered
-  // in BetterAuth's npm package and must be handled here.
-  if (context.url.pathname.startsWith("/api/auth/dash/")) {
-    if (context.url.pathname === "/api/auth/dash/validate") {
-      const challenge = context.url.searchParams.get("challenge");
-      return new Response(challenge ?? JSON.stringify({ ok: true }), {
-        status: 200,
-        headers: { "content-type": challenge ? "text/plain" : "application/json" },
-      });
-    }
-    // All other /dash/* endpoints (e.g. /dash/config): return current auth config.
-    const baseURL = (context.env?.BETTER_AUTH_URL as string)
-      ?? new URL(context.request.url).origin;
-    return new Response(JSON.stringify({ ok: true, baseURL }), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    });
-  }
-
   return getAuth(context.env).handler(context.request);
 };
 
@@ -1242,7 +1491,24 @@ p  { line-height: 1.65; color: var(--text-muted); }
   max-width: 380px;
 }
 
-.auth-header { text-align: center; margin-bottom: 2rem; }
+.auth-header { text-align: center; margin-bottom: 1.5rem; }
+
+.auth-tabs { display: flex; gap: .5rem; margin-bottom: 1.5rem; }
+
+.auth-tab {
+  flex: 1; padding: .5rem;
+  border: none; border-radius: 8px;
+  font: inherit; font-size: .875rem; font-weight: 500;
+  cursor: pointer; background: var(--bg); color: var(--text-muted);
+  transition: all .12s;
+}
+.auth-tab--active { background: var(--accent); color: white; }
+
+.auth-error {
+  color: #c53030; font-size: .8rem; margin-bottom: 1rem;
+  padding: .5rem .75rem;
+  background: #fff5f5; border: 1px solid #fed7d7; border-radius: 8px;
+}
 
 .auth-logo {
   font-size: 1.5rem;
@@ -1365,7 +1631,7 @@ const filesForApp = (name, appRoot, options = {}) => {
   const tailwind = options.tailwind;
 
   const files = [
-    { path: `${appRoot}/elm.json`, content: JSON.stringify(elmJsonTemplate(), null, 2) + "\n" },
+    { path: `${appRoot}/elm.json`, content: JSON.stringify(elmJsonTemplate({ http: auth === "better-auth" }), null, 2) + "\n" },
     { path: `${appRoot}/runtime.ts`, content: runtimeTemplate(appRoot, db, auth) },
     { path: `${appRoot}/worker.ts`, content: workerTemplate() },
     { path: `${appRoot}/styles.ts`, content: stylesTemplate() },
@@ -1403,7 +1669,9 @@ const filesForApp = (name, appRoot, options = {}) => {
   if (auth) {
     files.push({
       path: `${appRoot}/src/${namespace}/Routes/Login.elm`,
-      content: loginRouteTemplate(namespace, auth)
+      content: auth === "better-auth"
+        ? loginRouteTemplateBetterAuth(namespace)
+        : loginRouteTemplateAuth0(namespace)
     });
     files.push({
       path: `${appRoot}/src/${namespace}/Routes/Profile.elm`,
@@ -1413,6 +1681,12 @@ const filesForApp = (name, appRoot, options = {}) => {
       path: `${appRoot}/src/Endpoints/Auth.ts`,
       content: auth === "better-auth" ? betterAuthEndpointTemplate() : auth0EndpointTemplate()
     });
+    if (auth === "better-auth") {
+      files.push({
+        path: `${appRoot}/src/${namespace}/Islands/Login.elm`,
+        content: loginIslandTemplate(namespace)
+      });
+    }
   }
 
   if (tailwind) {
@@ -1466,7 +1740,11 @@ const filesForApp = (name, appRoot, options = {}) => {
 
   .auth-page { @apply flex justify-center pt-12; }
   .auth-card { @apply bg-white border border-gray-200 rounded-2xl p-10 w-full max-w-sm; }
-  .auth-header { @apply text-center mb-8; }
+  .auth-header { @apply text-center mb-6; }
+  .auth-tabs { @apply flex gap-2 mb-6; }
+  .auth-tab { @apply flex-1 py-2 border-0 rounded-lg text-sm font-medium cursor-pointer bg-gray-100 text-gray-500 transition-all; }
+  .auth-tab--active { @apply bg-gray-900 text-white; }
+  .auth-error { @apply text-red-700 text-xs mb-4 px-3 py-2 bg-red-50 border border-red-200 rounded-lg; }
   .auth-logo { @apply text-2xl block mb-4; }
   .auth-title { @apply text-2xl font-bold tracking-tight mb-2; }
   .auth-subtitle { @apply text-sm text-gray-500; }

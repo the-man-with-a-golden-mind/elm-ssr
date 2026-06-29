@@ -25,6 +25,13 @@ function createIslandsRuntime(deps) {
 
     const teardowns = [];
 
+    // navigateTo: island requests a full-page navigation (e.g. after sign-in).
+    if (app.ports.navigateTo) {
+      app.ports.navigateTo.subscribe((url) => {
+        window.location.href = url;
+      });
+    }
+
     if (app.ports.broadcastOut) {
       app.ports.broadcastOut.subscribe((event) => {
         const detail = {

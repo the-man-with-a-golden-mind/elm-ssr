@@ -500,6 +500,7 @@ describe("elm-ssr CLI", () => {
     const root = await mkdtemp(join(tmpdir(), "elm-ssr-cli-"));
     tempRoots.push(root);
     await linkNodeModules(root);
+    await symlink(resolve(process.cwd(), ".elm-home"), join(root, ".elm-home"), "dir");
 
     await writeFile(
       resolve(root, "elm-ssr.config.json"),
@@ -532,12 +533,28 @@ describe("elm-ssr CLI", () => {
     expect(migration).toContain("CREATE TABLE IF NOT EXISTS account");
     expect(migration).toContain("CREATE TABLE IF NOT EXISTS verification");
 
+    await stat(resolve(root, "auth-app/src/AuthApp/Islands/Login.elm")); // Login island exists
+
+    const loginElm = await readFile(resolve(root, "auth-app/src/AuthApp/Islands/Login.elm"), "utf8");
+    expect(loginElm).toContain("port module");              // uses navigateTo port
+    expect(loginElm).toContain("port navigateTo");
+    expect(loginElm).toContain("Http.post");                // calls BetterAuth API
+    expect(loginElm).toContain("/api/auth/sign-in/email");
+    expect(loginElm).toContain("/api/auth/sign-up/email");
+
+    const loginRoute = await readFile(resolve(root, "auth-app/src/AuthApp/Routes/Login.elm"), "utf8");
+    expect(loginRoute).toContain("LoginIsland.embed");      // embeds the island, no hardcoded form
+
+    const elmJson = JSON.parse(await readFile(resolve(root, "auth-app/elm.json"), "utf8"));
+    expect(elmJson.dependencies.direct["elm/http"]).toBe("2.0.0"); // http dep for island
+
     const runtime = await readFile(resolve(root, "auth-app/runtime.ts"), "utf8");
-    expect(runtime).toContain("betterAuthHandler");       // auth routes in middleware
-    expect(runtime).toContain("betterAuthBridge");        // session bridge in middleware
+    expect(runtime).toContain("betterAuthDashShim");      // dashboard shim (separate responsibility)
+    expect(runtime).toContain("betterAuthHandler");       // forwards /api/auth/* to BetterAuth
+    expect(runtime).toContain("betterAuthBridge");        // session bridge for Elm pages
     expect(runtime).toContain("sessionEffects");
     expect(runtime).toContain("bunAuthDb");
-    expect(runtime).toContain("middlewares: [betterAuthHandler, betterAuthBridge]");
+    expect(runtime).toContain("middlewares: [betterAuthDashShim, betterAuthHandler, betterAuthBridge]");
     expect(runtime).not.toContain("sessions:");           // no elm-ssr session middleware
     expect(runtime).not.toContain("sessionStore");
     expect(runtime).not.toContain("baseWorkerFetch");     // no worker.fetch wrapping
@@ -578,7 +595,10 @@ describe("elm-ssr CLI", () => {
     expect(res2.status).toBe(200);
     expect(res2.headers.get("content-type")).toContain("text/html");
     const loginBody = await res2.text();
-    expect(loginBody).toContain("sign-in/email"); // login form, not a redirect button
+    // Login island is embedded — form logic is client-side, not in SSR HTML
+    expect(loginBody).toContain("elm-ssr-island");
+    expect(loginBody).toContain('"Login"');
+    expect(loginBody).not.toContain("Continue with BetterAuth"); // old redirect button gone
 
     // /profile unauthenticated → redirect to /login
     const res3 = await worker.fetch(new Request("http://localhost/profile"));
@@ -690,20 +710,17 @@ describe("elm-ssr CLI", () => {
     );
     expect(dashOtherRes.status).toBe(200);
 
-    // GET /login — must serve the HTML login form directly (no redirect).
-    // The nav "Sign in" link points to /login; the form must be there, not at /api/auth/login.
+    // GET /login — Elm SSR page with the Login island embedded.
+    // No hardcoded HTML, no redirect — the island handles the form client-side.
     const loginPageRes = await worker.fetch(new Request("http://localhost/login"));
     expect(loginPageRes.status).toBe(200);
     expect(loginPageRes.headers.get("content-type")).toContain("text/html");
     const loginHtml = await loginPageRes.text();
-    expect(loginHtml).toContain("/api/auth/sign-in/email");   // form POSTs here
-    expect(loginHtml).toContain("/api/auth/sign-up/email");   // sign-up too
+    // Island marker must be present
+    expect(loginHtml).toContain("elm-ssr-island");
+    expect(loginHtml).toContain('"Login"');   // island name in data attribute
+    // Elm page title
     expect(loginHtml).toContain("Sign in");
-
-    // GET /api/auth/login — legacy alias, redirects to /login (no double form)
-    const loginAliasRes = await worker.fetch(new Request("http://localhost/api/auth/login"), { redirect: "manual" } as any);
-    expect(loginAliasRes.status).toBe(302);
-    expect(loginAliasRes.headers.get("location")).toBe("/login");
 
     // /api/auth/get-session returns 200 with null (no session) — proves BetterAuth
     // processed the request rather than elm-ssr returning 404.
@@ -795,7 +812,9 @@ describe("elm-ssr CLI", () => {
     expect(worker).toBeDefined();
 
     expect((await worker.fetch(new Request("http://localhost/"))).status).toBe(200);
-    expect((await worker.fetch(new Request("http://localhost/login"))).status).toBe(200);
+    const initLoginRes = await worker.fetch(new Request("http://localhost/login"));
+    expect(initLoginRes.status).toBe(200);
+    expect(await initLoginRes.text()).toContain("elm-ssr-island"); // Login island embedded
     expect((await worker.fetch(new Request("http://localhost/profile"))).status).toBe(302);
 
     // Apply the BetterAuth migration for local dev
