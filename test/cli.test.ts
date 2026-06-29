@@ -691,6 +691,35 @@ describe("elm-ssr CLI", () => {
     // elm-ssr CSRF would reject POSTs with 403; BetterAuth handles them with 200
     expect(signIn2Res.status).toBe(200);
 
+    // ── Error cases ────────────────────────────────────────────────────────────
+    // Wrong password → 401 INVALID_EMAIL_OR_PASSWORD
+    const wrongPwdRes = await worker.fetch(new Request("http://localhost/api/auth/sign-in/email", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "test@example.com", password: "wrong-password" }),
+    }));
+    expect(wrongPwdRes.status).toBe(401);
+    const wrongPwdBody = await wrongPwdRes.json() as { code: string };
+    expect(wrongPwdBody.code).toBe("INVALID_EMAIL_OR_PASSWORD");
+
+    // Non-existent user → same 401 (BetterAuth doesn't leak user existence)
+    const unknownUserRes = await worker.fetch(new Request("http://localhost/api/auth/sign-in/email", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "nobody@example.com", password: "password123" }),
+    }));
+    expect(unknownUserRes.status).toBe(401);
+
+    // Duplicate sign-up → 422 USER_ALREADY_EXISTS
+    const dupRes = await worker.fetch(new Request("http://localhost/api/auth/sign-up/email", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "test@example.com", password: "password123", name: "Dupe" }),
+    }));
+    expect(dupRes.status).toBe(422);
+    const dupBody = await dupRes.json() as { code: string };
+    expect(dupBody.code).toContain("USER_ALREADY_EXISTS");
+
     // Invalid auth provider
     const badCommand = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "new", "bad-app", "--auth", "invalid-auth-provider", "--root", root],
@@ -840,6 +869,106 @@ describe("elm-ssr CLI", () => {
     const loginRes = await worker.fetch(new Request("http://localhost/api/auth/login"));
     expect(loginRes.status).toBe(500);
     expect(await loginRes.text()).toContain("AUTH0_DOMAIN");
+
+    // ── Full OAuth2 flow via Bun mock server ───────────────────────────────────
+    // Spin up a local HTTP server that mimics Auth0's token endpoint.
+    // The generated handler uses http:// for localhost domains so no TLS needed.
+    const makeJwt = (payload: Record<string, unknown>) => {
+      const h = btoa(JSON.stringify({ alg: "none", typ: "JWT" }));
+      const p = btoa(JSON.stringify(payload));
+      return `${h}.${p}.sig`;
+    };
+
+    const mockAuth0 = Bun.serve({
+      port: 0, // OS assigns a free port
+      async fetch(req) {
+        const url = new URL(req.url);
+        if (req.method === "POST" && url.pathname === "/oauth/token") {
+          const body = await req.json() as { code?: string };
+          if (body.code !== "valid-code") {
+            return Response.json({ error: "invalid_grant" }, { status: 400 });
+          }
+          return Response.json({
+            id_token: makeJwt({ sub: "auth0|mock123", email: "oauth@example.com", name: "OAuth User" }),
+            access_token: "mock-access-token",
+          });
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+
+    try {
+      const mockDomain = `localhost:${mockAuth0.port}`;
+      const mockEnv = {
+        AUTH0_DOMAIN: mockDomain,
+        AUTH0_CLIENT_ID: "mock-client-id",
+        AUTH0_CLIENT_SECRET: "mock-client-secret",
+        AUTH0_CALLBACK_URL: "http://localhost:8787/api/auth/callback",
+        SESSION_SECRET: "change-me-to-a-secure-random-hmac-secret-key-that-is-at-least-32-chars",
+      };
+
+      // 1. Login → 302 to Auth0 authorize URL with correct params
+      const mockLoginRes = await worker.fetch(
+        new Request("http://localhost:8787/api/auth/login"),
+        mockEnv
+      );
+      expect(mockLoginRes.status).toBe(302);
+      const authorizeUrl = new URL(mockLoginRes.headers.get("location") ?? "");
+      expect(authorizeUrl.hostname).toBe("localhost");
+      expect(authorizeUrl.pathname).toBe("/authorize");
+      expect(authorizeUrl.searchParams.get("client_id")).toBe("mock-client-id");
+      expect(authorizeUrl.searchParams.get("response_type")).toBe("code");
+      expect(authorizeUrl.searchParams.get("scope")).toBe("openid profile email");
+
+      // 2. Callback with valid code → token exchange → session created → /profile
+      const callbackRes = await worker.fetch(
+        new Request("http://localhost:8787/api/auth/callback?code=valid-code"),
+        mockEnv
+      );
+      expect(callbackRes.status).toBe(302);
+      expect(callbackRes.headers.get("location")).toBe("/profile");
+      const oauthCookie = (callbackRes.headers.get("set-cookie") ?? "").split(";")[0];
+      expect(oauthCookie).toMatch(/^session=.+/);
+
+      // 3. Authenticated /profile → 200 with user decoded from JWT
+      const oauthProfileRes = await worker.fetch(
+        new Request("http://localhost:8787/profile", { headers: { cookie: oauthCookie } }),
+        mockEnv
+      );
+      expect(oauthProfileRes.status).toBe(200);
+      const oauthHtml = await oauthProfileRes.text();
+      expect(oauthHtml).toContain("oauth@example.com");
+      expect(oauthHtml).toContain("Sign out");
+
+      // 4. Callback with invalid code → token exchange fails → 502
+      const badCallbackRes = await worker.fetch(
+        new Request("http://localhost:8787/api/auth/callback?code=bad-code"),
+        mockEnv
+      );
+      expect(badCallbackRes.status).toBe(502);
+
+      // 5. Logout → clears session cookie + redirects to Auth0 OIDC logout
+      const mockLogoutRes = await worker.fetch(
+        new Request("http://localhost:8787/api/auth/logout", { headers: { cookie: oauthCookie } }),
+        mockEnv
+      );
+      expect(mockLogoutRes.status).toBe(302);
+      const logoutUrl = new URL(mockLogoutRes.headers.get("location") ?? "");
+      expect(logoutUrl.hostname).toBe("localhost");
+      expect(logoutUrl.pathname).toBe("/oidc/logout");
+      expect(logoutUrl.searchParams.get("client_id")).toBe("mock-client-id");
+      expect(mockLogoutRes.headers.get("set-cookie")).toContain("session=;");
+
+      // 6. After logout: old cookie no longer grants access
+      const postLogoutRes = await worker.fetch(
+        new Request("http://localhost:8787/profile", { headers: { cookie: oauthCookie } }),
+        mockEnv
+      );
+      expect(postLogoutRes.status).toBe(302);
+      expect(postLogoutRes.headers.get("location")).toBe("/login");
+    } finally {
+      mockAuth0.stop();
+    }
 
     // ── Authenticated session lifecycle ────────────────────────────────────────
     // We can't call real Auth0 without credentials, so we seed a session directly.

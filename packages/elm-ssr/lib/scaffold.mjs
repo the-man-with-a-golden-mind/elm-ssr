@@ -536,6 +536,10 @@ const getConfig = (env: any): Auth0Config => ({
   callbackUrl: (env?.AUTH0_CALLBACK_URL as string) ?? "http://localhost:8787/api/auth/callback",
 });
 
+// Use http for localhost (dev/test mock servers), https for real Auth0 domains.
+const proto = (domain: string) =>
+  domain.startsWith("localhost") || domain.startsWith("127.") ? "http" : "https";
+
 export const handleAuth = async (
   request: Request,
   env: any,
@@ -557,14 +561,14 @@ export const handleAuth = async (
       redirect_uri: config.callbackUrl,
       scope: "openid profile email",
     });
-    return Response.redirect(\`https://\${config.domain}/authorize?\${params}\`, 302);
+    return Response.redirect(\`\${proto(config.domain)}://\${config.domain}/authorize?\${params}\`, 302);
   }
 
   if (url.pathname === "/api/auth/callback") {
     const code = url.searchParams.get("code");
     if (!code) return new Response("Missing code", { status: 400 });
 
-    const tokenRes = await fetch(\`https://\${config.domain}/oauth/token\`, {
+    const tokenRes = await fetch(\`\${proto(config.domain)}://\${config.domain}/oauth/token\`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -618,7 +622,7 @@ export const handleAuth = async (
       status: 302,
       headers: {
         "Set-Cookie": "session=; Path=/; Max-Age=0; HttpOnly",
-        Location: \`https://\${config.domain}/oidc/logout?\${params}\`,
+        Location: \`\${proto(config.domain)}://\${config.domain}/oidc/logout?\${params}\`,
       },
     });
   }
