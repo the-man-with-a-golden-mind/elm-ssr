@@ -1,6 +1,6 @@
 {
   "name": "elm-ssr",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Elm-first SSR library and framework for Cloudflare Workers (and Bun): file-based routes/islands, backend-neutral effect adapters (KV/D1/Redis/Postgres), background tasks (waitUntil/Queues), SQL-file migrations, CLI scaffold + build.",
   "license": "MIT",
   "author": "Michał Majchrzak <michmajchrzak@gmail.com>",

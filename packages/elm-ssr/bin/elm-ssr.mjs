@@ -13,6 +13,11 @@ const defaultRootPath = process.cwd();
 const args = process.argv.slice(2);
 const command = args[0] ?? "help";
 
+const ownPkg = JSON.parse(
+  await readFile(new URL("../package.json", import.meta.url), "utf8")
+);
+const VERSION = ownPkg.version;
+
 const findFlagValue = (flagName) => {
   const index = args.indexOf(flagName);
   return index >= 0 ? args[index + 1] : undefined;
@@ -71,7 +76,7 @@ const run = async (cmd, cmdArgs, cwd = rootPath) => {
 };
 
 const printHelp = () => {
-  console.log(`elm-ssr commands
+  console.log(`elm-ssr ${VERSION}
 
   build         Generate wrapper modules and compile configured Elm SSR apps
   compress      Pre-compress island and app bundles using Gzip for faster edge delivery
@@ -85,6 +90,7 @@ const printHelp = () => {
   query         Generate type-safe Elm Db modules from SQL table definitions
   info          Print current workspace package and configured app names
   migrate ...   Apply / revert / inspect SQL migrations (see: elm-ssr migrate --help)
+  version       Print the elm-ssr version
 `);
 };
 
@@ -104,6 +110,11 @@ const requireConfig = () => {
     process.exit(1);
   }
 };
+
+if (command === "--version" || command === "-v" || command === "version") {
+  console.log(VERSION);
+  process.exit(0);
+}
 
 switch (command) {
   case "build":

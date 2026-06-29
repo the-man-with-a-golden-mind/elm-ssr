@@ -3,6 +3,14 @@
 All notable changes to the `elm-ssr` package. Dates are ISO; "Unreleased" lives
 at the top until a version is cut.
 
+## 1.0.5 — 2026-06-29
+
+### Added
+
+- **CLI now shows its version.** `elm-ssr version`, `elm-ssr --version`, and
+  `elm-ssr -v` all print the installed version number. The help header also
+  includes the version so it's always visible at a glance.
+
 ## 1.0.4 — 2026-06-28
 
 ### Fixed
