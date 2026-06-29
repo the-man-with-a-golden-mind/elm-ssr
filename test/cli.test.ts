@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 const tempRoots: string[] = [];
 
@@ -1127,6 +1127,152 @@ describe("elm-ssr CLI", () => {
     expect(appCss).toContain("@tailwind base;");
     expect(appCss).toContain("@tailwind components;");
     expect(appCss).toContain("@tailwind utilities;");
+  });
+
+  // ── elm-ssr auth add / auth list ────────────────────────────────────────────
+
+  it("auth add betterAuth adds auth to a plain (non-auth) app", async () => {
+    const root = await mkdtemp(join(tmpdir(), "elm-ssr-auth-add-"));
+    tempRoots.push(root);
+
+    // Scaffold a plain app with no auth
+    const newCmd = Bun.spawn(
+      ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "new", "myapp", "--root", root],
+      { cwd: "/Users/michalmajchrzak/Projects/elmssr", stdout: "pipe", stderr: "pipe" }
+    );
+    expect(await newCmd.exited).toBe(0);
+
+    // auth list: no providers yet
+    const listBefore = Bun.spawn(
+      ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "auth", "list", "--app", "myapp", "--root", root],
+      { cwd: "/Users/michalmajchrzak/Projects/elmssr", stdout: "pipe", stderr: "pipe" }
+    );
+    expect(await listBefore.exited).toBe(0);
+    expect(await new Response(listBefore.stdout).text()).toContain("no auth providers");
+
+    // auth add betterAuth
+    const addCmd = Bun.spawn(
+      ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "auth", "add", "betterAuth", "--app", "myapp", "--root", root],
+      { cwd: "/Users/michalmajchrzak/Projects/elmssr", stdout: "pipe", stderr: "pipe" }
+    );
+    expect(await addCmd.exited).toBe(0);
+    expect(await new Response(addCmd.stdout).text()).toContain("Added betterAuth");
+
+    // auth list: now shows betterAuth
+    const listAfter = Bun.spawn(
+      ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "auth", "list", "--app", "myapp", "--root", root],
+      { cwd: "/Users/michalmajchrzak/Projects/elmssr", stdout: "pipe", stderr: "pipe" }
+    );
+    expect(await listAfter.exited).toBe(0);
+    expect(await new Response(listAfter.stdout).text()).toContain("better-auth");
+
+    // Verify generated files
+    await stat(resolve(root, "myapp/src/Endpoints/Auth.ts"));
+    await stat(resolve(root, "myapp/src/Myapp/Routes/Login.elm"));
+    await stat(resolve(root, "myapp/src/Myapp/Routes/Profile.elm"));
+    await stat(resolve(root, "myapp/src/Myapp/Islands/Login.elm"));
+    await stat(resolve(root, "myapp/migrations/0001_init.sql"));
+
+    const authTs = await readFile(resolve(root, "myapp/src/Endpoints/Auth.ts"), "utf8");
+    expect(authTs).toContain("export interface AuthUser");
+    expect(authTs).toContain("betterAuthProvider");
+
+    const runtime = await readFile(resolve(root, "myapp/runtime.ts"), "utf8");
+    expect(runtime).toContain("// elm-ssr-auth:start");
+    expect(runtime).toContain("// elm-ssr-auth:end");
+    expect(runtime).toContain("composeAuthProviders");
+    expect(runtime).toContain("betterAuthProvider");
+    expect(runtime).toContain("sessions:");
+    expect(runtime).toContain("middlewares: [authMiddleware]");
+
+    const devVars = await readFile(resolve(root, "myapp/.dev.vars"), "utf8");
+    expect(devVars).toContain("BETTER_AUTH_SECRET=");
+    expect(devVars).toContain("BETTER_AUTH_URL=");
+
+    // package.json lives at the workspace root, not the app directory
+    const pkg = JSON.parse(await readFile(resolve(root, "package.json"), "utf8")) as any;
+    expect(pkg.devDependencies?.["better-auth"]).toBe("1.6.22");
+
+    const elmJson = JSON.parse(await readFile(resolve(root, "myapp/elm.json"), "utf8")) as any;
+    expect(elmJson.dependencies.direct["elm/http"]).toBe("2.0.0");
+  });
+
+  it("auth add betterAuth is idempotent", async () => {
+    const root = await mkdtemp(join(tmpdir(), "elm-ssr-auth-idem-"));
+    tempRoots.push(root);
+
+    const newCmd = Bun.spawn(
+      ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "new", "myapp", "--root", root],
+      { cwd: "/Users/michalmajchrzak/Projects/elmssr", stdout: "pipe", stderr: "pipe" }
+    );
+    expect(await newCmd.exited).toBe(0);
+
+    // Add twice — must not duplicate providers or crash
+    for (let i = 0; i < 2; i++) {
+      const addCmd = Bun.spawn(
+        ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "auth", "add", "betterAuth", "--app", "myapp", "--root", root],
+        { cwd: "/Users/michalmajchrzak/Projects/elmssr", stdout: "pipe", stderr: "pipe" }
+      );
+      expect(await addCmd.exited).toBe(0);
+    }
+
+    const runtime = await readFile(resolve(root, "myapp/runtime.ts"), "utf8");
+    // betterAuthProvider appears exactly twice: once in the import, once in composeAuthProviders.
+    const matches = runtime.match(/betterAuthProvider/g) ?? [];
+    expect(matches.length).toBe(2);
+  });
+
+  it("auth add betterAuth preserves existing Elm pages", async () => {
+    const root = await mkdtemp(join(tmpdir(), "elm-ssr-auth-preserve-"));
+    tempRoots.push(root);
+
+    const newCmd = Bun.spawn(
+      ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "new", "myapp", "--root", root],
+      { cwd: "/Users/michalmajchrzak/Projects/elmssr", stdout: "pipe", stderr: "pipe" }
+    );
+    expect(await newCmd.exited).toBe(0);
+
+    // Pre-create Login.elm with custom content
+    const loginPath = resolve(root, "myapp/src/Myapp/Routes/Login.elm");
+    await mkdir(dirname(loginPath), { recursive: true });
+    const customContent = "-- my custom login page\n";
+    await writeFile(loginPath, customContent, "utf8");
+
+    // auth add must NOT overwrite the existing file
+    const addCmd = Bun.spawn(
+      ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "auth", "add", "betterAuth", "--app", "myapp", "--root", root],
+      { cwd: "/Users/michalmajchrzak/Projects/elmssr", stdout: "pipe", stderr: "pipe" }
+    );
+    expect(await addCmd.exited).toBe(0);
+
+    const afterContent = await readFile(loginPath, "utf8");
+    expect(afterContent).toBe(customContent); // untouched
+  });
+
+  it("auth add on a project that was scaffolded with auth is idempotent", async () => {
+    const root = await mkdtemp(join(tmpdir(), "elm-ssr-auth-scaffolded-"));
+    tempRoots.push(root);
+
+    const newCmd = Bun.spawn(
+      ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "new", "myapp", "--auth", "betterAuth", "--root", root],
+      { cwd: "/Users/michalmajchrzak/Projects/elmssr", stdout: "pipe", stderr: "pipe" }
+    );
+    expect(await newCmd.exited).toBe(0);
+
+    const runtimeBefore = await readFile(resolve(root, "myapp/runtime.ts"), "utf8");
+
+    // auth add on already-auth project must be a no-op
+    const addCmd = Bun.spawn(
+      ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "auth", "add", "betterAuth", "--app", "myapp", "--root", root],
+      { cwd: "/Users/michalmajchrzak/Projects/elmssr", stdout: "pipe", stderr: "pipe" }
+    );
+    expect(await addCmd.exited).toBe(0);
+
+    const runtimeAfter = await readFile(resolve(root, "myapp/runtime.ts"), "utf8");
+    // runtime.ts should not have gained extra provider calls (idempotent).
+    // betterAuthProvider: import + call = 2 occurrences.
+    const providerCount = (runtimeAfter.match(/betterAuthProvider/g) ?? []).length;
+    expect(providerCount).toBe(2);
   });
 });
 

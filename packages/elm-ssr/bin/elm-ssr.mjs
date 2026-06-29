@@ -3,7 +3,7 @@
 import { readFile, stat } from "node:fs/promises";
 import { watch } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { createAppScaffold, createRouteScaffold } from "../lib/scaffold.mjs";
+import { createAppScaffold, createRouteScaffold, addAuthProvider, listAuthProviders } from "../lib/scaffold.mjs";
 import { readWorkspaceConfig } from "../lib/workspace.mjs";
 import { build } from "../lib/build.mjs";
 import { migrate } from "../lib/migrate.mjs";
@@ -45,7 +45,7 @@ const userRoot = findFlagValue("--root");
 let rootPath;
 if (userRoot) {
   rootPath = resolve(userRoot);
-} else if (["new", "init", "migrate", "help"].includes(command)) {
+} else if (["new", "init", "migrate", "help", "version", "--version", "-v"].includes(command)) {
   rootPath = defaultRootPath;
 } else {
   rootPath = resolve(await findWorkspaceRoot(defaultRootPath));
@@ -91,6 +91,8 @@ const printHelp = () => {
   info          Print current workspace package and configured app names
   migrate ...   Apply / revert / inspect SQL migrations (see: elm-ssr migrate --help)
   version       Print the elm-ssr version
+  auth add <provider> [--app <name>]  Add an auth provider to an app (betterAuth | auth0)
+  auth list [--app <name>]            List configured auth providers
 `);
 };
 
@@ -346,6 +348,80 @@ switch (command) {
       process.exit(1);
     }
     break;
+  }
+
+  case "auth": {
+    const subcommand = args[1];
+
+    if (subcommand === "list") {
+      requireConfig();
+      const appName = findFlagValue("--app");
+      const apps = appName
+        ? config.apps.filter(a => a.name === appName)
+        : config.apps;
+      if (apps.length === 0) {
+        console.error(appName
+          ? `Error: App "${appName}" not found in elm-ssr.config.json`
+          : "Error: No apps found in elm-ssr.config.json");
+        process.exit(1);
+      }
+      for (const app of apps) {
+        const providers = await listAuthProviders(rootPath, app);
+        if (providers.length === 0) {
+          console.log(`${app.name}: no auth providers configured`);
+        } else {
+          console.log(`${app.name}: ${providers.join(", ")}`);
+        }
+      }
+      break;
+    }
+
+    if (subcommand === "add") {
+      requireConfig();
+      const providerArg = args[2];
+      if (!providerArg) {
+        console.error("Usage: elm-ssr auth add <provider> [--app <name>]");
+        console.error("  Providers: betterAuth, auth0");
+        process.exit(1);
+      }
+      const appName = findFlagValue("--app");
+      let appConfig;
+      if (appName) {
+        appConfig = config.apps.find(a => a.name === appName);
+        if (!appConfig) {
+          console.error(`Error: App "${appName}" not found in elm-ssr.config.json`);
+          process.exit(1);
+        }
+      } else if (config.apps.length === 1) {
+        appConfig = config.apps[0];
+      } else {
+        console.error("Error: Multiple apps found. Specify one with --app <name>");
+        console.error("Available:", config.apps.map(a => a.name).join(", "));
+        process.exit(1);
+      }
+      try {
+        const result = await addAuthProvider(rootPath, appConfig, providerArg);
+        console.log(`Added ${result.name} to ${appConfig.name}`);
+        console.log(`\nNext steps:`);
+        if (result.provider === "better-auth") {
+          console.log(`  1. Run: bun install`);
+          console.log(`  2. Run: elm-ssr migrate`);
+          console.log(`  3. Set BETTER_AUTH_SECRET in ${appConfig.root}/.dev.vars`);
+        } else {
+          console.log(`  1. Set AUTH0_DOMAIN, AUTH0_CLIENT_ID, AUTH0_CLIENT_SECRET in ${appConfig.root}/.dev.vars`);
+        }
+        console.log(`  4. Run: bun run build`);
+      } catch (err) {
+        console.error(`Error: ${err.message}`);
+        process.exit(1);
+      }
+      break;
+    }
+
+    console.error("Usage: elm-ssr auth <add|list> [...]");
+    console.error("  elm-ssr auth add betterAuth --app my-app");
+    console.error("  elm-ssr auth list --app my-app");
+    process.exit(1);
   }
 
   case "migrate":
