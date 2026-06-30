@@ -27,7 +27,14 @@ const cookiePairsFromSetCookie = (setCookie: string | null): string[] => {
 /** Creates a BetterAuth-backed AuthProvider. Sign-in/sign-up call BetterAuth for
  * credential validation only — elm-ssr sessions remain the system of record. */
 export const createBetterAuthProvider = (options: BetterAuthProviderOptions): AuthProvider => {
-  // Singleton per isolate — recreated only when the resolved DB binding changes.
+  // Singleton per isolate — recreated whenever ANY resolved config value
+  // changes, not just the DB binding. The DB binding alone is not a safe
+  // cache key on Cloudflare Workers: env.DB is the same object reference on
+  // every request to a warm isolate, so caching by DB alone would freeze
+  // whatever baseURL/secret/apiKey happened to resolve on the very first
+  // request (e.g. apiKey undefined before a dashboard key was configured)
+  // for the isolate's entire lifetime — every later request, even with a
+  // correct env, would silently keep using the stale first-resolved config.
   // Typed `any`: betterAuth()'s return type is parameterised by the exact
   // plugins/config literal passed in, which doesn't collapse to a stable
   // reusable type across the two call sites below (TS infers a fresh
@@ -35,18 +42,26 @@ export const createBetterAuthProvider = (options: BetterAuthProviderOptions): Au
   // exports is still fully typed — this is an internal cache detail.
   let _auth: any = null;
   let _authDb: any = undefined;
+  let _authKey: string | null = null;
 
   const getAuth = (env: any): any => {
     const db = options.database(env);
-    if (_auth !== null && _authDb === db) return _auth;
+    const baseURL = options.baseURL(env);
+    const secret = options.secret(env);
+    const apiKey = options.apiKey?.(env);
+    // db is an object (D1 binding / bun:sqlite handle) — keyed by reference
+    // identity alongside the primitive config values.
+    const key = JSON.stringify([baseURL, secret, apiKey]);
+    if (_auth !== null && _authDb === db && _authKey === key) return _auth;
     _auth = betterAuth({
-      baseURL: options.baseURL(env),
-      secret: options.secret(env),
+      baseURL,
+      secret,
       database: db,
       emailAndPassword: { enabled: true },
-      plugins: [dash({ apiKey: options.apiKey?.(env) })],
+      plugins: [dash({ apiKey })],
     });
     _authDb = db;
+    _authKey = key;
     return _auth;
   };
 

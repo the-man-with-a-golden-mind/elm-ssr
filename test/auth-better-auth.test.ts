@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, describe, expect, it, mock } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -168,5 +168,57 @@ describe("createBetterAuthProvider", () => {
       next
     );
     expect(res.status).toBe(401);
+  });
+});
+
+// Regression test for a real bug: on Cloudflare Workers, env.DB is the same
+// object reference on every request to a warm isolate. The internal
+// betterAuth instance is cached for performance, but if the cache key were
+// just the db reference, ANY env-dependent config (baseURL/secret/apiKey)
+// resolved differently on a later request would be silently ignored —
+// whatever value happened to resolve on the very first request would stick
+// for the isolate's whole lifetime. This caught a real case: apiKey was
+// undefined on a cold start before BETTER_AUTH_API_KEY was configured, then
+// stayed "missing" forever even after the key was set, because db never
+// changed. Verified here by spying on the option resolvers themselves
+// (no module mocking needed) — they must be re-invoked, and a config change
+// must actually reach the constructed instance, on every request.
+describe("createBetterAuthProvider config cache", () => {
+  it("re-resolves baseURL/secret/database/apiKey on every request, not just the first", async () => {
+    const stableDb = new Database(":memory:");
+    stableDb.exec(betterAuthMigrationTemplate());
+
+    const database = mock(() => stableDb);
+    const baseURL = mock(() => "http://localhost:8787");
+    const secret = mock(() => "test-secret-at-least-32-characters-long-for-better-auth");
+    const apiKey = mock(() => undefined as string | undefined);
+
+    const provider = createBetterAuthProvider({ baseURL, secret, database, apiKey });
+    const next = async () => new Response("passthrough", { status: 200 });
+    const session = fakeSession();
+
+    await provider.middleware(
+      contextFor(new Request("https://example.com/api/auth/dash/validate"), session),
+      next
+    );
+    expect(database).toHaveBeenCalledTimes(1);
+    expect(apiKey).toHaveBeenCalledTimes(1);
+
+    // Same db reference (simulates a warm isolate reusing the same D1/sqlite
+    // binding), but apiKey now resolves to a real value.
+    apiKey.mockImplementation(() => "real-key-now-configured");
+
+    await provider.middleware(
+      contextFor(new Request("https://example.com/api/auth/dash/validate"), session),
+      next
+    );
+    // The bug: with a db-only cache key, getAuth would short-circuit before
+    // even calling apiKey() again on the second request.
+    expect(database).toHaveBeenCalledTimes(2);
+    expect(apiKey).toHaveBeenCalledTimes(2);
+    expect(baseURL).toHaveBeenCalledTimes(2);
+    expect(secret).toHaveBeenCalledTimes(2);
+
+    stableDb.close();
   });
 });

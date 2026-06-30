@@ -3,7 +3,13 @@
 All notable changes to the `elm-ssr` package. Dates are ISO; "Unreleased" lives
 at the top until a version is cut.
 
-## Unreleased / 1.0.7
+## Unreleased / 1.0.8
+
+### Fixed
+
+- **`BETTER_AUTH_API_KEY` (and `secret`/`baseURL`) could go stale forever on a warm Cloudflare Workers isolate.** The internal BetterAuth instance was cached keyed only by the resolved DB binding — but `env.DB` is the *same object reference* on every request to a warm isolate, so once constructed, whatever `apiKey`/`secret`/`baseURL` happened to resolve on the very first request (e.g. `apiKey` undefined before a dashboard key was configured) stayed cached for the isolate's entire lifetime, even after the env var was correctly set. The cache key now covers all resolved config, not just the DB reference. Caught by directly observing real production logs (`apiKey: 'missing'` persisting despite the var being set) — added a regression test (`test/auth-better-auth.test.ts`) that spies on the option resolvers and asserts they're re-evaluated, and a stale config actually invalidates the cache, on every request; verified the test fails against the original code and passes with the fix.
+
+## 1.0.7 — 2026-06-30
 
 ### Fixed
 
