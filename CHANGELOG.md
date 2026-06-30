@@ -3,6 +3,45 @@
 All notable changes to the `elm-ssr` package. Dates are ISO; "Unreleased" lives
 at the top until a version is cut.
 
+## Unreleased / 1.0.6
+
+### Added / Improved
+
+- **Elmto is now the canonical DB layer.** `elm-ssr query` generator emits `ElmSsr.Db.Elmto` schemas (`xxxSchema`, `*Col`) + compat CRUD helpers. Old `ElmSsr.Db.Dsl` is deprecated (kept for ports only). Examples (Guestbook) and docs updated. `Repo` + `Changeset` + soft* constraint paths are the recommended story.
+- **Scaffold codegen is more debuggable and automatic.** `ensureScaffoldCodegen` now does mtime-based rebuild when `Scaffold.elm` changes (not just when output missing). Wired non-fatally into `build` and CLI paths. Hybrid Elm/JS remains (JS for FS/CLI, pure Elm for content gen).
+- **SPA navigation now surfaces lifecycle events.** `elm-ssr-navigation-start` / `elm-ssr-navigation-end` (with `ok`) for pending spinners, revalidation UI, or island coordination during client nav. Falls back to full reload on error.
+- **Error handling solidified with more adversarial tests.** Expanded coverage for hard effect failures (→ 502), Form decode errors (→ 422), DB constraints (via `softExecute`/`softQueryOne` + changeset attachment), unknown effects, txn rollbacks, Loader/Action fail statuses, etc. Non-optimistic paths (constraint, bad input) are now explicitly tested in addition to happy paths. See `docs/error-handling.md`.
+
+### Fixed / Polished
+
+- Fixed escaping in auth login island Form decoder (lambda) during scaffold E2E runs.
+- Marked vestigial modules (`ElmSsr.Html.Events`, `ElmSsr.Document.Events`) with LEGACY notes. No new surface should be added here.
+- Docs refreshed for canonical paths (query-dsl marked legacy, elmto promoted, SPA nav section updated).
+- Full verification: builds, `bun test` (targeted + key suites including cli scaffold critical paths, elmto, effects, actions), island runtime.
+
+### Breaking / Migration
+
+- Generated `Db/*.elm` modules from `elm-ssr query` now use Elmto (schema/cols) instead of Dsl. Update call sites to `Query.from MyDb.xxxSchema` + `Repo.all` (or keep using the compat `all`/`insert` helpers).
+- Old Dsl imports will eventually be removed from the public story.
+
+### Auth: provider-neutral contract
+
+- **`AuthUser` / `AuthSessionData` is now the stable session shape across providers.** elm-ssr sessions own app auth state; `session.user` is what Elm decodes. Providers normalise into `AuthUser { id?, email, name?, picture?, provider? }` and never invent their own session shape. Pending OAuth state lives under `session.auth.pendingOAuth`, never the top-level payload, so it can't break `Loader.requireUser`.
+- **`composeAuthProviders([...])` replaces ad-hoc middleware wiring.** Both BetterAuth and Auth0 scaffolds now generate the identical runtime shape: `sessions: {...}`, `csrf: { skipPaths: ["/api/auth/"] }`, `middlewares: [authMiddleware]`. Adding a second provider later merges cleanly into the same `composeAuthProviders([...])` call and import line.
+- **BetterAuth provider (`betterAuthProvider`)**: sign-in/sign-up call BetterAuth for credential validation only — elm-ssr sessions are the system of record, not BetterAuth's own session table. An explicit callback bridge (`bridgeBetterAuthSession`) normalises BetterAuth's session into `AuthUser` after any request that falls through to BetterAuth's own handler (e.g. social providers). `/api/auth/dash/*` is handled directly — these are BetterAuth's *online dashboard* callbacks (reachability check, config load before saving a new secret), not part of the npm package, and previously 404'd.
+- **Auth0 provider (`auth0Provider`)**: proper OAuth2 — `state` generated and verified (CSRF protection), user fetched via `/userinfo` (server-to-server) instead of decoding an unverified ID token client-side.
+- **`elm-ssr auth add <betterAuth|auth0> [--app <name>]` / `auth list`**: add an auth provider to an existing app without regenerating it. Idempotent (safe to run twice), non-destructive (never overwrites an existing `Login.elm`/`Profile.elm`), supports adding a second provider on top of the first via `// elm-ssr-auth:start`/`:end` markers in `runtime.ts`.
+- **Login as a real Elm island** (`Islands/Login.elm`, BetterAuth only): sign-in/sign-up form using `ElmSsr.Form` for client-side validation and a `navigateTo` port (now a first-class island primitive in `client-runtime/islands.ts`, alongside `broadcastOut`/`stateOut`/SSE ports) for post-auth navigation. Replaces an earlier hardcoded HTML string.
+
+### Fixed (this round)
+
+- Restored a BetterAuth E2E test that had been disabled with an early `return` after a missing migration-application step caused it to fail — it was reporting green while skipping ~30 lines of real assertions (sign-up/in, wrong-password, duplicate-signup, route isolation, dashboard endpoints, logout). Root-caused and fixed properly instead of leaving it skipped.
+- `ensureScaffoldCodegen` no longer attempts (and warns about) a rebuild when `codegen/Scaffold.elm` is absent — which is the normal case for installed/published packages, since only the precompiled `lib/scaffold-codegen.mjs` ships. Previously this printed a non-fatal but noisy stderr warning on every `new`/`init`/`route`/`build` invocation for any user without `elm` on `PATH`.
+
+### Internal
+
+- `lib/scaffold.mjs` split from a single 2685-line file into 8 focused modules under `lib/scaffold/` (codegen bridge, string utils, app templates, auth templates, runtime/worker templates, styles template, `auth add` logic, route scaffolding). Public API unchanged — `bin/elm-ssr.mjs` and `lib/build.mjs` needed no changes. Dropped two dead exports (`generateApiRoute`, `generatePageRoute`) left over from the Elm-codegen migration.
+
 ## 1.0.5 — 2026-06-29
 
 ### Added

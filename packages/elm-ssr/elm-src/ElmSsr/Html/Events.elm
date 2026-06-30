@@ -5,6 +5,10 @@ module ElmSsr.Html.Events exposing
     , onBlur, onFocus
     )
 
+{-| LEGACY / vestigial. Pages are static SSR; events belong in islands using stock elm/html Html.Events.
+Kept only if Document.Events still references for legacy findMessage.
+-}
+
 {-| Event handlers. Mirrors `elm/html`'s `Html.Events`.
 
 Handlers are bridged by DOM path and event name, not by serializing `Msg`, so

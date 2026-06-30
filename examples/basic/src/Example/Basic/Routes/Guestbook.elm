@@ -6,11 +6,15 @@ module Example.Basic.Routes.Guestbook exposing (action, page)
 
 import ElmSsr.Action as Action exposing (Action)
 import ElmSsr.Document exposing (Document)
+import ElmSsr.Form as Form
 import ElmSsr.Html exposing (Node, button, form, h1, input, li, p, section, span, text, ul)
 import ElmSsr.Html.Attributes as Attr
 import ElmSsr.Loader as Loader exposing (Loader)
 import ElmSsr.Route as Route exposing (Request)
-import ElmSsr.Db.Dsl as Db
+import ElmSsr.Db.Elmto as Elmto
+import ElmSsr.Db.Elmto.Query as Query
+import ElmSsr.Db.Elmto.Repo as Repo
+import ElmSsr.Db.Elmto.Compiler exposing (Dialect(..))
 import Example.Basic.View.Shared as Shared
 import Example.Basic.Db.Entries as Entries
 import Json.Decode as Decode
@@ -25,37 +29,45 @@ page request =
 recentEntries : Maybe String -> Loader (List Entries.Entry)
 recentEntries maybeQ =
     let
-        baseQuery =
-            Db.select Entries.table [ Db.col Entries.id, Db.col Entries.message, Db.col Entries.createdAt ] Entries.decoder
-                |> Db.limit 10
+        baseQ =
+            Query.from Entries.entrySchema
+                |> Query.limit 10
     in
     case maybeQ of
         Just q ->
             if String.isEmpty (String.trim q) then
-                Db.toLoader baseQuery
+                Repo.all SQLite baseQ
 
             else
-                baseQuery
-                    |> Db.where_ (Entries.message |> Db.like ("%" ++ q ++ "%"))
-                    |> Db.toLoader
+                baseQ
+                    |> Query.where_ (Query.like ("%" ++ q ++ "%") Entries.messageCol)
+                    |> Repo.all SQLite
 
         Nothing ->
-            Db.toLoader baseQuery
+            Repo.all SQLite baseQ
 
 
 action : Request -> Action (Document Never)
 action request =
-    case Maybe.map String.trim (Route.formValue "message" request) of
-        Just message ->
-            if String.isEmpty message then
-                Action.fail 422 "Message is required."
+    let
+        pairs =
+            case Route.formValue "message" request of
+                Just m -> [ ( "message", m ) ]
+                Nothing -> []
+    in
+    case Form.decode messageDecoder pairs of
+        Ok { message } ->
+            Action.fromLoader (saveAndAudit message)
+                |> Action.andThen (\_ -> Action.redirect "/guestbook")
 
-            else
-                Action.fromLoader (saveAndAudit message)
-                    |> Action.andThen (\_ -> Action.redirect "/guestbook")
-
-        Nothing ->
+        Err _ ->
             Action.fail 422 "Message is required."
+
+
+messageDecoder : Form.Decoder { message : String }
+messageDecoder =
+    Form.succeed (\m -> { message = m })
+        |> Form.required "message" (Form.string |> Form.validate Form.nonEmpty)
 
 
 saveAndAudit : String -> Loader ()

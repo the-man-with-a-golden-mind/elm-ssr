@@ -48,12 +48,13 @@ Creates a new app under `<workspace>/<name>/` (or `<workspace>/<subdir>/<name>/`
 - `--db`: Configures SQLite database support and an initial migration.
 - `--auth <betterAuth|auth0>`: Scaffolds authentication views, cookies, and callback handlers.
 
-### `route <path> [--app <name>] [--api] [--ws] [--sse]`
-Scaffolds a new route or endpoint:
+### `route <path> [--app <name>] [--api] [--ws] [--sse] [--resource]`
+Scaffolds a new route or endpoint (uses `ElmSsr.Form` for modern full-stack examples):
 - `--app <app-name>`: Required if multiple apps are configured in the workspace.
 - `--api`: Scaffolds a JSON API page/action route instead of an HTML page.
 - `--ws` or `--websocket`: Scaffolds a TypeScript WebSocket handler in `src/Endpoints/<route>.ts`.
 - `--sse`: Scaffolds a TypeScript Server-Sent Events (SSE) stream handler in `src/Endpoints/<route>.ts`.
+- `--resource`: Generates a richer CRUD-style example with `Form` validation + Elmto hints.
 
 ### `query [--app <name>] [--dir <path>] [--output <path>]`
 Generates type-safe Elm database schema and query helpers directly from raw SQL files in the migrations directory.

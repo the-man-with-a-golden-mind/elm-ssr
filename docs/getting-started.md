@@ -35,10 +35,17 @@ bunx elm-ssr new my-app
 
 Use `--in apps` to group under a subdirectory: `bunx elm-ssr new my-app --in apps`.
 
-### Options (On-Demand DB and Auth)
-For both `init` and `new`, you can specify:
-- `--db` to configure local SQLite database support and a `migrations/` folder.
-- `--auth betterAuth|auth0` to configure session and CSRF middleware, authed routes (`Login.elm`, `Profile.elm`), and handler callbacks (automatically enables `--db` too).
+### Recommended Flags (Full-Stack Experience)
+
+```sh
+bunx elm-ssr new my-app --db --auth betterAuth --tailwind
+```
+
+- `--db` → SQLite migrations + `elm-ssr query` support (now generates **Elmto** modules).
+- `--auth betterAuth` → Sessions + CSRF + ready-to-use Login island using `ElmSsr.Form`.
+- `--tailwind` → Modern styling.
+
+This gives you the current "amazing" stack: zero-JS pages, real islands, Form validation (server + client), **Elmto** for type-safe SQL, and production auth.
 
 The scaffold contains:
 - `elm.json` — Elm package manifest

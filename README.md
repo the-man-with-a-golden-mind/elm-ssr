@@ -34,6 +34,22 @@ other fork:
   by swapping the runner adapter — useful for parity between local dev,
   staging, and production.
 
+**Full-stack Elm feel** (current recommended patterns):
+- `ElmSsr.Form` — shared decoders + client + server validation.
+- `ElmSsr.Db.Elmto` — the **canonical** typed database layer (generator now emits Elmto schemas by default).
+- Real `Loader` / `Action` effects with excellent error paths (`soft*`, changesets, constraint attachment).
+- Zero-JS pages by default + rich `Browser.element` islands.
+- SPA navigation that actually feels good (pending events, persistent islands, head sync).
+
+The goal is to let you write as much of your app as possible in Elm while still getting production-grade SSR, auth, SQL, jobs, etc.
+
+**Start here:**
+- [docs/elmto.md](docs/elmto.md) — database story (the biggest recent evolution)
+- [docs/getting-started.md](docs/getting-started.md)
+- `elm-ssr new my-app --db --auth betterAuth --tailwind`
+
+See the reference apps in `examples/` and `docs/examples.md` for living code.
+
 ## Quickstart
 
 Use the package in your own workspace:

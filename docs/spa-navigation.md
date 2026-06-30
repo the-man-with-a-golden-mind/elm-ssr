@@ -104,6 +104,22 @@ After each navigation, the runtime diffs the `<head>`:
 - `<meta>` elements are NOT diffed — they come from the initial SSR and do
   not change on navigation.
 
+## Navigation lifecycle events (for pending states & revalidation)
+
+During SPA navigation the runtime dispatches these `window` events that islands (or global code) can listen to for loading/pending UI:
+
+- `elm-ssr-navigation-start` — { url }
+- `elm-ssr-navigation-end` — { url, ok }
+
+```js
+window.addEventListener("elm-ssr-navigation-start", () => { showSpinner(); });
+window.addEventListener("elm-ssr-navigation-end", (e) => { hideSpinner(); if (!e.detail.ok) { ... } });
+```
+
+In an island you can forward via a port or `Browser.Events.on` wrapper + Task.
+
+This gives a lightweight hook for revalidation pending states without framework `useLoader`.
+
 ## SSE connections and navigation
 
 Non-persistent islands are torn down on navigation. The client runtime closes

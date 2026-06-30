@@ -1,11 +1,16 @@
 import { mkdir, readdir, readFile, rm, writeFile, stat } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
 import { gzipSync } from "node:zlib";
+import { ensureScaffoldCodegen } from "./scaffold.mjs";
 
 // This lib is part of elm-ssr. It handles generating Main.elm and 
 // compiling the route apps and island bundles.
+// We eagerly (but non-fatally) ensure the Elm scaffold codegen is up-to-date so that
+// editing Scaffold.elm during development is reflected even if you only run `build`.
 
 export const build = async ({ rootPath, config }) => {
+  // Best-effort; never blocks or fails a build.
+  ensureScaffoldCodegen().catch(() => {});
   const cliRoot = resolve(new URL("..", import.meta.url).pathname);
   
   // Try to find elm in local node_modules first (for monorepo/dev), then fall back to global 'elm'

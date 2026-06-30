@@ -1,9 +1,14 @@
-# ElmSsr.Request.Decode
+# ElmSsr.Form (and Request.Decode)
 
-Type-safe, accumulating decoder for form fields, query string parameters, and
-route params. Unlike `Route.formValue` (which returns a single raw string),
-`Request.Decode` lets you declare the shape of your inputs up front and
-collect all validation failures before responding.
+**Use `ElmSsr.Form`** for type-safe form validation that works on the server (in `Action`s and `Loader`s) **and** in client islands.
+
+It is a pure decoder with `Form.decode decoder pairs` (pairs from `Route.formValue` or model state).
+
+`Request.Decode` is a thin layer on top for backwards compat with the full `Request`.
+
+The CLI `elm-ssr route --resource` and basic route scaffolds now generate examples using `Form`.
+
+See also the scaffolded routes for live examples.
 
 ## Quick example
 

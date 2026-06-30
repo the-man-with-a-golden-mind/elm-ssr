@@ -8,3 +8,4 @@ generated
 app.db
 *.db
 
+packages/elm-ssr/codegen/raw-codegen.js

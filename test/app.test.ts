@@ -2,7 +2,8 @@ import { describe, expect, it } from "bun:test";
 import { createWorkerApp } from "elm-ssr";
 import { renderHtmlDocument } from "elm-ssr/serialize";
 import { renderApp, type CompiledElmModule } from "elm-ssr/render";
-import { createFlags, routes, worker, renderPath } from "../examples/basic/runtime";
+import { inMemoryEffects } from "elm-ssr/effects";
+import { createFlags, routes, worker, renderPath, createExampleWorker } from "../examples/basic/runtime";
 import { islands, bundleSource } from "../generated/examples/basic/islands-manifest";
 import { stylesheet } from "../examples/basic/styles";
 // @ts-expect-error Generated at build time.
@@ -128,6 +129,28 @@ describe("example worker", () => {
 
     expect(response.status).toBe(500);
     expect(await response.text()).toBe("Internal Server Error");
+  });
+
+  it("turns a hard effect failure on page load (e.g. DB down) into 502 (adversarial error path)", async () => {
+    const effects = inMemoryEffects({
+      sql: () => {
+        throw new Error("db unavailable for guestbook");
+      }
+    });
+    const app = createExampleWorker({ effects });
+
+    // /guestbook page does Loader.query which uses sql effect
+    const response = await app.fetch(new Request("https://example.com/guestbook"));
+    expect(response.status).toBe(502);
+    const body = await response.text();
+    expect(body).toContain("db unavailable");
+  });
+
+  it("unknown effect kind produces clear error from default runner", async () => {
+    const effects = inMemoryEffects({});
+    const result = await effects({ kind: "unknownFutureEffect", payload: {} } as any, {});
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("no configured backend");
   });
 });
 

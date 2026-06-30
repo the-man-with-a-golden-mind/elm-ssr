@@ -7,6 +7,13 @@ import { SQL } from "bun";
 
 const DATABASE_URL = process.env.DATABASE_URL;
 
+const shouldSkip = !DATABASE_URL;
+const integration = shouldSkip ? describe.skip : describe;
+
+if (shouldSkip) {
+  console.warn("Skipping elmto-integration tests (no DATABASE_URL).");
+}
+
 const tempRoots: string[] = [];
 
 afterAll(async () => {
@@ -15,7 +22,7 @@ afterAll(async () => {
   }
 });
 
-describe("Elmto Integration (Real SQLite and PostgreSQL Repo)", () => {
+integration("Elmto Integration (Real SQLite and PostgreSQL Repo)", () => {
   it("runs Repo queries and mutations E2E against SQLite and PostgreSQL", async () => {
     const root = await mkdtemp(join(tmpdir(), "elm-ssr-elmto-it-"));
     tempRoots.push(root);

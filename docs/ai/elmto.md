@@ -1,8 +1,19 @@
 # elmto (AI)
 
-**Modules:** `ElmSsr.Db.Elmto`, `ElmSsr.Db.Elmto.Changeset`, `ElmSsr.Db.Elmto.Query`, `ElmSsr.Db.Elmto.Compiler`, `ElmSsr.Db.Elmto.Repo`.
+**Elmto is the canonical database API** (replaces `ElmSsr.Db.Dsl`).
 
-Use Elmto for Ecto-like schemas, changesets, typed query construction, and execution through Loader/Action effects.
+**Modules:**
+- `ElmSsr.Db.Elmto` — Schema, Column, field definitions
+- `ElmSsr.Db.Elmto.Changeset` — cast, validateRequired, validate*, applyChanges, errors
+- `ElmSsr.Db.Elmto.Query` — from, where_, join, select, groupBy, orderBy, aggregates, having, etc.
+- `ElmSsr.Db.Elmto.Compiler` — compileSelect / compileInsert etc. + Dialect
+- `ElmSsr.Db.Elmto.Repo` — all, one, insert, update, delete, validateUnique, transaction, preload*
+
+**Generator:** `elm-ssr query` now emits ready-to-use `xxxSchema` + `*Col` modules.
+
+Prefer this over raw `Loader.query` for anything involving structure, validation, or joins.
+
+See the rich human docs in `docs/elmto.md` (highly recommended for patterns + migration).
 
 ## Core Query Types
 

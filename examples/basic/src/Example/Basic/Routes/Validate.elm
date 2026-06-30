@@ -2,10 +2,10 @@ module Example.Basic.Routes.Validate exposing (action, page)
 
 import ElmSsr.Action as Action exposing (Action)
 import ElmSsr.Document exposing (Document)
+import ElmSsr.Form as Form
 import ElmSsr.Html exposing (Node, button, div, form, h1, input, label, p, section, span, text)
 import ElmSsr.Html.Attributes as Attr
 import ElmSsr.Loader as Loader exposing (Loader)
-import ElmSsr.Request.Decode as Decode
 import ElmSsr.Route as Route exposing (Request)
 import Example.Basic.View.Shared as Shared
 
@@ -17,12 +17,12 @@ type alias SignupData =
     }
 
 
-signupDecoder : Decode.Decoder SignupData
+signupDecoder : Form.Decoder SignupData
 signupDecoder =
-    Decode.succeed SignupData
-        |> Decode.required "email" (Decode.string |> Decode.validate Decode.email)
-        |> Decode.required "age" (Decode.int |> Decode.validate (Decode.minInt 18))
-        |> Decode.optionalWithDefault "subscribe" False Decode.bool
+    Form.succeed SignupData
+        |> Form.required "email" (Form.string |> Form.validate Form.email)
+        |> Form.required "age" (Form.int |> Form.validate (Form.minInt 18))
+        |> Form.optionalWithDefault "subscribe" False Form.bool
 
 
 page : Request -> Loader (Document Never)
@@ -32,7 +32,7 @@ page request =
 
 action : Request -> Action (Document Never)
 action request =
-    case Decode.decodeForm signupDecoder request of
+    case Form.decode signupDecoder request.formData of
         Ok _ ->
             Action.redirect "/validate?status=success"
 
@@ -62,7 +62,7 @@ view request =
                 _ ->
                     [ span [ Attr.class "eyebrow" ] [ text "Type-safe Input Validation" ]
                     , h1 [] [ text "Register User" ]
-                    , p [] [ text "This form uses our new ElmSsr.Request.Decode to validate fields on the server. Errors are accumulated and displayed on redirect." ]
+                    , p [] [ text "This form uses ElmSsr.Form (shared with islands) to validate fields on the server. Errors are accumulated and displayed on redirect." ]
                     , signupForm request
                     ]
             )
@@ -72,11 +72,14 @@ view request =
 signupForm : Request -> Node msg
 signupForm request =
     let
-        emailErr =
-            Route.query "error_email" request
+        errors =
+            [ ( "email", Route.query "error_email" request )
+            , ( "age", Route.query "error_age" request )
+            ]
+                |> List.filterMap (\( f, mv ) -> mv |> Maybe.map (\m -> { field = f, message = m }))
 
-        ageErr =
-            Route.query "error_age" request
+        emailErr = Form.errorFor "email" errors
+        ageErr = Form.errorFor "age" errors
     in
     form [ Attr.class "echo-form", Attr.method "post", Attr.action "/validate" ]
         [ label [ Attr.class "field" ]

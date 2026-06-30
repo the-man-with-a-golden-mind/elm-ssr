@@ -13,6 +13,10 @@ module ElmSsr.Db.Dsl exposing
     , compileQuery
     )
 
+{-| LEGACY. Elmto is canonical (ElmSsr.Db.Elmto + Repo + Query).
+Generator no longer produces Dsl modules. This is for porting only.
+-}
+
 import Json.Decode as Decode exposing (Decoder)
 import Json.Encode as Encode
 import ElmSsr.Loader as Loader exposing (Loader)

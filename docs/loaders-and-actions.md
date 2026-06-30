@@ -305,6 +305,27 @@ override `secure = False` on the cookie.
 See [examples/basic/src/Example/Basic/Routes/Session.elm](../examples/basic/src/Example/Basic/Routes/Session.elm)
 for the pattern.
 
+### Modern Full-Stack Pattern: Form + Elmto + Action
+
+```elm
+action request =
+    let pairs = Route.formPairs request in
+    case Form.decode createDecoder pairs of
+        Ok data ->
+            Repo.insert SQLite mySchema (buildChangeset data)
+                |> Action.andThen handleWriteResult   -- handles Err changeset beautifully
+
+        Err _ ->
+            Action.fail 422 "Validation failed"
+```
+
+This combination gives you:
+- Reusable Form decoders (client islands too)
+- Changeset + DB constraint errors attached to the UI
+- Proper non-optimistic control flow
+
+This is the pattern the `--resource` generator and auth Login island demonstrate. See [elmto.md](elmto.md) for complete details.
+
 ### Composition
 
 ```elm

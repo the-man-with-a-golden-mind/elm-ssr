@@ -40,7 +40,8 @@ for code generation, then cross-link to the human docs when the user asks
   `revertMigrations`, `listMigrations`, `MigrationsAdapter`.
 - [cli.md](cli.md) — `elm-ssr build|new|migrate|dev`.
 - [configuration.md](configuration.md) — environment files, context mapping, dynamic secrets, Elm flags/loaders.
-- [query-dsl.md](query-dsl.md) — type-safe database DSL, CLI generation, column wrapping.
+- **[elmto.md](elmto.md)** — Canonical DB layer (schemas + changesets + Repo). Generator output, joins, error paths.
+- [query-dsl.md](query-dsl.md) — Legacy only.
 - [elmto.md](elmto.md) — Ecto-like schemas, changesets, joins, group-by,
   aggregate projections, and Repo execution.
 - [debugger.md](debugger.md) — visual debugger panel instrumentation, events, SPA update.
@@ -62,7 +63,7 @@ for code generation, then cross-link to the human docs when the user asks
 These topics are documented in the human-oriented `../` folder only.
 Use them directly for code generation — they contain exact signatures and examples.
 
-- [../request-decode.md](../request-decode.md) — `ElmSsr.Request.Decode`: `required`, `optional`, `optionalWithDefault`, `validate`, `custom`, `decodeForm/Query/Params/Raw`, built-in validators.
+- [../request-decode.md](../request-decode.md) — `ElmSsr.Form` (recommended) + `ElmSsr.Request.Decode` (compat): shared server/client validation, pure `decode`, error helpers.
 - [../api-routes.md](../api-routes.md) — JSON API routes, `Action.json`, island HTTP calls, CSRF on `/api/` endpoints.
 - [../error-handling.md](../error-handling.md) — `Loader.fail`/`Action.fail` semantics, custom error pages (`Page.notFound`, `Page.document`, `Page.error`), `softExecute` constraint handling, route guard 502 footgun.
 - [../spa-navigation.md](../spa-navigation.md) — `/api/render`, island `id` persistence, head sync, form progressive enhancement, `data-no-spa`.

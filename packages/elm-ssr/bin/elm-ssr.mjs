@@ -3,7 +3,7 @@
 import { readFile, stat } from "node:fs/promises";
 import { watch } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { createAppScaffold, createRouteScaffold, addAuthProvider, listAuthProviders } from "../lib/scaffold.mjs";
+import { createAppScaffold, createRouteScaffold, addAuthProvider, listAuthProviders, ensureScaffoldCodegen } from "../lib/scaffold.mjs";
 import { readWorkspaceConfig } from "../lib/workspace.mjs";
 import { build } from "../lib/build.mjs";
 import { migrate } from "../lib/migrate.mjs";
@@ -12,6 +12,12 @@ import { generateQueries } from "../lib/query.mjs";
 const defaultRootPath = process.cwd();
 const args = process.argv.slice(2);
 const command = args[0] ?? "help";
+
+// Ensure Elm-based scaffold generator is available (hybrid Elm/JS for better debuggability).
+// Also ensure on "build" so editing the Elm generator is reflected in dev/CI flows.
+if (["new", "init", "route", "build"].includes(command)) {
+  await ensureScaffoldCodegen();
+}
 
 const ownPkg = JSON.parse(
   await readFile(new URL("../package.json", import.meta.url), "utf8")
@@ -278,7 +284,8 @@ switch (command) {
     requireConfig();
     const routePath = args[1];
     if (!routePath) {
-      console.error("Usage: elm-ssr route <path> [--app <app-name>] [--api] [--ws] [--sse]");
+      console.error("Usage: elm-ssr route <path> [--app <app-name>] [--api] [--ws] [--sse] [--resource]");
+      console.error("  --resource   Scaffold a richer CRUD-ish page using Form (recommended for full-stack examples)");
       process.exit(1);
     }
     
@@ -303,8 +310,9 @@ switch (command) {
     const isApi = args.includes("--api");
     const isWs = args.includes("--ws") || args.includes("--websocket");
     const isSse = args.includes("--sse");
+    const isResource = args.includes("--resource");
 
-    const result = await createRouteScaffold(rootPath, appConfig, routePath, { isApi, isWs, isSse });
+    const result = await createRouteScaffold(rootPath, appConfig, routePath, { isApi, isWs, isSse, isResource });
     console.log(`Scaffolded ${result.type} route at ${result.path}`);
     if (result.instructions) {
       console.log("\nInstructions to wire it up:\n" + result.instructions);

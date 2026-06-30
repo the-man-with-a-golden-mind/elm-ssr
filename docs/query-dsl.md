@@ -1,19 +1,24 @@
-# Type-Safe SQL Query DSL & Schema Generation
+# Legacy Query DSL (ElmSsr.Db.Dsl)
 
-`elm-ssr` provides a CLI command that reads your SQL migrations and generates a type-safe Elm module for each table, giving you compile-time checked CRUD helpers and a fluent filter DSL — no SQL strings for the common case.
+**This page documents the old `ElmSsr.Db.Dsl` surface.**
+
+> **Deprecated.** The `elm-ssr query` generator now produces **Elmto** modules by default (`userSchema`, `nameCol`, `Repo.all`, changesets, joins, etc.).
+>
+> **New code must use [Elmto](elmto.md).** The old Dsl is kept only to help migrate existing projects.
+
+See the excellent [Elmto documentation](elmto.md) for the current story — it is richer, has proper error handling, and is what the generator and examples now use.
 
 ## DSL vs Elmto — which to use
 
+**Always prefer Elmto** for new code (changesets, Repo, joins, aggregates, constraint error handling).
+
 | Situation | Use |
 |---|---|
-| Simple CRUD: list, find by id, insert, update, delete | **Generated DSL** (this page) |
-| Filters, pagination, `WHERE … AND …`, `LIKE`, `IN (…)` | **Generated DSL** |
-| Joins, `GROUP BY`, `HAVING`, aggregates (`COUNT`, `SUM`, …) | **[Elmto](elmto.md)** |
-| Complex subqueries, CTEs, `UNION` | **[Elmto](elmto.md)** |
-| Constraint-safe writes (`INSERT` returning the row) | **[Elmto Repo](elmto.md)** |
-| Anything the above can't express | `Loader.query` / `Loader.execute` (raw SQL) |
+| Simple CRUD + basic filters on single tables | Generated helpers (still in output) **or** Elmto `Query` / `Repo` |
+| Joins, aggregates, groups, complex queries, safe writes with errors | **[Elmto](elmto.md)** (canonical) |
+| Anything else | `Loader.query` / `Loader.execute` (raw SQL + your decoders) |
 
-The generated DSL is intentionally lightweight. It delegates complex relational work to Elmto rather than trying to replace SQL.
+The old `Dsl` module is kept only for migration of existing code. Do not import `ElmSsr.Db.Dsl` in new modules.
 
 ---
 
@@ -61,52 +66,38 @@ CREATE TABLE trello_cards (
 );
 ```
 
-The generated module looks like:
+The generated module (Elmto focused) looks like:
 
 ```elm
-module Example.Db.TrelloCards exposing
-    ( TrelloCard, TrelloCardsTable, table
-    , id, columnId, title, description, position
+module Example.Basic.Db.TrelloCards exposing
+    ( TrelloCard, trelloCardSchema, idCol, columnIdCol, titleCol, ...
     , decoder, all, byId, insert, update, delete
     )
 
-import ElmSsr.Db.Dsl as Dsl exposing (Column, Table)
+import ElmSsr.Db.Elmto as Elmto
 import ElmSsr.Loader as Loader exposing (Loader)
 import Json.Decode as Decode
 import Json.Encode as Encode
 
-
-type TrelloCardsTable = TrelloCardsTable
-
-table : Table TrelloCardsTable
-table = Dsl.table "trello_cards"
-
-id         : Column TrelloCardsTable Int
-columnId   : Column TrelloCardsTable Int
-title      : Column TrelloCardsTable String
-description : Column TrelloCardsTable String    -- nullable → Maybe String in record
-position   : Column TrelloCardsTable Int
-
-
-type alias TrelloCard =
-    { id          : Int
-    , columnId    : Int
-    , title       : String
-    , description : Maybe String    -- TEXT without NOT NULL
-    , position    : Int
-    }
-
+type alias TrelloCard = { ... }
 
 decoder : Decode.Decoder TrelloCard
 
--- CRUD
-all    : Loader (List TrelloCard)
-byId   : Int -> Loader (Maybe TrelloCard)
-insert : { columnId : Int, title : String, description : Maybe String, position : Int }
-       -> Loader { rowsAffected : Int }
-update : Int -> { columnId : Int, title : String, description : Maybe String, position : Int }
-       -> Loader { rowsAffected : Int }
-delete : Int -> Loader { rowsAffected : Int }
+trelloCardSchema : Elmto.Schema TrelloCard
+trelloCardSchema =
+    Elmto.schema "trello_cards" decoder
+        |> Elmto.field "id" .id Elmto.int
+        |> Elmto.field "column_id" .columnId Elmto.int
+        |> Elmto.field "title" .title Elmto.string
+        |> Elmto.optionalField "description" .description Elmto.string
+        |> Elmto.field "position" .position Elmto.int
+
+idCol : Elmto.Column TrelloCard Int
+-- titleCol etc.
+
+-- Simple CRUD (Loader compat) + Elmto schema/cols for Query/Repo usage.
+all : Loader (List TrelloCard)
+-- ...
 ```
 
 Key conventions:
@@ -117,25 +108,25 @@ Key conventions:
 
 ---
 
-For a table named `test_members`, the command generates a file at `src/<Namespace>/Db/TestMembers.elm`. Let's look at what is exposed:
+For a table named `test_members`, the command generates a file at `src/<Namespace>/Db/TestMembers.elm`.
 
-### Phantom Types and Column Descriptors
-To ensure type safety, the generator creates a phantom type representing the table, a `Table` descriptor, and typed `Column` descriptors for every field:
+### Elmto Schema + Columns (canonical)
+The generator now emits an Elmto `Schema` and typed `Column` values:
 
 ```elm
-type TestMembersTable = TestMembersTable
+testMemberSchema : Elmto.Schema TestMember
+testMemberSchema =
+    Elmto.schema "test_members" decoder
+        |> Elmto.field "id" .id Elmto.int
+        |> Elmto.field "email" .email Elmto.string
+        -- ...
 
-table : Table TestMembersTable
-table =
-    Dsl.table "test_members"
-
-id : Column TestMembersTable Int
-email : Column TestMembersTable String
-score : Column TestMembersTable Float
-isAdmin : Column TestMembersTable Bool
-nickname : Column TestMembersTable String
-registeredAt : Column TestMembersTable String
+idCol : Elmto.Column TestMember Int
+emailCol : Elmto.Column TestMember String
+-- ...
 ```
+
+Use these with `ElmSsr.Db.Elmto.Query.from testMemberSchema |> Query.where_ ...` and `Repo.all dialect ...`.
 
 ### Record Representation & Decoders
 The module defines a record type corresponding to a single row, along with its JSON decoder:
@@ -167,41 +158,24 @@ Every generated module contains pre-built type-safe functions for standard datab
 
 ---
 
-## 3. Querying with the Elm SQL DSL
+## 3. Querying (legacy DSL surface)
 
-For queries that go beyond simple CRUD operations, `elm-ssr` provides a fluent, type-safe Query DSL in `ElmSsr.Db.Dsl`.
+The original `ElmSsr.Db.Dsl` query surface is deprecated. Use `ElmSsr.Db.Elmto.Query` + `Repo` (see elmto.md) for all new work.
 
-### Safe Selections
-
-You can select all columns using `Db.selectAll`, or select specific columns using `Db.select`.
-
-Because Elm lists require all elements to have the exact same type, list entries like `[ Entries.id, Entries.message ]` would normally cause type mismatches (since one is `Column table Int` and the other is `Column table String`). To solve this, wrap your columns in `Db.col` to erase the value type while preserving table-safety:
+Simple generated helpers (all / byId / insert) continue to work for quick ports. For filters use Elmto:
 
 ```elm
-import ElmSsr.Db.Dsl as Db
+import ElmSsr.Db.Elmto.Query as Query
+import ElmSsr.Db.Elmto.Repo as Repo
 import Example.Basic.Db.Entries as Entries
 
--- Select specific columns:
-selectSubset : Query Entries.EntriesTable Entries.Entry
-selectSubset =
-    Db.select Entries.table [ Db.col Entries.id, Db.col Entries.message ] Entries.decoder
+recent =
+    Query.from Entries.entrySchema
+        |> Query.where_ (Query.gt 5 Entries.idCol)
+        |> Repo.all SQLite
 ```
 
-### Filter Conditions and Operators
-
-Filters are constructed using comparison functions. They take the value first and the column descriptor last. This parameter ordering is designed specifically to allow readable pipeline-style filtering:
-
-```elm
-import ElmSsr.Db.Dsl as Db
-import Example.Basic.Db.Entries as Entries
-
--- Pipeline style (recommended):
-recentEntries =
-    Db.selectAll Entries.table Entries.decoder
-        |> Db.where_ (Entries.id |> Db.gt 5)
-```
-
-The DSL supports the following comparison operators:
+For advanced queries, filters, joins, aggregates and changesets, switch to Elmto (recommended in all cases). The legacy operators are no longer generated or documented here.
 
 | Operator | Type Signature | SQL Translation |
 |---|---|---|
@@ -216,87 +190,13 @@ The DSL supports the following comparison operators:
 | `isNull` | `Column table val -> Expression table` | `col IS NULL` |
 | `isNotNull` | `Column table val -> Expression table` | `col IS NOT NULL` |
 
-### Logical Combinations
+### Executing + advanced usage
 
-Combine multiple filter expressions using `Db.and` and `Db.or`:
+Use the simple `all` / `insert` etc from generated modules together with raw `Loader.query` when you just need the decoder, or move to full Elmto:
 
-```elm
-complexFilter =
-    Db.selectAll Entries.table Entries.decoder
-        |> Db.where_
-            (Db.and
-                (Entries.message |> Db.like "%announcement%")
-                (Entries.createdAt |> Db.isNotNull)
-            )
-```
+- `Repo.all dialect (Query.from MyDb.xxxSchema |> Query.where_ (Query.eq val MyDb.yyyCol))`
+- Changesets + `Repo.insert` / `Action` error paths for writes (see elmto.md and error-handling.md).
 
-### Pagination & Limits
+Raw SQL fallback via `Loader.query` / `softExecute` is always available and pairs well with generated decoders.
 
-Limit the number of returned rows using `Db.limit`:
-
-```elm
-limitedQuery =
-    Db.selectAll Entries.table Entries.decoder
-        |> Db.limit 10
-```
-
----
-
-## 4. Executing Queries
-
-To execute queries within your server-side route Loaders or Actions, call `Db.toLoader` (returns a list of rows) or `Db.toLoaderOne` (returns a `Maybe` row):
-
-```elm
-module Example.Basic.Routes.Guestbook exposing (page)
-
-import ElmSsr.Loader as Loader exposing (Loader)
-import ElmSsr.Document exposing (Document)
-import ElmSsr.Db.Dsl as Db
-import Example.Basic.Db.Entries as Entries
-
-page : Request -> Loader (Document Never)
-page request =
-    Db.selectAll Entries.table Entries.decoder
-        |> Db.where_ (Entries.id |> Db.gt 10)
-        |> Db.limit 5
-        |> Db.toLoader
-        |> Loader.map (\entries -> ... render entries ...)
-```
-
----
-
-## 5. Raw SQL Fallback
-
-For highly complex queries (like multi-table joins, subqueries, or aggregation), you can fall back to raw SQL. You can still reuse the generated decoders and encoders so you don't have to write serialization logic by hand:
-
-```elm
-import ElmSsr.Loader as Loader exposing (Loader)
-import Example.Basic.Db.Entries as Entries
-import Json.Encode as Encode
-
-customSearch : String -> Loader (List Entries.Entry)
-customSearch term =
-    Loader.query
-        { sql = "SELECT * FROM entries WHERE message LIKE ? AND created_at > datetime('now', '-7 days') ORDER BY id DESC"
-        , params = [ Encode.string ("%" ++ term ++ "%") ]
-        , decoder = Entries.decoder
-        }
-```
-
----
-
-## 6. DSL Limitations & When to Use Raw SQL
-
-While the generated Query DSL provides excellent type-safety for simple and high-frequency database lookups, it has clear design boundaries. To keep the framework runtime small and clean, this DSL is intentionally limited. Use [Elmto](elmto.md) when you want typed joins, group-by, and aggregate projections.
-
-### What the DSL CANNOT Do
-* **No `JOIN` Support in `ElmSsr.Db.Dsl`**: There are no primitives for joining tables. Relationships should be queried sequentially, using Elmto, or using raw SQL.
-* **No Grouping or Aggregations in `ElmSsr.Db.Dsl`**: Functions like `GROUP BY`, `HAVING`, `SUM`, `AVG`, `COUNT`, or `MIN`/`MAX` are not supported in this generated DSL.
-* **No Complex Modifiers**: Primitives for `ORDER BY`, nested sub-queries, window functions, or complex CTEs (Common Table Expressions) do not exist.
-* **No Schema Migrations**: The DSL only reads schemas—it does not create, modify, or migrate database tables (use SQL migrations for schema changes).
-
-### When to Fall Back to Raw SQL
-You should use the **Raw SQL Fallback** (via `Loader.query` / `Loader.execute`) whenever:
-1. You need SQL beyond Elmto's current join/group/aggregate surface.
-2. You are executing analytical queries that need `HAVING`, custom aliases, subqueries, window functions, or database-specific operators.
-3. You need specific database features (like Postgres JSON operators or SQLite full-text search).
+For the complete modern API see [elmto.md](elmto.md). The legacy Dsl operators and `toLoader` are not recommended.

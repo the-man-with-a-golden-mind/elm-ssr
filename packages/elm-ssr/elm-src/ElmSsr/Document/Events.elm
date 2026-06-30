@@ -1,6 +1,11 @@
 module ElmSsr.Document.Events exposing (EventRef, decodeEventRef, encodeEventRef, findMessage)
 
-{-| Browser events are bridged without serializing `Msg`. An event handler is
+{-| LEGACY / vestigial.
+
+Only used to support very old page event wiring if any; islands should use
+stock `elm/html` `Html.Events` + the client runtime.
+
+Browser events are bridged without serializing `Msg`. An event handler is
 rendered as an `EventRef` (a DOM path + event name); when the browser reports an
 event, the runtime looks the message back up against the current view with
 [`findMessage`](#findMessage).

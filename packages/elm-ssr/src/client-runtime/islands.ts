@@ -277,6 +277,7 @@ function createIslandsRuntime(deps) {
   };
 
   const navigate = async (url, push = true, options = {}) => {
+    window.dispatchEvent(new window.CustomEvent("elm-ssr-navigation-start", { detail: { url: url.href } }));
     try {
       const renderUrl = "/api/render?path=" + encodeURIComponent(url.pathname + url.search);
       const response = await window.fetch(renderUrl, {
@@ -321,8 +322,10 @@ function createIslandsRuntime(deps) {
       }
 
       await bootIslands();
+      window.dispatchEvent(new window.CustomEvent("elm-ssr-navigation-end", { detail: { url: url.href, ok: true } }));
     } catch (error) {
       console.error("elm-ssr: navigation failed", error);
+      window.dispatchEvent(new window.CustomEvent("elm-ssr-navigation-end", { detail: { url: url.href, ok: false } }));
       window.location.href = url.href;
     }
   };

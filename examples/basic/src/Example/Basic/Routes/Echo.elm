@@ -6,6 +6,7 @@ module Example.Basic.Routes.Echo exposing (action, page)
 
 import ElmSsr.Action as Action exposing (Action)
 import ElmSsr.Document exposing (Document)
+import ElmSsr.Form as Form
 import ElmSsr.Html exposing (Node, a, button, form, h1, input, label, p, section, span, text)
 import ElmSsr.Html.Attributes as Attr
 import ElmSsr.Loader as Loader exposing (Loader)
@@ -21,18 +22,26 @@ page request =
 
 action : Request -> Action (Document Never)
 action request =
-    case Maybe.map String.trim (Route.formValue "message" request) of
-        Just message ->
-            if String.isEmpty message then
-                Action.fail 422 "Message is required."
+    let
+        pairs =
+            case Route.formValue "message" request of
+                Just m -> [ ( "message", m ) ]
+                Nothing -> []
+    in
+    case Form.decode messageDecoder pairs of
+        Ok { message } ->
+            -- Run a server effect (confirm the edge region), then redirect.
+            Action.fromLoader confirmRegion
+                |> Action.andThen (\region -> Action.redirect ("/echo?status=received&region=" ++ region))
 
-            else
-                -- Run a server effect (confirm the edge region), then redirect.
-                Action.fromLoader confirmRegion
-                    |> Action.andThen (\region -> Action.redirect ("/echo?status=received&region=" ++ region))
-
-        Nothing ->
+        Err _ ->
             Action.fail 422 "Message is required."
+
+
+messageDecoder : Form.Decoder { message : String }
+messageDecoder =
+    Form.succeed (\m -> { message = m })
+        |> Form.required "message" (Form.string |> Form.validate Form.nonEmpty)
 
 
 confirmRegion : Loader String

@@ -166,6 +166,10 @@ describe("island client runtime", () => {
     window.fetch = (async () => ({ json: async () => ({ html }) })) as unknown as typeof window.fetch;
 
     const runtime = await newRuntime();
+    const navEvents: any[] = [];
+    window.addEventListener("elm-ssr-navigation-start", (e: any) => navEvents.push({ t: "start", ...e.detail }));
+    window.addEventListener("elm-ssr-navigation-end", (e: any) => navEvents.push({ t: "end", ...e.detail }));
+
     await runtime.bootIslands();
     await tick();
 
@@ -182,6 +186,10 @@ describe("island client runtime", () => {
     expect(afterNav.textContent).toContain("6"); // state preserved, not reset to 999
     expect(window.document.title).toBe("Next Page");
     expect(hasMeta("x")).toBe(true);
+
+    // New navigation events for pending / revalidation hooks on islands
+    expect(navEvents.some((e) => e.t === "start")).toBe(true);
+    expect(navEvents.some((e) => e.t === "end" && e.ok)).toBe(true);
   });
 
   it("does not register a duplicate bus listener when a persistent island transfers", async () => {

@@ -60,21 +60,33 @@ export async function generateWithElm(kind, spec) {
 // Helper to (re)build the codegen if needed. Can be called manually or from CI.
 // **Never throws** - critical for test/CI environments. Logs warnings on problems.
 // Rebuilds when the output is missing OR when packages/elm-ssr/codegen/Scaffold.elm is newer (mtime).
+//
+// Published npm packages don't ship codegen/Scaffold.elm (only the precompiled
+// lib/scaffold-codegen.mjs, via the "files" allowlist in package.json) — there is
+// nothing to rebuild from, so a missing source must NOT trigger a rebuild attempt.
+// Without this guard, every command on every install without `elm` on PATH would
+// print a spurious "non-fatal" warning, since there'd always be "something missing".
 export async function ensureScaffoldCodegen() {
   const thisDir = new URL(".", import.meta.url).pathname;
   const codegenPath = resolve(thisDir, "../scaffold-codegen.mjs");
   const sourcePath = resolve(thisDir, "../../codegen/Scaffold.elm");
 
-  let needsBuild = false;
+  let srcStat;
+  try {
+    srcStat = await stat(sourcePath);
+  } catch {
+    // No source to build from (e.g. published package) — rely on the
+    // precompiled output as-is. If that's also missing, generateWithElm
+    // will surface a clear "Cannot find module" error when actually used.
+    return;
+  }
+
+  let needsBuild = true;
   try {
     const outStat = await stat(codegenPath);
-    const srcStat = await stat(sourcePath);
-    if (srcStat.mtimeMs > outStat.mtimeMs) {
-      needsBuild = true;
-    }
+    needsBuild = srcStat.mtimeMs > outStat.mtimeMs;
   } catch {
-    // missing output or source → will (re)build
-    needsBuild = true;
+    // output missing, source present → build
   }
 
   if (!needsBuild) return;

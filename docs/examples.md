@@ -21,7 +21,7 @@ background tasks.
 | `/chart` | Server-rendered inline SVG via `ElmSsr.Svg`. Ships zero JS. | [Routes/Chart.elm](../examples/basic/src/Example/Basic/Routes/Chart.elm) |
 | `/greet/:name` | Dynamic route segment captured from the filename (`Greet/Name_.elm`). | [Routes/Greet/Name_.elm](../examples/basic/src/Example/Basic/Routes/Greet/Name_.elm) |
 | `/echo` | Form action (PRG): validate → server effect → redirect. Works without JS. | [Routes/Echo.elm](../examples/basic/src/Example/Basic/Routes/Echo.elm) |
-| `/guestbook` | SQL via `Loader.query` (list) + `Loader.execute` (insert) inside an Action. | [Routes/Guestbook.elm](../examples/basic/src/Example/Basic/Routes/Guestbook.elm) |
+| `/guestbook` | **Elmto** (canonical): `Query.from Entries.entrySchema`, `Repo.all`, `Repo` + Form validation in action. Classic full-stack Elm + SQL example. | [Routes/Guestbook.elm](../examples/basic/src/Example/Basic/Routes/Guestbook.elm) |
 | `/session` | Raw cookie demo — `Action.setCookie` / `Action.clearCookie` + `Loader.getCookie`. No middleware. | [Routes/Session.elm](../examples/basic/src/Example/Basic/Routes/Session.elm) |
 | `/profile` | High-level sessions + CSRF — `Loader.session`/`csrfToken`/`setSession`/`clearSession` via the session middleware. | [Routes/Profile.elm](../examples/basic/src/Example/Basic/Routes/Profile.elm) |
 | `/live` | Server push via SSE. Page embeds the `Live` island; the island subscribes to `/__elm-ssr/live`. | [Routes/Live.elm](../examples/basic/src/Example/Basic/Routes/Live.elm) |
@@ -72,9 +72,18 @@ chart, cross-island communication, and a CDN-loaded utility stylesheet.
 | Custom `cryptoEffects` runner (CoinGecko mock) | [runtime.ts](../examples/crypto-dashboard/runtime.ts) |
 | `/__elm-ssr/markets/stream` SSE endpoint (2s nudged ticker) | [runtime.ts](../examples/crypto-dashboard/runtime.ts) (`marketTicker`, `withMarketStream`) |
 
-## Feature → example crosswalk
+## Feature → example crosswalk (2026 best practices)
 
-If you came here to find "how do I do X", start here:
+If you came here to find "how do I do X" **the modern way**, start here:
+
+| Want to learn | Recommended reading + example |
+| ------------- | ----------------------------- |
+| Type-safe SQL (recommended) | [Elmto](elmto.md) + `/guestbook` |
+| Form validation (server + client) | `ElmSsr.Form` + `/echo`, `/validate`, Login island (auth) |
+| Safe DB writes with errors | `Changeset` + `Repo.insert` (see elmto + error-handling) |
+| SPA navigation + pending states | [spa-navigation](spa-navigation.md) + navigation events |
+| Auth (sessions + real provider) | `--auth betterAuth` scaffold + `/profile`, Login island |
+| Error handling (all the sad paths) | [error-handling](error-handling.md) + cli resource 422 tests |
 
 | Want to learn | Read | Look at |
 | ------------- | ---- | ------- |

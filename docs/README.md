@@ -24,7 +24,9 @@ go deeper, one concern at a time.
 - [API Routes](api-routes.md) — returning JSON from actions, calling API routes from islands, CSRF on API endpoints.
 - [Request Decode](request-decode.md) — type-safe, accumulating decoder for form fields, query strings, and route params with built-in validators.
 - [Error Handling](error-handling.md) — loader failures, action failures, custom error pages, constraint violations, route guards.
-- [Type-Safe SQL Query DSL & Schema Generation](query-dsl.md) — generated CRUD helpers and filter DSL. Use [Elmto](elmto.md) for joins and aggregates.
+- **[Elmto](elmto.md)** — **the** type-safe, Ecto-like database layer (schemas, changesets, Repo, joins, aggregates). The generator now emits Elmto by default. This is the primary DB story.
+- [Legacy Query DSL](query-dsl.md) — old `Db.Dsl` surface (migration reference only).
+- [Error Handling](error-handling.md) — comprehensive coverage of Form errors, DB constraints, effect failures, and non-optimistic paths.
 - [Elmto](elmto.md) — Ecto-like schemas, changesets, joins, group-by,
   aggregate projections, and Repo execution.
 
@@ -59,8 +61,9 @@ go deeper, one concern at a time.
 
 ## Tutorials
 
-- [Authentication Flow](tutorials/auth-flow.md) — step-by-step: sessions, CSRF, login form, protected pages with `requireUser`, logout.
-- [Building a Trello Board](tutorials/trello-board.md) — database-backed Kanban board with interactive islands and JSON API actions.
+- **[Building a Real App](tutorials/building-a-real-app.md)** — complete end-to-end guide. Scaffold with auth + db + tailwind, Docker Postgres, Elmto, Form + changesets, resource routes, build + test. **Recommended starting point.**
+- [Authentication Flow](tutorials/auth-flow.md) — sessions, CSRF, login form, protected pages.
+- [Building a Trello Board](tutorials/trello-board.md) — Kanban with islands + actions.
 
 ## Examples gallery
 
