@@ -1,6 +1,6 @@
 {
   "name": "elm-ssr",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "Elm-first SSR library and framework for Cloudflare Workers (and Bun): file-based routes/islands, backend-neutral effect adapters (KV/D1/Redis/Postgres), background tasks (waitUntil/Queues), SQL-file migrations, CLI scaffold + build.",
   "license": "MIT",
   "author": "Michał Majchrzak <michmajchrzak@gmail.com>",
@@ -46,7 +46,10 @@
     "./response-headers": "./src/response-headers.ts",
     "./serialize": "./src/serialize.ts",
     "./protocol": "./src/protocol.ts",
-    "./islands-runtime": "./src/client-runtime/islands.ts"
+    "./islands-runtime": "./src/client-runtime/islands.ts",
+    "./auth": "./src/auth/contract.ts",
+    "./auth/better-auth": "./src/auth/better-auth.ts",
+    "./auth/auth0": "./src/auth/auth0.ts"
   },
   "files": [
     "bin",
@@ -60,5 +63,13 @@
   "dependencies": {
     "cookie": "^1.0.1",
     "tailwindcss": "3.4.17"
+  },
+  "peerDependencies": {
+    "better-auth": "1.6.22",
+    "@better-auth/infra": "0.3.4"
+  },
+  "peerDependenciesMeta": {
+    "better-auth": { "optional": true },
+    "@better-auth/infra": { "optional": true }
   }
 }

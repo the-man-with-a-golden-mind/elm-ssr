@@ -23,6 +23,7 @@ import {
 } from "./scaffold/auth-templates.mjs";
 import { runtimeTemplate, workerTemplate } from "./scaffold/runtime-template.mjs";
 import { stylesTemplate } from "./scaffold/styles-template.mjs";
+import { authPeerDependencies } from "./scaffold/auth-deps.mjs";
 
 // Re-exported public API — kept here so callers (bin/elm-ssr.mjs, lib/build.mjs)
 // don't need to know the file got split into modules.
@@ -41,6 +42,8 @@ const devVarsContent = (auth) => {
     return `GREETING="Hello from your local .dev.vars file!"
 BETTER_AUTH_SECRET="change-me-to-a-secure-random-hmac-secret-key-that-is-at-least-32-chars"
 BETTER_AUTH_URL="http://localhost:8787"
+# Connect this app at https://dash.better-auth.com to see sign-ups in the dashboard:
+# BETTER_AUTH_API_KEY="your-dash-api-key"
 # Uncomment to enable social providers in src/Endpoints/Auth.ts:
 # GITHUB_CLIENT_ID="your-github-client-id"
 # GITHUB_CLIENT_SECRET="your-github-client-secret"
@@ -65,6 +68,8 @@ const rootEnvContent = (auth) => {
     return `GREETING="Hello from your local .env file!"
 BETTER_AUTH_SECRET="change-me-to-a-secure-random-hmac-secret-key-that-is-at-least-32-chars"
 BETTER_AUTH_URL="http://localhost:8787"
+# Connect this app at https://dash.better-auth.com to see sign-ups in the dashboard:
+# BETTER_AUTH_API_KEY="your-dash-api-key"
 `;
   }
   if (auth === "auth0") {
@@ -94,8 +99,8 @@ const filesForApp = (name, appRoot, options = {}) => {
     { path: `${appRoot}/styles.ts`, content: stylesTemplate() },
     { path: `${appRoot}/src/${namespace}/View/Shared.elm`, content: sharedTemplate(namespace, auth) },
     { path: `${appRoot}/src/${namespace}/Routes/Index.elm`, content: indexRouteTemplate(namespace, auth) },
-    { path: `${appRoot}/src/${namespace}/Routes/Counter.elm`, content: counterRouteTemplate(namespace) },
-    { path: `${appRoot}/src/${namespace}/Routes/NotFound.elm`, content: notFoundRouteTemplate(namespace) },
+    { path: `${appRoot}/src/${namespace}/Routes/Counter.elm`, content: counterRouteTemplate(namespace, auth) },
+    { path: `${appRoot}/src/${namespace}/Routes/NotFound.elm`, content: notFoundRouteTemplate(namespace, auth) },
     { path: `${appRoot}/src/${namespace}/Islands/Counter.elm`, content: counterIslandTemplate(namespace) },
     {
       path: `${appRoot}/.dev.vars`,
@@ -272,7 +277,9 @@ const ensurePackageJson = async (rootPath, appName, options = {}) => {
 
   const extraDeps = {};
   if (options.auth === "better-auth") {
-    extraDeps["better-auth"] = "1.6.22";
+    const peerDeps = await authPeerDependencies();
+    extraDeps["better-auth"] = peerDeps["better-auth"] ?? "latest";
+    extraDeps["@better-auth/infra"] = peerDeps["@better-auth/infra"] ?? "latest";
   }
 
   packageJson.devDependencies = {

@@ -23,7 +23,75 @@ export const elmJsonTemplate = ({ http = false } = {}) => ({
   }
 });
 
-export const sharedTemplate = (namespace, auth) => `module ${namespace}.View.Shared exposing (head, layout)
+export const sharedTemplate = (namespace, auth) => auth ? `module ${namespace}.View.Shared exposing (head, layoutFor, User, sessionDecoder)
+
+import ElmSsr.Html exposing (Node, a, div, header, main_, nav, span, text)
+import ElmSsr.Html.Attributes exposing (class, href)
+import ElmSsr.Page as Page
+import Json.Decode as Decode
+
+
+head : List (Node msg)
+head =
+    [ Page.metaCharset "utf-8"
+    , Page.metaViewport "width=device-width, initial-scale=1"
+    , Page.stylesheet "/styles.css"
+    ]
+
+
+type alias User =
+    { email : String
+    , name : Maybe String
+    }
+
+
+userDecoder : Decode.Decoder User
+userDecoder =
+    Decode.map2 User
+        (Decode.field "email" Decode.string)
+        (Decode.maybe (Decode.field "name" Decode.string))
+
+
+{-| Decodes the session payload's "user" field, if present. Pair with
+\`Loader.session Shared.sessionDecoder |> Loader.map (Maybe.andThen identity)\`
+to get \`Maybe User\` — outer Maybe is "no session", inner is "session, no user".
+-}
+sessionDecoder : Decode.Decoder (Maybe User)
+sessionDecoder =
+    Decode.oneOf
+        [ Decode.field "user" (Decode.nullable userDecoder)
+        , Decode.succeed Nothing
+        ]
+
+
+{-| Session-aware page chrome — nav shows "Sign in" or the signed-in user. -}
+layoutFor : String -> Maybe User -> List (Node msg) -> Node msg
+layoutFor pageTitle maybeUser body =
+    div [ class "page" ]
+        [ header [ class "header" ]
+            [ div [ class "header-inner" ]
+                [ a [ class "brand", href "/" ]
+                    [ span [ class "brand-icon" ] [ text "◆" ]
+                    , text "elm-ssr"
+                    ]
+                , nav [ class "nav" ]
+                    [ a [ class "nav-link", href "/" ] [ text "Home" ]
+                    , a [ class "nav-link", href "/counter" ] [ text "Counter" ]
+                    , case maybeUser of
+                        Just user ->
+                            a [ class "nav-link", href "/profile" ]
+                                [ text (Maybe.withDefault user.email user.name) ]
+
+                        Nothing ->
+                            a [ class "nav-link", href "/login" ] [ text "Sign in" ]
+                    ]
+                ]
+            ]
+        , main_ [ class "main" ]
+            [ div [ class "container" ] body
+            ]
+        ]
+` : `module ${namespace}.View.Shared exposing (head, layout)
 
 import ElmSsr.Html exposing (Node, a, div, header, main_, nav, span, text)
 import ElmSsr.Html.Attributes exposing (class, href)
@@ -49,8 +117,7 @@ layout pageTitle body =
                     ]
                 , nav [ class "nav" ]
                     [ a [ class "nav-link", href "/" ] [ text "Home" ]
-                    , a [ class "nav-link", href "/counter" ] [ text "Counter" ]${auth ? `
-                    , a [ class "nav-link", href "/login" ] [ text "Sign in" ]` : ""}
+                    , a [ class "nav-link", href "/counter" ] [ text "Counter" ]
                     ]
                 ]
             ]
@@ -60,7 +127,131 @@ layout pageTitle body =
         ]
 `;
 
-export const indexRouteTemplate = (namespace, auth) => `module ${namespace}.Routes.Index exposing (page, action)
+// Additive block appended to an existing (non-auth) View/Shared.elm by `auth add`.
+// Deliberately does NOT touch the existing `layout` function or its call sites —
+// existing pages keep compiling unchanged; only newly-added Login/Profile pages
+// (and any page the user migrates by hand) use `layoutFor`.
+export const sharedAuthAddition = () => `
+
+type alias User =
+    { email : String
+    , name : Maybe String
+    }
+
+
+userDecoder : Decode.Decoder User
+userDecoder =
+    Decode.map2 User
+        (Decode.field "email" Decode.string)
+        (Decode.maybe (Decode.field "name" Decode.string))
+
+
+{-| Decodes the session payload's "user" field, if present. Pair with
+\`Loader.session Shared.sessionDecoder |> Loader.map (Maybe.andThen identity)\`
+to get \`Maybe User\` — outer Maybe is "no session", inner is "session, no user".
+-}
+sessionDecoder : Decode.Decoder (Maybe User)
+sessionDecoder =
+    Decode.oneOf
+        [ Decode.field "user" (Decode.nullable userDecoder)
+        , Decode.succeed Nothing
+        ]
+
+
+{-| Session-aware page chrome — nav shows "Sign in" or the signed-in user. -}
+layoutFor : String -> Maybe User -> List (Node msg) -> Node msg
+layoutFor pageTitle maybeUser body =
+    div [ class "page" ]
+        [ header [ class "header" ]
+            [ div [ class "header-inner" ]
+                [ a [ class "brand", href "/" ]
+                    [ span [ class "brand-icon" ] [ text "◆" ]
+                    , text "elm-ssr"
+                    ]
+                , nav [ class "nav" ]
+                    [ a [ class "nav-link", href "/" ] [ text "Home" ]
+                    , a [ class "nav-link", href "/counter" ] [ text "Counter" ]
+                    , case maybeUser of
+                        Just user ->
+                            a [ class "nav-link", href "/profile" ]
+                                [ text (Maybe.withDefault user.email user.name) ]
+
+                        Nothing ->
+                            a [ class "nav-link", href "/login" ] [ text "Sign in" ]
+                    ]
+                ]
+            ]
+        , main_ [ class "main" ]
+            [ div [ class "container" ] body
+            ]
+        ]
+`;
+
+export const indexRouteTemplate = (namespace, auth) => auth ? `module ${namespace}.Routes.Index exposing (page, action)
+
+import ElmSsr.Action as Action exposing (Action)
+import ElmSsr.Document exposing (Document)
+import ElmSsr.Html exposing (a, div, h1, h2, p, section, span, text)
+import ElmSsr.Html.Attributes exposing (class, href)
+import ElmSsr.Loader as Loader exposing (Loader)
+import ElmSsr.Page as Page
+import ElmSsr.Route exposing (Request)
+import ${namespace}.View.Shared as Shared
+
+
+page : Request -> Loader (Document Never)
+page _ =
+    Loader.session Shared.sessionDecoder
+        |> Loader.map (Maybe.andThen identity)
+        |> Loader.map view
+
+
+action : Request -> Action (Document Never)
+action _ =
+    Action.fail 405 "Method not allowed"
+
+
+view : Maybe Shared.User -> Document Never
+view maybeUser =
+    Page.page
+        { title = "elm-ssr"
+        , head = Shared.head
+        , body =
+            [ Shared.layoutFor "Home"
+                maybeUser
+                [ section [ class "hero" ]
+                    [ h1 [ class "hero-title" ] [ text "Ship fast." ]
+                    , p [ class "hero-subtitle" ]
+                        [ text "Type-safe server-side rendering with interactive islands. Runs on Cloudflare Workers and Bun." ]
+                    , div [ class "hero-actions" ]
+                        ([ a [ class "btn btn-primary", href "/counter" ] [ text "Try the counter" ] ]
+                            ++ (case maybeUser of
+                                    Just _ ->
+                                        [ a [ class "btn btn-secondary", href "/profile" ] [ text "Your profile" ] ]
+
+                                    Nothing ->
+                                        [ a [ class "btn btn-secondary", href "/login" ] [ text "Sign in" ] ]
+                               )
+                        )
+                    ]
+                , section [ class "features" ]
+                    [ featureCard "⚡" "Edge-first" "Renders in milliseconds at the edge. No cold starts."
+                    , featureCard "🦺" "Fully typed" "End-to-end Elm types from DB to HTML. No runtime surprises."
+                    , featureCard "🏝️" "Islands" "Add interactivity exactly where you need it. Zero JS elsewhere."
+                    ]
+                ]
+            ]
+        }
+
+
+featureCard : String -> String -> String -> ElmSsr.Html.Node msg
+featureCard icon title_ body =
+    div [ class "feature-card" ]
+        [ span [ class "feature-icon" ] [ text icon ]
+        , h2 [ class "feature-title" ] [ text title_ ]
+        , p [ class "feature-body" ] [ text body ]
+        ]
+` : `module ${namespace}.Routes.Index exposing (page, action)
 
 import ElmSsr.Action as Action exposing (Action)
 import ElmSsr.Document exposing (Document)
@@ -94,9 +285,7 @@ view =
                     , p [ class "hero-subtitle" ]
                         [ text "Type-safe server-side rendering with interactive islands. Runs on Cloudflare Workers and Bun." ]
                     , div [ class "hero-actions" ]
-                        [ a [ class "btn btn-primary", href "/counter" ] [ text "Try the counter" ]${auth ? `
-                        , a [ class "btn btn-secondary", href "/login" ] [ text "Sign in" ]` : ""}
-                        ]
+                        [ a [ class "btn btn-primary", href "/counter" ] [ text "Try the counter" ] ]
                     ]
                 , section [ class "features" ]
                     [ featureCard "⚡" "Edge-first" "Renders in milliseconds at the edge. No cold starts."
@@ -117,7 +306,50 @@ featureCard icon title_ body =
         ]
 `;
 
-export const counterRouteTemplate = (namespace) => `module ${namespace}.Routes.Counter exposing (page, action)
+export const counterRouteTemplate = (namespace, auth) => auth ? `module ${namespace}.Routes.Counter exposing (page, action)
+
+import ElmSsr.Action as Action exposing (Action)
+import ElmSsr.Document exposing (Document)
+import ElmSsr.Html exposing (div, h1, p, text)
+import ElmSsr.Html.Attributes exposing (class)
+import ElmSsr.Loader as Loader exposing (Loader)
+import ElmSsr.Page as Page
+import ElmSsr.Route exposing (Request)
+import ${namespace}.Islands.Counter as Counter
+import ${namespace}.View.Shared as Shared
+
+
+page : Request -> Loader (Document Never)
+page _ =
+    Loader.session Shared.sessionDecoder
+        |> Loader.map (Maybe.andThen identity)
+        |> Loader.map view
+
+
+action : Request -> Action (Document Never)
+action _ =
+    Action.fail 405 "Method not allowed"
+
+
+view : Maybe Shared.User -> Document Never
+view maybeUser =
+    Page.page
+        { title = "Counter | elm-ssr"
+        , head = Shared.head
+        , body =
+            [ Shared.layoutFor "Counter"
+                maybeUser
+                [ div [ class "page-header" ]
+                    [ h1 [] [ text "Interactive Counter" ]
+                    , p [ class "page-subtitle" ]
+                        [ text "This page is server-rendered. Only the counter widget below is a client-side island — zero JS elsewhere." ]
+                    ]
+                , div [ class "card" ]
+                    [ Counter.embed { start = 0 } ]
+                ]
+            ]
+        }
+` : `module ${namespace}.Routes.Counter exposing (page, action)
 
 import ElmSsr.Action as Action exposing (Action)
 import ElmSsr.Document exposing (Document)
@@ -252,7 +484,47 @@ view model =
         ]
 `;
 
-export const notFoundRouteTemplate = (namespace) => `module ${namespace}.Routes.NotFound exposing (page, action)
+export const notFoundRouteTemplate = (namespace, auth) => auth ? `module ${namespace}.Routes.NotFound exposing (page, action)
+
+import ElmSsr.Action as Action exposing (Action)
+import ElmSsr.Document exposing (Document)
+import ElmSsr.Html exposing (a, div, h1, p, text)
+import ElmSsr.Html.Attributes exposing (class, href)
+import ElmSsr.Loader as Loader exposing (Loader)
+import ElmSsr.Page as Page
+import ElmSsr.Route exposing (Request)
+import ${namespace}.View.Shared as Shared
+
+
+page : Request -> Loader (Document Never)
+page _ =
+    Loader.session Shared.sessionDecoder
+        |> Loader.map (Maybe.andThen identity)
+        |> Loader.map view
+
+
+action : Request -> Action (Document Never)
+action _ =
+    Action.fail 405 "Method not allowed"
+
+
+view : Maybe Shared.User -> Document Never
+view maybeUser =
+    Page.notFound
+        { title = "Not Found | elm-ssr"
+        , head = Shared.head
+        , body =
+            [ Shared.layoutFor "Not Found"
+                maybeUser
+                [ div [ class "error-page" ]
+                    [ h1 [ class "error-code" ] [ text "404" ]
+                    , p [ class "error-message" ] [ text "This page doesn't exist." ]
+                    , a [ class "btn btn-primary", href "/" ] [ text "Go home" ]
+                    ]
+                ]
+            ]
+        }
+` : `module ${namespace}.Routes.NotFound exposing (page, action)
 
 import ElmSsr.Action as Action exposing (Action)
 import ElmSsr.Document exposing (Document)

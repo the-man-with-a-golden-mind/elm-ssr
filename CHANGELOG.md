@@ -3,7 +3,21 @@
 All notable changes to the `elm-ssr` package. Dates are ISO; "Unreleased" lives
 at the top until a version is cut.
 
-## Unreleased / 1.0.6
+## Unreleased / 1.0.7
+
+### Fixed
+
+- **Home page and navbar never reflected signed-in state.** Only `Profile.elm` read the session; `Index`/`Counter`/`NotFound` never did, and `Shared.layout`'s nav hardcoded a static "Sign in" link regardless of auth state. Fixed: `Shared.User` / `Shared.sessionDecoder` / `Shared.layoutFor` make the nav session-aware (shows the signed-in user + a `/profile` link, or "Sign in"). `elm-ssr auth add` on an existing app adds these *additively* — the original `layout` function and any hand-edited pages keep compiling unchanged; a warning names which pages to migrate to `layoutFor` if you want them session-aware too.
+- **Login form had no real validation errors.** It discarded `Form.decode`'s per-field errors and showed one generic string. Now `Form.errorFor "email"` / `Form.errorFor "password"` render inline under each field, cleared as you type; server errors (wrong password, duplicate email) still show as a banner.
+- **BetterAuth dashboard never actually showed sign-ups — the 1.0.6 fix was wrong.** The `/api/auth/dash/validate` handler shipped in 1.0.6 was a hand-rolled stand-in that always returned `{ok: true}` with no verification. Checked against the real `@better-auth/infra` package: the dashboard requires the `dash()` plugin (JWT-gated, reports real user data to Better Auth's own infra API), not a bare reachability ping. The fake handler also unconditionally short-circuited the route, so even a correctly-configured `dash()` plugin would never have been reached. Now wires in the real plugin via `createBetterAuthProvider`'s `apiKey` option — set `BETTER_AUTH_API_KEY` (get one by connecting your app at dash.better-auth.com) and sign-ups show up there.
+- **Auth0 token exchange used the wrong content type.** `/oauth/token` was called with `Content-Type: application/json`; Auth0's documented format is `application/x-www-form-urlencoded`. Fixed.
+
+### Internal
+
+- **Auth provider implementations moved out of generated code and into the library.** Previously the full BetterAuth/Auth0 provider logic (route handling, session bridging, OAuth2 exchange) was a JS string template copy-pasted into every scaffolded app's `Auth.ts` — never imported, never type-checked, never unit-tested directly. That's how the dash() plugin gap and the content-type bug went unnoticed despite an E2E test suite: nothing exercised the real upstream protocol. Now `createBetterAuthProvider`/`createAuth0Provider` live in `packages/elm-ssr/src/auth/{better-auth,auth0,contract}.ts`, exported as `elm-ssr/auth`, `elm-ssr/auth/better-auth`, `elm-ssr/auth/auth0`, with direct unit tests (`test/auth-better-auth.test.ts`, `test/auth-auth0.test.ts`) that exercise them against a real BetterAuth/sqlite instance and a mocked Auth0 endpoint. Generated `Auth.ts` is now ~10-20 lines of env-resolver glue instead of ~150 lines of duplicated implementation.
+- `better-auth` / `@better-auth/infra` are now `peerDependencies` of `elm-ssr` itself (optional) — the scaffold reads required versions from there instead of keeping its own separate hardcoded version strings.
+
+## 1.0.6 — 2026-06-30
 
 ### Added / Improved
 

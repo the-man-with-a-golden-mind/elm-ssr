@@ -54,6 +54,7 @@ type alias Model =
     , password : String
     , name : String
     , status : FormStatus
+    , errors : List Form.Error
     }
 
 
@@ -103,7 +104,7 @@ main =
 
 init : Flags -> ( Model, Cmd Msg )
 init _ =
-    ( { mode = SignIn, email = "", password = "", name = "", status = Idle }
+    ( { mode = SignIn, email = "", password = "", name = "", status = Idle, errors = [] }
     , Cmd.none
     )
 
@@ -112,16 +113,16 @@ update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         SetMode mode ->
-            ( { model | mode = mode, status = Idle }, Cmd.none )
+            ( { model | mode = mode, status = Idle, errors = [] }, Cmd.none )
 
         SetEmail v ->
-            ( { model | email = v }, Cmd.none )
+            ( { model | email = v, errors = [] }, Cmd.none )
 
         SetPassword v ->
-            ( { model | password = v }, Cmd.none )
+            ( { model | password = v, errors = [] }, Cmd.none )
 
         SetName v ->
-            ( { model | name = v }, Cmd.none )
+            ( { model | name = v, errors = [] }, Cmd.none )
 
         Submit ->
             let
@@ -133,10 +134,10 @@ update msg model =
             in
             case Form.decode loginDecoder pairs of
                 Ok _ ->
-                    ( { model | status = Submitting }, submit model )
+                    ( { model | status = Submitting, errors = [] }, submit model )
 
-                Err _ ->
-                    ( { model | status = FormError "Invalid email or missing password." }, Cmd.none )
+                Err errors ->
+                    ( { model | status = Idle, errors = errors }, Cmd.none )
 
         GotResponse (Ok ()) ->
             ( model, navigateTo "/profile" )
@@ -293,6 +294,7 @@ view model =
                             , onInput SetEmail
                             ]
                             []
+                        , fieldError "email" model.errors
                         ]
                    , div [ Attr.class "field" ]
                         [ label [ Attr.for "password" ] [ text "Password" ]
@@ -313,6 +315,7 @@ view model =
                             , onInput SetPassword
                             ]
                             []
+                        , fieldError "password" model.errors
                         ]
                    , button
                         [ Attr.type_ "submit"
@@ -337,6 +340,16 @@ view model =
         , p [ Attr.class "auth-footer" ]
             [ text "Powered by elm-ssr + BetterAuth" ]
         ]
+
+
+fieldError : String -> List Form.Error -> Html msg
+fieldError field errors =
+    case Form.errorFor field errors of
+        Just message ->
+            span [ Attr.class "error-hint" ] [ text message ]
+
+        Nothing ->
+            text ""
 `;
 
 export const betterAuthMigrationTemplate = () => `-- BetterAuth requires these 4 tables. Do not rename or remove columns.
@@ -414,7 +427,17 @@ import ${namespace}.View.Shared as Shared
 
 page : Request -> Loader (Document Never)
 page _ =
-    Loader.succeed view
+    Loader.session Shared.sessionDecoder
+        |> Loader.map (Maybe.andThen identity)
+        |> Loader.andThen
+            (\\maybeUser ->
+                case maybeUser of
+                    Just _ ->
+                        Loader.redirect "/profile"
+
+                    Nothing ->
+                        Loader.succeed view
+            )
 
 
 action : Request -> Action (Document Never)
@@ -428,7 +451,8 @@ view =
         { title = "Sign in | elm-ssr"
         , head = Shared.head
         , body =
-            [ Shared.layout "Sign in"
+            [ Shared.layoutFor "Sign in"
+                Nothing
                 [ LoginIsland.embed {} ]
             ]
         }
@@ -448,7 +472,17 @@ import ${namespace}.View.Shared as Shared
 
 page : Request -> Loader (Document Never)
 page _ =
-    Loader.succeed view
+    Loader.session Shared.sessionDecoder
+        |> Loader.map (Maybe.andThen identity)
+        |> Loader.andThen
+            (\\maybeUser ->
+                case maybeUser of
+                    Just _ ->
+                        Loader.redirect "/profile"
+
+                    Nothing ->
+                        Loader.succeed view
+            )
 
 
 action : Request -> Action (Document Never)
@@ -462,7 +496,8 @@ view =
         { title = "Sign in | elm-ssr"
         , head = Shared.head
         , body =
-            [ Shared.layout "Sign in"
+            [ Shared.layoutFor "Sign in"
+                Nothing
                 [ div [ class "auth-page" ]
                     [ div [ class "auth-card" ]
                         [ div [ class "auth-header" ]
@@ -493,45 +528,15 @@ import ElmSsr.Loader as Loader exposing (Loader)
 import ElmSsr.Page as Page
 import ElmSsr.Route exposing (Request)
 import ${namespace}.View.Shared as Shared
-import Json.Decode as Decode
-
-
-type alias UserProfile =
-    { email : String
-    , name : Maybe String
-    , picture : Maybe String
-    }
-
-
-type alias AuthSession =
-    { user : Maybe UserProfile
-    }
-
-
-userProfileDecoder : Decode.Decoder UserProfile
-userProfileDecoder =
-    Decode.map3 UserProfile
-        (Decode.field "email" Decode.string)
-        (Decode.maybe (Decode.field "name" Decode.string))
-        (Decode.maybe (Decode.field "picture" Decode.string))
-
-
-authSessionDecoder : Decode.Decoder AuthSession
-authSessionDecoder =
-    Decode.map AuthSession
-        (Decode.oneOf
-            [ Decode.field "user" (Decode.nullable userProfileDecoder)
-            , Decode.succeed Nothing
-            ]
-        )
 
 
 page : Request -> Loader (Document Never)
 page _ =
-    Loader.session authSessionDecoder
+    Loader.session Shared.sessionDecoder
+        |> Loader.map (Maybe.andThen identity)
         |> Loader.andThen
-            (\\maybeSession ->
-                case Maybe.andThen .user maybeSession of
+            (\\maybeUser ->
+                case maybeUser of
                     Just user ->
                         Loader.succeed (view user)
 
@@ -545,13 +550,14 @@ action _ =
     Action.fail 405 "Method not allowed"
 
 
-view : UserProfile -> Document Never
+view : Shared.User -> Document Never
 view user =
     Page.page
         { title = "Profile | elm-ssr"
         , head = Shared.head
         , body =
-            [ Shared.layout "Profile"
+            [ Shared.layoutFor "Profile"
+                (Just user)
                 [ div [ class "auth-page" ]
                     [ div [ class "auth-card" ]
                         [ div [ class "auth-header" ]
@@ -572,344 +578,46 @@ view user =
         }
 `;
 
-// ─── Shared auth contract (included in every provider's Auth.ts) ─────────────
-// Single source for the session shape Elm reads and all TS providers write.
-const authContractSnippet = `import type { AppContext } from "elm-ssr/http";
-
-// Stable shape that every auth provider normalises its user into.
-// Elm reads only this — never raw provider-specific session payloads.
-export interface AuthUser {
-  id?: string;
-  email: string;
-  name?: string | null;
-  picture?: string | null;
-  provider?: string;
-}
-
-// The full session payload shape — provider-neutral.
-// session.user drives Elm guards; session.auth holds transient OAuth state.
-interface AuthSessionData {
-  user: AuthUser | null;
-  auth?: {
-    pendingOAuth?: { provider: string; state: string; returnTo?: string };
-  };
-}
-
-// Writes the authenticated user into the elm-ssr session.
-// sessionMiddleware persists and sets the cookie automatically on response.
-export const setAuthUser = (context: AppContext, user: AuthUser): void => {
-  const existing = (context.session?.data ?? {}) as Partial<AuthSessionData>;
-  const { auth: _auth, ...rest } = existing;
-  context.session!.data = { ...rest, user };
-  context.session!.dirty = true;
-};
-
-// Destroys the elm-ssr session — sessionMiddleware clears the cookie.
-export const clearAuthUser = (context: AppContext): void => {
-  context.session!.destroyed = true;
-};
-
-// Stores transient OAuth state so the callback can verify it (CSRF protection).
-export const setPendingOAuth = (
-  context: AppContext,
-  provider: string,
-  state: string,
-  returnTo?: string
-): void => {
-  const existing = (context.session?.data ?? {}) as Partial<AuthSessionData>;
-  context.session!.data = {
-    ...existing,
-    auth: { pendingOAuth: { provider, state, ...(returnTo ? { returnTo } : {}) } },
-  };
-  context.session!.dirty = true;
-};
-
-// Reads pending OAuth state and verifies it belongs to the expected provider.
-export const getPendingOAuth = (
-  context: AppContext,
-  provider: string
-): { state: string; returnTo?: string } | null => {
-  const data = (context.session?.data ?? null) as AuthSessionData | null;
-  const p = data?.auth?.pendingOAuth;
-  if (!p || p.provider !== provider) return null;
-  return { state: p.state, returnTo: p.returnTo };
-};
-
-// Result of a credential or OAuth operation before writing to the session.
-export type AuthResult =
-  | { ok: true; user: AuthUser }
-  | { ok: false; status: number; message: string };
-
-// Contract each provider must satisfy.
-export interface AuthProvider {
-  name: string;
-  /** URL path prefixes this provider owns (e.g. ["/api/auth/"]). */
-  routes: string[];
-  middleware: import("elm-ssr/http").Middleware;
-}
-
-// Chains providers: first whose routes match handles the request.
-export const composeAuthProviders = (
-  providers: AuthProvider[]
-): import("elm-ssr/http").Middleware =>
-  async (context, next) => {
-    for (const provider of providers) {
-      if (provider.routes.some((r) => context.url.pathname.startsWith(r))) {
-        return provider.middleware(context, next);
-      }
-    }
-    return next(context);
-  };
-`;
-
-// Provider-only code — added to a full Auth.ts by auth add.
+// Minimal glue: imports the real provider from elm-ssr's auth library and
+// configures it for this app's env shape. Provider internals (route handling,
+// the BetterAuth dash() plugin, session bridging, cookie handling, the Auth0
+// OAuth2 exchange) live in packages/elm-ssr/src/auth/*.ts — tested directly
+// there, not copy-pasted into every generated app.
 export const betterAuthProviderCode = `
-import { betterAuth } from "better-auth";
+import { createBetterAuthProvider } from "elm-ssr/auth/better-auth";
 
-// Singleton per isolate — recreated only when the DB binding changes.
-let _auth: ReturnType<typeof betterAuth> | null = null;
-let _authDb: any = undefined;
-
-const getAuth = (env: any) => {
-  const db = env?.DB;
-  if (_auth !== null && _authDb === db) return _auth;
-  _auth = betterAuth({
-    baseURL: (env?.BETTER_AUTH_URL as string) ?? "http://localhost:8787",
-    secret: (env?.BETTER_AUTH_SECRET as string) ?? "change-me-in-production",
-    database: db,
-    emailAndPassword: { enabled: true },
-    // socialProviders: {
-    //   github: { clientId: env?.GITHUB_CLIENT_ID, clientSecret: env?.GITHUB_CLIENT_SECRET },
-    // },
-  });
-  _authDb = db;
-  return _auth;
-};
-
-const callBetterAuth = async (
-  auth: ReturnType<typeof getAuth>,
-  request: Request,
-  path: string,
-  body: Record<string, string>
-): Promise<AuthResult> => {
-  const headers = new Headers(request.headers);
-  headers.set("content-type", "application/json");
-  const res = await auth.handler(
-    new Request(new URL(path, request.url), {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-    })
-  );
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({})) as { message?: string };
-    return { ok: false, status: res.status, message: err.message ?? "Authentication failed" };
-  }
-  const data = await res.json() as { user?: { email: string; name?: string | null; image?: string | null } };
-  if (!data.user?.email) return { ok: false, status: 500, message: "Unexpected auth response" };
-  return {
-    ok: true,
-    user: { email: data.user.email, name: data.user.name, picture: data.user.image, provider: "better-auth" },
-  };
-};
-
-const cookiePairsFromSetCookie = (setCookie: string | null): string[] => {
-  if (!setCookie) return [];
-  return setCookie
-    .split(/,(?=\\s*[^;,]+=)/)
-    .map((part) => part.split(";")[0]?.trim())
-    .filter((part): part is string => Boolean(part));
-};
-
-const bridgeBetterAuthSession = async (
-  auth: ReturnType<typeof getAuth>,
-  context: import("elm-ssr/http").AppContext,
-  response: Response
-): Promise<Response> => {
-  const headers = new Headers(context.request.headers);
-  const responseCookies = cookiePairsFromSetCookie(response.headers.get("set-cookie"));
-  if (responseCookies.length > 0) {
-    const existing = headers.get("cookie");
-    headers.set("cookie", [existing, ...responseCookies].filter(Boolean).join("; "));
-  }
-
-  const session = await auth.api.getSession({ headers }).catch(() => null);
-  const user = session?.user;
-  if (user?.email) {
-    setAuthUser(context, {
-      email: user.email,
-      name: user.name ?? null,
-      picture: user.image ?? null,
-      provider: "better-auth",
-    });
-  }
-  return response;
-};
-
-// Factory: runtime.ts passes getEnv so Auth.ts stays platform-agnostic.
-// getEnv injects bun:sqlite locally; on Cloudflare env.DB is the D1 binding.
-export const betterAuthProvider = (
-  options: { getEnv?: (env: any) => any } = {}
-): AuthProvider => {
-  const resolveEnv = options.getEnv ?? ((env: any) => env);
-  return {
-    name: "better-auth",
-    routes: ["/api/auth/"],
-    middleware: async (context, next) => {
-      const env = resolveEnv(context.env);
-      const auth = getAuth(env);
-      const session = context.session;
-      const { pathname } = context.url;
-
-      if (!pathname.startsWith("/api/auth/")) return next(context);
-      if (!session) return Response.json({ ok: false, message: "Session middleware required" }, { status: 500 });
-
-      if (pathname === "/api/auth/sign-in" && context.request.method === "POST") {
-        const { email = "", password = "" } = await context.request.json().catch(() => ({})) as Record<string, string>;
-        const result = await callBetterAuth(auth, context.request, "/api/auth/sign-in/email", { email, password });
-        if (!result.ok) return Response.json({ ok: false, message: result.message }, { status: result.status });
-        setAuthUser(context, result.user);
-        return Response.json({ ok: true });
-      }
-
-      if (pathname === "/api/auth/sign-up" && context.request.method === "POST") {
-        const { email = "", password = "", name = "" } = await context.request.json().catch(() => ({})) as Record<string, string>;
-        const result = await callBetterAuth(auth, context.request, "/api/auth/sign-up/email", { email, password, name });
-        if (!result.ok) return Response.json({ ok: false, message: result.message }, { status: result.status });
-        setAuthUser(context, result.user);
-        return Response.json({ ok: true });
-      }
-
-      if (pathname === "/api/auth/logout") {
-        clearAuthUser(context);
-        return new Response(null, { status: 302, headers: { location: "/login" } });
-      }
-
-      // BetterAuth cloud dashboard (routes not in the npm package).
-      if (pathname.startsWith("/api/auth/dash/")) {
-        if (pathname === "/api/auth/dash/validate") {
-          const challenge = context.url.searchParams.get("challenge");
-          return new Response(challenge ?? JSON.stringify({ ok: true }), {
-            status: 200,
-            headers: { "content-type": challenge ? "text/plain" : "application/json" },
-          });
-        }
-        const baseURL = (env?.BETTER_AUTH_URL as string) ?? new URL(context.request.url).origin;
-        return Response.json({ ok: true, baseURL });
-      }
-
-      const response = await auth.handler(context.request);
-      return bridgeBetterAuthSession(auth, context, response);
-    },
-  };
-};
-`;
-
-export const betterAuthEndpointTemplate = () => authContractSnippet + betterAuthProviderCode;
-
-// Provider-only code — added to a full Auth.ts by auth add.
-export const auth0ProviderCode = `
-
-interface Auth0Config {
-  domain: string;
-  clientId: string;
-  clientSecret: string;
-  callbackUrl: string;
+// Local dev: open bun:sqlite so BetterAuth works without a Cloudflare D1 binding.
+// On Cloudflare Workers this block is eliminated by esbuild (typeof Bun is "undefined").
+let bunAuthDb: any = undefined;
+if (typeof (globalThis as any).Bun !== "undefined") {
+  const sqliteModule = "bun" + ":sqlite";
+  const { Database } = require(sqliteModule);
+  // Auth.ts lives at <appRoot>/src/Endpoints/Auth.ts — app.db is two levels up, at the app root.
+  bunAuthDb = new Database(import.meta.dir + "/../../app.db");
 }
 
-const getConfig = (env: any): Auth0Config => ({
-  domain: (env?.AUTH0_DOMAIN as string) ?? "",
-  clientId: (env?.AUTH0_CLIENT_ID as string) ?? "",
-  clientSecret: (env?.AUTH0_CLIENT_SECRET as string) ?? "",
-  callbackUrl: (env?.AUTH0_CALLBACK_URL as string) ?? "http://localhost:8787/api/auth/callback",
-});
-
-// http for localhost (dev/test), https for real Auth0 domains.
-const proto = (domain: string) =>
-  domain.startsWith("localhost") || domain.startsWith("127.") ? "http" : "https";
-
-export const auth0Provider = (): AuthProvider => ({
-  name: "auth0",
-  routes: ["/api/auth/"],
-  middleware: async (context, next) => {
-    const { pathname } = context.url;
-    const config = getConfig(context.env);
-    const session = context.session;
-
-    if (!pathname.startsWith("/api/auth/")) return next(context);
-    if (!session) return new Response("Session middleware required", { status: 500 });
-
-    // Start OAuth2 flow: generate state, persist under session.auth.pendingOAuth.
-    if (pathname === "/api/auth/login") {
-      if (!config.domain || !config.clientId) {
-        return new Response("Auth0 not configured — set AUTH0_DOMAIN and AUTH0_CLIENT_ID in .dev.vars", { status: 500 });
-      }
-      const state = crypto.randomUUID();
-      setPendingOAuth(context, "auth0", state);
-      const params = new URLSearchParams({
-        response_type: "code",
-        client_id: config.clientId,
-        redirect_uri: config.callbackUrl,
-        scope: "openid profile email",
-        state,
-      });
-      return new Response(null, {
-        status: 302,
-        headers: { location: \`\${proto(config.domain)}://\${config.domain}/authorize?\${params}\` },
-      });
-    }
-
-    // Finish OAuth2 flow: validate state, exchange code, fetch user via userinfo.
-    if (pathname === "/api/auth/callback") {
-      const code = context.url.searchParams.get("code");
-      const state = context.url.searchParams.get("state");
-      if (!code || !state) return new Response("Missing code or state", { status: 400 });
-
-      const pending = getPendingOAuth(context, "auth0");
-      if (!pending || pending.state !== state) {
-        return new Response("Invalid OAuth state — possible CSRF attack", { status: 400 });
-      }
-
-      const tokenRes = await fetch(\`\${proto(config.domain)}://\${config.domain}/oauth/token\`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          grant_type: "authorization_code",
-          client_id: config.clientId,
-          client_secret: config.clientSecret,
-          code,
-          redirect_uri: config.callbackUrl,
-        }),
-      });
-      if (!tokenRes.ok) return new Response("Token exchange with Auth0 failed", { status: 502 });
-      const { access_token } = await tokenRes.json() as { access_token: string };
-
-      // Server-to-server user validation — never trust an unverified JWT payload.
-      const userRes = await fetch(\`\${proto(config.domain)}://\${config.domain}/userinfo\`, {
-        headers: { authorization: \`Bearer \${access_token}\` },
-      });
-      if (!userRes.ok) return new Response("Failed to fetch user info from Auth0", { status: 502 });
-      const user = await userRes.json() as { email: string; name?: string; picture?: string; sub: string };
-
-      setAuthUser(context, { id: user.sub, email: user.email, name: user.name, picture: user.picture, provider: "auth0" });
-      return new Response(null, { status: 302, headers: { location: pending.returnTo ?? "/profile" } });
-    }
-
-    if (pathname === "/api/auth/logout") {
-      clearAuthUser(context);
-      if (config.domain && config.clientId) {
-        const params = new URLSearchParams({ client_id: config.clientId, returnTo: new URL(context.request.url).origin });
-        return new Response(null, {
-          status: 302,
-          headers: { location: \`\${proto(config.domain)}://\${config.domain}/oidc/logout?\${params}\` },
-        });
-      }
-      return new Response(null, { status: 302, headers: { location: "/login" } });
-    }
-
-    return next(context);
-  },
+export const betterAuthProvider = createBetterAuthProvider({
+  baseURL: (env) => (env?.BETTER_AUTH_URL as string) ?? "http://localhost:8787",
+  secret: (env) => (env?.BETTER_AUTH_SECRET as string) ?? "change-me-in-production",
+  database: (env) => (bunAuthDb && !env?.DB ? bunAuthDb : env?.DB),
+  // Connect this app at https://dash.better-auth.com to see sign-ups in the
+  // dashboard — set BETTER_AUTH_API_KEY once you have a key. Safe to leave
+  // unset; the dashboard just won't see any data until then.
+  apiKey: (env) => env?.BETTER_AUTH_API_KEY as string | undefined,
 });
 `;
 
-export const auth0EndpointTemplate = () => authContractSnippet + auth0ProviderCode;
+export const betterAuthEndpointTemplate = () => betterAuthProviderCode;
+
+export const auth0ProviderCode = `
+import { createAuth0Provider } from "elm-ssr/auth/auth0";
+
+export const auth0Provider = createAuth0Provider({
+  domain: (env) => (env?.AUTH0_DOMAIN as string) ?? "",
+  clientId: (env) => (env?.AUTH0_CLIENT_ID as string) ?? "",
+  clientSecret: (env) => (env?.AUTH0_CLIENT_SECRET as string) ?? "",
+  callbackUrl: (env) => (env?.AUTH0_CALLBACK_URL as string) ?? "http://localhost:8787/api/auth/callback",
+});
+`;
+
+export const auth0EndpointTemplate = () => auth0ProviderCode;

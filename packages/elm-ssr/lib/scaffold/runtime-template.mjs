@@ -21,10 +21,12 @@ export const runtimeTemplate = (appRoot, db = false, auth = undefined) => {
 
   if (isBetterAuth) {
     imports.push(`import { memorySessionStore } from "elm-ssr/sessions";`);
-    imports.push(`import { betterAuthProvider, composeAuthProviders } from "./src/Endpoints/Auth";`);
+    imports.push(`import { composeAuthProviders } from "elm-ssr/auth";`);
+    imports.push(`import { betterAuthProvider } from "./src/Endpoints/Auth";`);
   } else if (isAuth0) {
     imports.push(`import { memorySessionStore } from "elm-ssr/sessions";`);
-    imports.push(`import { auth0Provider, composeAuthProviders } from "./src/Endpoints/Auth";`);
+    imports.push(`import { composeAuthProviders } from "elm-ssr/auth";`);
+    imports.push(`import { auth0Provider } from "./src/Endpoints/Auth";`);
   }
 
   let dbInit = '';
@@ -96,23 +98,10 @@ if (typeof Bun !== "undefined") {
   },
   csrf: { skipPaths: ["/api/auth/"] }`;
     authInit = `
-// Local dev: open bun:sqlite so BetterAuth works without a Cloudflare D1 binding.
-// On Cloudflare Workers this block is eliminated by esbuild (typeof Bun is "undefined").
-let bunAuthDb: any = undefined;
-if (typeof (globalThis as any).Bun !== "undefined") {
-  const sqliteModule = "bun" + ":sqlite";
-  const { Database } = require(sqliteModule);
-  bunAuthDb = new Database(import.meta.dir + "/app.db");
-}
-
-// Injects local SQLite as env.DB for Bun dev; on Cloudflare env.DB is the D1 binding.
-const getAuthEnv = (env: any): any =>
-  bunAuthDb && !env?.DB ? { ...(env ?? {}), DB: bunAuthDb } : env;
-
 export const sessionStore = memorySessionStore();
 
 const authMiddleware = composeAuthProviders([
-  betterAuthProvider({ getEnv: getAuthEnv }),
+  betterAuthProvider,
 ]);
 `;
   } else if (isAuth0) {
@@ -127,7 +116,7 @@ const authMiddleware = composeAuthProviders([
 export const sessionStore = memorySessionStore();
 
 const authMiddleware = composeAuthProviders([
-  auth0Provider(),
+  auth0Provider,
 ]);
 `;
   }

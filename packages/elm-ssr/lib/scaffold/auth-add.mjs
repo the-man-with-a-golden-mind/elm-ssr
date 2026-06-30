@@ -3,14 +3,14 @@ import { dirname, resolve } from "node:path";
 import {
   betterAuthProviderCode,
   auth0ProviderCode,
-  betterAuthEndpointTemplate,
-  auth0EndpointTemplate,
   loginRouteTemplateBetterAuth,
   loginRouteTemplateAuth0,
   profileRouteTemplate,
   loginIslandTemplate,
   betterAuthMigrationTemplate
 } from "./auth-templates.mjs";
+import { sharedAuthAddition } from "./app-templates.mjs";
+import { authPeerDependencies } from "./auth-deps.mjs";
 
 const PROVIDER_NAMES = { "better-auth": "betterAuth", auth0: "auth0" };
 
@@ -28,59 +28,42 @@ const detectProviders = (runtimeContent) => {
   return found;
 };
 
-// Add auth imports after the effects import line.
+// Add auth imports after the effects import line. composeAuthProviders comes
+// from the elm-ssr library itself; only the concrete provider (configured by
+// the user's app-specific env shape) lives in the generated Auth.ts.
 const addAuthImports = (content, provider) => {
   const providerName = provider === "better-auth" ? "betterAuthProvider" : "auth0Provider";
-  const sessionImport = `import { memorySessionStore } from "elm-ssr/sessions";`;
   const anchor = `import { inMemoryEffects, cloudflareEffects } from "elm-ssr/effects";`;
   let next = content;
 
-  if (!next.includes(sessionImport)) {
-    next = next.replace(anchor, `${anchor}\n${sessionImport}`);
+  if (!next.includes(`import { memorySessionStore } from "elm-ssr/sessions";`)) {
+    next = next.replace(anchor, `${anchor}\nimport { memorySessionStore } from "elm-ssr/sessions";`);
+  }
+  if (!next.includes(`import { composeAuthProviders } from "elm-ssr/auth";`)) {
+    next = next.replace(anchor, `${anchor}\nimport { composeAuthProviders } from "elm-ssr/auth";`);
   }
 
   const endpointImport = next.match(/import \{ ([^}]+) \} from "\.\/src\/Endpoints\/Auth";/);
   if (endpointImport) {
     const names = endpointImport[1].split(",").map((name) => name.trim()).filter(Boolean);
-    for (const name of [providerName, "composeAuthProviders"]) {
-      if (!names.includes(name)) names.push(name);
-    }
+    if (!names.includes(providerName)) names.push(providerName);
     return next.replace(endpointImport[0], `import { ${names.join(", ")} } from "./src/Endpoints/Auth";`);
   }
 
-  return next.replace(anchor, `${anchor}\nimport { ${providerName}, composeAuthProviders } from "./src/Endpoints/Auth";`);
+  return next.replace(anchor, `${anchor}\nimport { ${providerName} } from "./src/Endpoints/Auth";`);
 };
 
-const betterAuthRuntimeEnvBlock = `let bunAuthDb: any = undefined;
-if (typeof (globalThis as any).Bun !== "undefined") {
-  const sqliteModule = "bun" + ":sqlite";
-  const { Database } = require(sqliteModule);
-  bunAuthDb = new Database(import.meta.dir + "/app.db");
-}
-
-const getAuthEnv = (env: any): any =>
-  bunAuthDb && !env?.DB ? { ...(env ?? {}), DB: bunAuthDb } : env;
-
-`;
-
-// Build the auth init block that goes before createWorkerApp.
-const buildAuthInitBlock = (provider, hasDb) => {
-  if (provider === "better-auth") {
-    return `
-// elm-ssr-auth:start
-${betterAuthRuntimeEnvBlock}
-export const sessionStore = memorySessionStore();
-
-const authMiddleware = composeAuthProviders([
-  betterAuthProvider({ getEnv: getAuthEnv }),
-]);`;
-  }
+// Build the auth init block that goes before createWorkerApp. The provider
+// itself (sourced from Auth.ts) is already fully configured — no per-runtime
+// env-resolution glue needed here.
+const buildAuthInitBlock = (provider) => {
+  const providerCall = provider === "better-auth" ? "betterAuthProvider" : "auth0Provider";
   return `
 // elm-ssr-auth:start
 export const sessionStore = memorySessionStore();
 
 const authMiddleware = composeAuthProviders([
-  auth0Provider(),
+  ${providerCall},
 ]);`;
 };
 
@@ -122,19 +105,19 @@ ${effectsLine}
 // elm-ssr-auth:end\n`;
 
   const withImports = addAuthImports(base, provider);
-  return withImports + buildAuthInitBlock(provider, hasDb) + newWorker;
+  return withImports + buildAuthInitBlock(provider) + newWorker;
 };
 
 // Adds a second provider to an already-auth runtime.ts.
 const addProviderToRuntime = (content, provider) => {
   let next = addAuthImports(content, provider);
-  const providerCall = provider === "better-auth"
-    ? "betterAuthProvider({ getEnv: getAuthEnv })"
-    : "auth0Provider()";
-  if (next.includes(providerCall)) return next;
-  if (provider === "better-auth" && !next.includes("const getAuthEnv =")) {
-    next = next.replace("// elm-ssr-auth:start\n", `// elm-ssr-auth:start\n${betterAuthRuntimeEnvBlock}`);
-  }
+  const providerCall = provider === "better-auth" ? "betterAuthProvider" : "auth0Provider";
+  // Scope the idempotency check to the composeAuthProviders array body —
+  // providerCall is now a bare identifier that also appears in the import
+  // line addAuthImports just added, so a whole-file `.includes` would always
+  // (wrongly) short-circuit here.
+  const arrayMatch = next.match(/composeAuthProviders\(\[\n([\s\S]*?)\]\)/);
+  if (arrayMatch && arrayMatch[1].includes(providerCall)) return next;
   return next.replace(
     /composeAuthProviders\(\[\n([\s\S]*?)\]\)/,
     (_, inner) => `composeAuthProviders([\n${inner}  ${providerCall},\n])`
@@ -152,19 +135,14 @@ const patchRuntimeForAuth = (content, provider, hasDb) => {
   return injectAuthIntoRuntime(content, provider, hasDb);
 };
 
-// Adds a provider to Auth.ts (creates full file if missing, appends code otherwise).
+// Adds a provider to Auth.ts (creates the file if missing, appends otherwise).
+// Each provider's glue is self-contained (no shared contract preamble to
+// manage), so a fresh file and an append are the same operation.
 const updateAuthTs = (existingContent, provider) => {
   const providerFn = provider === "better-auth" ? "betterAuthProvider" : "auth0Provider";
   if (existingContent.includes(providerFn)) return null; // already present
   const snippet = provider === "better-auth" ? betterAuthProviderCode : auth0ProviderCode;
-  // If file already has the contract section, just append provider code.
-  if (existingContent.includes("composeAuthProviders")) {
-    return existingContent.trimEnd() + "\n" + snippet + "\n";
-  }
-  // No contract yet — generate full file.
-  return provider === "better-auth"
-    ? betterAuthEndpointTemplate()
-    : auth0EndpointTemplate();
+  return existingContent ? existingContent.trimEnd() + "\n" + snippet + "\n" : snippet;
 };
 
 // Returns provider-specific env vars to add to .dev.vars / .env.
@@ -184,6 +162,44 @@ const missingEnvVars = (existingContent, provider) => {
   return vars.filter(([key]) => !existingContent.includes(`${key}=`));
 };
 
+// Adds `User` / `sessionDecoder` / `layoutFor` to an existing (non-auth)
+// View/Shared.elm so the new Login/Profile pages have something to import.
+// This is purely additive: the existing `layout` function and its call sites
+// in Index/Counter/NotFound (or any hand-written page) are left untouched, so
+// the app keeps compiling exactly as it did before — those pages just don't
+// get session-aware nav until migrated to `layoutFor` by hand (a warning
+// points at the new function so that's a deliberate, easy follow-up).
+const upgradeSharedForAuth = async (appRoot, namespace) => {
+  const sharedPath = resolve(appRoot, `src/${namespace.replace(/\./g, "/")}/View/Shared.elm`);
+  let existing = "";
+  try { existing = await readFile(sharedPath, "utf8"); } catch { return []; }
+  if (existing.includes("sessionDecoder")) return []; // already upgraded
+
+  let next = existing;
+
+  const exposingMatch = next.match(/^module ([\w.]+) exposing \(([^)]*)\)/m);
+  if (exposingMatch) {
+    const [fullMatch, moduleName, exposed] = exposingMatch;
+    const names = exposed.split(",").map((n) => n.trim()).filter(Boolean);
+    for (const name of ["layoutFor", "User", "sessionDecoder"]) {
+      if (!names.includes(name)) names.push(name);
+    }
+    next = next.replace(fullMatch, `module ${moduleName} exposing (${names.join(", ")})`);
+  }
+
+  if (!next.includes("import Json.Decode")) {
+    next = next.replace(/^import ElmSsr\.Page as Page$/m, (line) => `${line}\nimport Json.Decode as Decode`);
+  }
+
+  next = next.trimEnd() + "\n" + sharedAuthAddition();
+
+  await writeFile(sharedPath, next, "utf8");
+
+  return [
+    `View/Shared.elm gained User/sessionDecoder/layoutFor for session-aware nav. The original "layout" function (used by your existing pages) is untouched and still shows a static nav — switch a page to "Shared.layoutFor pageTitle maybeUser body" (reading the session like Routes/Profile.elm does) when you want it to reflect signed-in state.`
+  ];
+};
+
 /**
  * Add an auth provider to an existing elm-ssr app.
  * Idempotent: running it twice has no effect.
@@ -192,6 +208,7 @@ export const addAuthProvider = async (rootPath, appConfig, rawProvider) => {
   const provider = normaliseProvider(rawProvider);
   const appRoot = resolve(rootPath, appConfig.root);
   const namespace = appConfig.module;
+  const warnings = await upgradeSharedForAuth(appRoot, namespace);
 
   // ── Auth.ts ───────────────────────────────────────────────────────────────
   const authTsPath = resolve(appRoot, "src/Endpoints/Auth.ts");
@@ -270,8 +287,12 @@ export const addAuthProvider = async (rootPath, appConfig, rawProvider) => {
     const pkgPath = resolve(rootPath, "package.json");
     try {
       const pkg = JSON.parse(await readFile(pkgPath, "utf8"));
-      if (!pkg.devDependencies?.["better-auth"]) {
-        pkg.devDependencies = { ...pkg.devDependencies, "better-auth": "1.6.22" };
+      const peerDeps = await authPeerDependencies();
+      const addDeps = {};
+      if (!pkg.devDependencies?.["better-auth"]) addDeps["better-auth"] = peerDeps["better-auth"] ?? "latest";
+      if (!pkg.devDependencies?.["@better-auth/infra"]) addDeps["@better-auth/infra"] = peerDeps["@better-auth/infra"] ?? "latest";
+      if (Object.keys(addDeps).length > 0) {
+        pkg.devDependencies = { ...pkg.devDependencies, ...addDeps };
         await writeFile(pkgPath, JSON.stringify(pkg, null, 2) + "\n", "utf8");
       }
     } catch {}
@@ -288,7 +309,7 @@ export const addAuthProvider = async (rootPath, appConfig, rawProvider) => {
     }
   }
 
-  return { provider, name: PROVIDER_NAMES[provider] };
+  return { provider, name: PROVIDER_NAMES[provider], warnings };
 };
 
 /**

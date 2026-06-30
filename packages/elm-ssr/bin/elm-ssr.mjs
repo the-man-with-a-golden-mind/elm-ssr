@@ -410,6 +410,10 @@ switch (command) {
       try {
         const result = await addAuthProvider(rootPath, appConfig, providerArg);
         console.log(`Added ${result.name} to ${appConfig.name}`);
+        if (result.warnings && result.warnings.length > 0) {
+          console.log(`\nWarnings:`);
+          for (const warning of result.warnings) console.log(`  - ${warning}`);
+        }
         console.log(`\nNext steps:`);
         if (result.provider === "better-auth") {
           console.log(`  1. Run: bun install`);

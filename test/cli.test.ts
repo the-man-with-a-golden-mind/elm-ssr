@@ -593,13 +593,14 @@ describe("elm-ssr CLI", () => {
     await stat(resolve(root, "auth-app/.dev.vars"));
 
     const authTs = await readFile(resolve(root, "auth-app/src/Endpoints/Auth.ts"), "utf8");
-    expect(authTs).toContain('from "better-auth"');
-    expect(authTs).toContain("export interface AuthUser");      // shared contract
-    expect(authTs).toContain("export const setAuthUser");       // session helper
-    expect(authTs).toContain("export const composeAuthProviders");
-    expect(authTs).toContain("export const betterAuthProvider"); // factory pattern
+    expect(authTs).toContain('from "elm-ssr/auth/better-auth"');  // minimal glue, not a copy-pasted provider
+    expect(authTs).toContain("createBetterAuthProvider");
+    expect(authTs).toContain("export const betterAuthProvider = createBetterAuthProvider");
+    expect(authTs).not.toContain("export interface AuthUser");    // contract lives in elm-ssr/auth now, not per-app
     expect(authTs).not.toContain('require("bun:sqlite")');
     expect(authTs).not.toContain("user@example.com");
+    // The whole Auth.ts should be small glue, not a copy-pasted provider implementation.
+    expect(authTs.split("\n").length).toBeLessThan(30);
 
     const migration = await readFile(resolve(root, "auth-app/migrations/0001_init.sql"), "utf8");
     expect(migration).toContain('CREATE TABLE IF NOT EXISTS "user"');
@@ -632,9 +633,9 @@ describe("elm-ssr CLI", () => {
     const runtime = await readFile(resolve(root, "auth-app/runtime.ts"), "utf8");
     expect(runtime).toContain("sessions:");
     expect(runtime).toContain("sessionStore");
-    expect(runtime).toContain("composeAuthProviders");         // unified provider pattern
+    expect(runtime).toContain('import { composeAuthProviders } from "elm-ssr/auth"');
     expect(runtime).toContain("betterAuthProvider");
-    expect(runtime).toContain("bunAuthDb");
+    expect(authTs).toContain("bunAuthDb"); // local sqlite wiring lives in Auth.ts now, not runtime.ts
     expect(runtime).toContain("middlewares: [authMiddleware]");
     expect(runtime).not.toContain("sessionEffects");
     expect(runtime).not.toContain("betterAuthBridge");
@@ -746,10 +747,11 @@ describe("elm-ssr CLI", () => {
     expect(unknownAuthRes.status).toBe(404);
     expect(await unknownAuthRes.text()).toBe("");
 
-    // BetterAuth dashboard validation endpoint
+    // BetterAuth dashboard validation endpoint (real @better-auth/infra dash() plugin) —
+    // requires a JWT signed by the Better Auth dashboard backend, so an unauthenticated
+    // request correctly gets rejected rather than the elm-ssr layer faking a 200.
     const dashValidateRes = await worker.fetch(new Request("http://localhost/api/auth/dash/validate"));
-    expect(dashValidateRes.status).toBe(200);
-    expect(await dashValidateRes.json()).toEqual({ ok: true });
+    expect(dashValidateRes.status).toBe(401);
 
     // CSRF is skipped for /api/auth/* — a POST here must not get 403
     expect(wrongPwdRes.status).not.toBe(403);
@@ -871,14 +873,15 @@ describe("elm-ssr CLI", () => {
     // Verify generated file structure
     const authTs = await readFile(resolve(root, "auth0-app/src/Endpoints/Auth.ts"), "utf8");
     expect(authTs).not.toContain('from "better-auth"');
-    expect(authTs).toContain("export interface AuthUser");       // shared contract
-    expect(authTs).toContain("export const setAuthUser");
-    expect(authTs).toContain("export const getPendingOAuth");    // state validation helper
-    expect(authTs).toContain("export const auth0Provider");      // provider factory
-    expect(authTs).toContain("/authorize");         // real OAuth2 redirect
-    expect(authTs).toContain("/oauth/token");       // real token exchange
-    expect(authTs).toContain("/api/auth/callback"); // callback route
+    expect(authTs).toContain('from "elm-ssr/auth/auth0"');     // minimal glue, not a copy-pasted provider
+    expect(authTs).toContain("createAuth0Provider");
+    expect(authTs).toContain("export const auth0Provider = createAuth0Provider");
+    expect(authTs).not.toContain("export interface AuthUser"); // contract lives in elm-ssr/auth now, not per-app
+    expect(authTs).not.toContain("/authorize");   // real OAuth2 flow lives in the library, not generated code
+    expect(authTs).not.toContain("/oauth/token");
     expect(authTs).not.toContain('"Auth0 User"');   // no hardcoded mock user
+    // The whole Auth.ts should be small glue, not a copy-pasted provider implementation.
+    expect(authTs.split("\n").length).toBeLessThan(20);
 
     const migration = await readFile(resolve(root, "auth0-app/migrations/0001_init.sql"), "utf8");
     expect(migration).toContain("id TEXT NOT NULL PRIMARY KEY"); // auth0 sub as TEXT id
@@ -890,7 +893,7 @@ describe("elm-ssr CLI", () => {
     expect(devVars).toContain("SESSION_SECRET=");
 
     const runtime = await readFile(resolve(root, "auth0-app/runtime.ts"), "utf8");
-    expect(runtime).toContain("composeAuthProviders");
+    expect(runtime).toContain('import { composeAuthProviders } from "elm-ssr/auth"');
     expect(runtime).toContain("auth0Provider");
     expect(runtime).toContain("middlewares: [authMiddleware]");
     expect(runtime).toContain("sessions:");
@@ -941,8 +944,10 @@ describe("elm-ssr CLI", () => {
           return originalFetch(input as any, init as any);
         }
         if (req.method === "POST" && url.pathname === "/oauth/token") {
-          const body = await req.json() as { code?: string };
-          if (body.code !== "valid-code") {
+          // Auth0's documented /oauth/token content type is form-urlencoded, not JSON.
+          expect(req.headers.get("content-type")).toBe("application/x-www-form-urlencoded");
+          const body = await req.formData();
+          if (body.get("code") !== "valid-code") {
             return Response.json({ error: "invalid_grant" }, { status: 400 });
           }
           return Response.json({ access_token: "mock-access-token" });
@@ -1178,13 +1183,13 @@ describe("elm-ssr CLI", () => {
     await stat(resolve(root, "myapp/migrations/0001_init.sql"));
 
     const authTs = await readFile(resolve(root, "myapp/src/Endpoints/Auth.ts"), "utf8");
-    expect(authTs).toContain("export interface AuthUser");
+    expect(authTs).toContain('from "elm-ssr/auth/better-auth"');
     expect(authTs).toContain("betterAuthProvider");
 
     const runtime = await readFile(resolve(root, "myapp/runtime.ts"), "utf8");
     expect(runtime).toContain("// elm-ssr-auth:start");
     expect(runtime).toContain("// elm-ssr-auth:end");
-    expect(runtime).toContain("composeAuthProviders");
+    expect(runtime).toContain('import { composeAuthProviders } from "elm-ssr/auth"');
     expect(runtime).toContain("betterAuthProvider");
     expect(runtime).toContain("sessions:");
     expect(runtime).toContain("middlewares: [authMiddleware]");
@@ -1245,10 +1250,11 @@ describe("elm-ssr CLI", () => {
     expect(await addCmd.exited).toBe(0);
 
     const runtime = await readFile(resolve(root, "myapp/runtime.ts"), "utf8");
-    expect(runtime).toContain("import { auth0Provider, composeAuthProviders, betterAuthProvider }");
-    expect(runtime).toContain("const getAuthEnv =");
-    expect(runtime).toContain("auth0Provider()");
-    expect(runtime).toContain("betterAuthProvider({ getEnv: getAuthEnv })");
+    expect(runtime).toContain('import { composeAuthProviders } from "elm-ssr/auth"');
+    expect(runtime).toContain("import { auth0Provider, betterAuthProvider }");
+    expect(runtime).not.toContain("getAuthEnv"); // local-sqlite wiring lives in Auth.ts now
+    expect(runtime).toContain("auth0Provider,");
+    expect(runtime).toContain("betterAuthProvider,");
 
     const authTs = await readFile(resolve(root, "myapp/src/Endpoints/Auth.ts"), "utf8");
     expect(authTs).toContain("export const auth0Provider");
@@ -1286,9 +1292,10 @@ describe("elm-ssr CLI", () => {
     expect(await addCmd.exited).toBe(0);
 
     const runtime = await readFile(resolve(root, "myapp/runtime.ts"), "utf8");
-    expect(runtime).toContain("import { betterAuthProvider, composeAuthProviders, auth0Provider }");
-    expect(runtime).toContain("betterAuthProvider({ getEnv: getAuthEnv })");
-    expect(runtime).toContain("auth0Provider()");
+    expect(runtime).toContain('import { composeAuthProviders } from "elm-ssr/auth"');
+    expect(runtime).toContain("import { betterAuthProvider, auth0Provider }");
+    expect(runtime).toContain("betterAuthProvider,");
+    expect(runtime).toContain("auth0Provider,");
 
     const authTs = await readFile(resolve(root, "myapp/src/Endpoints/Auth.ts"), "utf8");
     expect(authTs).toContain("export const betterAuthProvider");
