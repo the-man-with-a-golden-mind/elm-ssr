@@ -52,15 +52,24 @@ The generator creates:
 ## 2. First Build and Run (Local SQLite)
 
 ```bash
-bun run build
 bun run dev
 ```
 
+(`bun run dev` runs `elm-ssr dev`, which builds first, then serves the app —
+you don't need a separate `bun run build` before it.)
+
 Visit http://localhost:8787
 
-You should see the homepage. The app uses SQLite via `bun:sqlite` for local development (injected automatically when `Bun` is detected).
+`elm-ssr dev` runs the app directly under Bun (not wrangler), which is what
+lets it use `bun:sqlite` for local development. Watch the terminal: it logs
+the DB file it opened and auto-applies any pending `migrations/*.sql` against
+it before the server starts listening — a fresh `--auth betterAuth` scaffold
+works immediately, no manual migrate step. If anything about the DB is wrong
+(bad `DATABASE_URL`, a migration that fails), `dev` refuses to start rather
+than silently serving a broken app.
 
 Try the counter island — it works with no client JS on the static pages.
+Try `/login` → sign up → `/profile` too — see [Step 7](#7-authentication-flow).
 
 ## 3. Set Up a Real Database with Docker (Postgres)
 
@@ -105,12 +114,23 @@ To revert:
 bunx elm-ssr migrate down --count 1 --db $DATABASE_URL
 ```
 
-**Important**: The `runtime.ts` still uses SQLite for local Bun dev by default. For full Postgres in dev you can:
+**Important**: `runtime.ts` and `Auth.ts` only ever open SQLite for local `bun run dev`
+— `DATABASE_URL` there is *just a path override* (`DATABASE_URL=sqlite://./other.db`),
+not a way to point local dev at Postgres. `bun:sqlite` cannot open a
+`postgres://` URL, so setting `DATABASE_URL` to one makes `bun run dev` refuse
+to start immediately, with an error explaining why — it will not silently try
+and fail in some confusing way. Your two real options:
 
-- Set `DATABASE_URL` and adjust `sqlHandler` in `runtime.ts` to use a Postgres client (e.g. `Bun.sql` or `pg`), or
-- Keep SQLite for fast iteration and use Postgres only in CI/staging/prod (recommended for most teams).
+- Keep SQLite for fast local iteration and use Postgres only for migrations/schema-gen
+  here and in CI/staging/prod (recommended for most teams, and what the rest
+  of this tutorial does), or
+- Replace the generated `sqlHandler` in `runtime.ts` with a real Postgres client
+  (`Bun.sql`, `postgresSql` from `elm-ssr/backends`, or `pg`) if you want full
+  Postgres in local dev too — a real code change, not an env var. See
+  [Backends](../backends.md) and [Deployment](../deployment.md).
 
-For this tutorial we will use Postgres for migrations and schema generation.
+For this tutorial we will use Postgres for migrations and schema generation,
+and keep local `bun run dev` on SQLite.
 
 ## 5. Generate Elmto Database Modules
 
@@ -209,23 +229,25 @@ Test the flow:
 
 All of this runs through the `authMiddleware` + sessions + CSRF (skipping auth routes).
 
-Secrets come from `env` (injected via `getAuthEnv` for local sqlite or your `DATABASE_URL` setup).
+Secrets (`BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`) come from `env`, resolved per-request
+in `Auth.ts`. If you never set `BETTER_AUTH_SECRET`, elm-ssr signs sessions with a
+literal placeholder string and logs a one-time warning about it — harmless for this
+tutorial, not something to ship.
 
 ## 8. Build, Run, and Test with Docker Postgres
 
 ```bash
-# Rebuild after changes
-bun run build
-
-# Run with postgres env (you can use a small wrapper or just set env)
-DATABASE_URL=postgres://elmssr:elmssr@localhost:5432/elmssr bun run dev
+# Rebuild + serve locally (SQLite — see the note in step 3/4 about DATABASE_URL)
+bun run dev
 ```
 
 To really test like production:
 
 - Keep `docker compose up -d postgres`
 - Use the migrate command as shown
-- For the actual worker, many people deploy to Cloudflare (D1) or run with Bun + Postgres driver.
+- For the actual worker, many people deploy to Cloudflare (D1, via `elm-ssr dev --cf`
+  locally against a real D1 binding) or run with Bun + a real Postgres driver wired
+  into `runtime.ts`'s `sqlHandler` (see step 3/4).
 
 You can test the worker programmatically:
 
@@ -249,9 +271,14 @@ console.log(await res.text());
 
 ## Common Pitfalls
 
-- Forgetting to run `migrate up` before using auth or generated DB modules.
+- Forgetting to run `migrate up` before using generated DB modules against Postgres/D1
+  (local `bun run dev` auto-applies pending SQLite migrations for you, but Postgres/D1
+  migrations are always manual — `elm-ssr migrate up --db $DATABASE_URL`).
 - Using the old `Db.Dsl` import after regenerating.
-- Not providing `BETTER_AUTH_SECRET` (falls back to insecure default).
+- Not providing `BETTER_AUTH_SECRET` (falls back to a placeholder — elm-ssr now warns
+  about this once at runtime instead of staying silent).
+- Setting `DATABASE_URL` to a `postgres://` URL and expecting local `bun run dev` to
+  use it — it can't (see step 3/4); `dev` will refuse to start and tell you why.
 - Trying to use `Secure` cookies on plain http during local dev.
 
 ## Summary
@@ -277,4 +304,10 @@ See also:
 
 ## Testing the Tutorial Yourself
 
-Follow the commands in order. Everything has been verified to work with the current version of elm-ssr + Docker Postgres.
+Follow the commands in order. Steps 1–2 and 7 (scaffold, local `bun run dev`,
+auto-migration, sign-up/sign-in/profile/logout) were re-verified end-to-end
+against a live scaffolded app for this revision. Steps 3–6 and 8 (Docker
+Postgres, Elmto generation, the `--resource` scaffold) describe the intended
+flow but were not re-run against a live Postgres container for this revision
+— if you hit something that doesn't match, please open an issue rather than
+assume it's you.

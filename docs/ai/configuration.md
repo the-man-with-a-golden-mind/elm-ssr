@@ -7,9 +7,31 @@
 | File | Location | Loaded By | Purpose |
 |---|---|---|---|
 | `.env` | Workspace Root | Bun / Node | Read by test runner, custom local servers |
-| `.dev.vars` | App Root | Cloudflare Wrangler | Secret bindings for `wrangler dev` |
+| `.dev.vars` | App Root | `elm-ssr dev` (Bun) AND Cloudflare Wrangler | Secret bindings; `elm-ssr dev` parses+loads this itself now (values already in the shell env win), same as `wrangler dev` always did |
 
 *Scaffold presets: `GREETING`, `SESSION_SECRET`.*
+
+---
+
+## `DATABASE_URL` (local SQLite target for `--db`/`--auth` apps)
+
+`runtime.ts`'s `sqlHandler` and `Auth.ts`'s BetterAuth `bunAuthDb` resolve it
+identically — one env var, one file, both connections opened with
+`PRAGMA journal_mode = WAL` so they can coexist:
+
+```ts
+const rawDbUrl = process.env.DATABASE_URL || "";
+if (rawDbUrl && !rawDbUrl.startsWith("sqlite://") && /^[a-z][a-z0-9+.-]*:\/\//i.test(rawDbUrl)) {
+  throw new Error(/* not a local sqlite target */);
+}
+const dbPath = rawDbUrl.startsWith("sqlite://") ? rawDbUrl.slice(9) : rawDbUrl || (import.meta.dir + "/app.db");
+```
+
+Local Bun dev only ever opens sqlite directly — a `postgres://`/`mysql://`/etc
+value throws immediately at startup (module load, uncaught — crashes `elm-ssr
+dev` on purpose) instead of being handed to `bun:sqlite` as a bogus filename.
+Postgres is real for `elm-ssr migrate --db postgres://...` / `elm-ssr query`
+and for hand-written production effects wiring — not for this local handler.
 
 ---
 

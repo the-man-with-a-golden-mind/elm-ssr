@@ -30,12 +30,41 @@ edge can serve `Content-Encoding: gzip` directly.
 ### `elm-ssr dev`
 
 ```sh
-elm-ssr dev
+elm-ssr dev [--port <n>] [--cf]
 ```
 
-Runs `build` then `wrangler dev`. Use this for local Cloudflare-flavoured
-development. For other providers or a plain Bun server, run `elm-ssr build`
-and start your own entrypoint that calls `worker.fetch`.
+Runs `build`, then serves the first configured app directly under Bun
+(`Bun.serve`, default port `8787`) — not `wrangler dev`. This is what activates
+`bun:sqlite` / `DATABASE_URL` for `--db`/`--auth` apps: without a real Bun
+process, there is no `Bun` global and (absent a hand-configured D1 binding) no
+`env.DB` either, so those apps would silently have no working database.
+
+On every start it:
+- Loads `<app>/.dev.vars` into `process.env` (values already set in the shell
+  win — same precedence as dotenv).
+- Resolves the DB file: `DATABASE_URL=sqlite://./path.db` if set (a non-sqlite
+  scheme like `postgres://` is rejected immediately with an explanation — see
+  [Configuration](configuration.md)), else `<app-root>/app.db`.
+- Auto-applies any pending `migrations/*.sql` against that file, so a freshly
+  scaffolded `--auth` app works the moment `dev` starts — no manual
+  `migrate up` step.
+- Logs the app name, runtime, resolved DB path, and migration status. If
+  anything in that chain fails (bad path, bad migration, DB that won't open),
+  `dev` exits immediately with that error instead of starting a broken server.
+- Rebuilds and restarts the server automatically on `.elm`/`.css` changes.
+- If the child dev server crashes for any reason after startup, the CLI exits
+  with the same error instead of continuing to run with nothing actually
+  listening.
+
+Options:
+- `--port <n>`: listening port (default `8787`).
+- `--cf`: dev against `wrangler dev` / real Cloudflare D1 instead. `dev` also
+  switches to this automatically if it finds a `wrangler.toml`/`.jsonc` at the
+  workspace root (so a project you've hand-configured for D1 keeps working
+  unchanged).
+
+For any other provider, run `elm-ssr build` and start your own entrypoint that
+calls `worker.fetch` — see [Deployment](deployment.md).
 
 ### `elm-ssr init <name>`
 

@@ -158,7 +158,7 @@ export const createRequestHandler = ({
         {
           ok: true,
           service: "elmssr",
-          runtime: "cloudflare-worker",
+          runtime: typeof (globalThis as any).Bun !== "undefined" ? "bun" : "cloudflare-worker",
           requestId: context.requestId
         },
         { status: 200, headers: jsonHeaders }

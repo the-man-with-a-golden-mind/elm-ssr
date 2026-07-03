@@ -586,23 +586,28 @@ view user =
 export const betterAuthProviderCode = `
 import { createBetterAuthProvider } from "elm-ssr/auth/better-auth";
 
-// Local dev: open bun:sqlite so BetterAuth works without a Cloudflare D1 binding.
-// On Cloudflare Workers this block is eliminated by esbuild (typeof Bun is "undefined").
+// Local dev: bun:sqlite, so BetterAuth works with no Cloudflare D1 binding (eliminated by esbuild on Workers).
 let bunAuthDb: any = undefined;
 if (typeof (globalThis as any).Bun !== "undefined") {
   const sqliteModule = "bun" + ":sqlite";
   const { Database } = require(sqliteModule);
-  // Auth.ts lives at <appRoot>/src/Endpoints/Auth.ts — app.db is two levels up, at the app root.
-  bunAuthDb = new Database(import.meta.dir + "/../../app.db");
+  // Same DATABASE_URL convention as runtime.ts's sqlHandler — non-sqlite schemes fail loud below.
+  const rawDbUrl = process.env.DATABASE_URL || "";
+  if (rawDbUrl && !rawDbUrl.startsWith("sqlite://") && /^[a-z][a-z0-9+.-]*:\\/\\//i.test(rawDbUrl)) {
+    throw new Error("[elm-ssr] DATABASE_URL=" + rawDbUrl + " is not a local sqlite target (see runtime.ts).");
+  }
+  const dbPath = rawDbUrl.startsWith("sqlite://")
+    ? rawDbUrl.slice("sqlite://".length)
+    : rawDbUrl || (import.meta.dir + "/../../app.db");
+  bunAuthDb = new Database(dbPath);
+  bunAuthDb.exec("PRAGMA journal_mode = WAL"); // shares the file with runtime.ts's sqlHandler connection
 }
 
 export const betterAuthProvider = createBetterAuthProvider({
   baseURL: (env) => (env?.BETTER_AUTH_URL as string) ?? "http://localhost:8787",
   secret: (env) => (env?.BETTER_AUTH_SECRET as string) ?? "change-me-in-production",
   database: (env) => (bunAuthDb && !env?.DB ? bunAuthDb : env?.DB),
-  // Connect this app at https://dash.better-auth.com to see sign-ups in the
-  // dashboard — set BETTER_AUTH_API_KEY once you have a key. Safe to leave
-  // unset; the dashboard just won't see any data until then.
+  // Set BETTER_AUTH_API_KEY to connect this app at https://dash.better-auth.com. Safe to leave unset.
   apiKey: (env) => env?.BETTER_AUTH_API_KEY as string | undefined,
 });
 `;

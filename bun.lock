@@ -1,6 +1,5 @@
 {
   "lockfileVersion": 1,
-  "configVersion": 1,
   "workspaces": {
     "": {
       "name": "elmssr",
@@ -30,7 +29,7 @@
     },
     "packages/elm-ssr": {
       "name": "elm-ssr",
-      "version": "1.0.6",
+      "version": "1.0.8",
       "bin": {
         "elm-ssr": "bin/elm-ssr.mjs",
       },
@@ -38,6 +37,14 @@
         "cookie": "^1.0.1",
         "tailwindcss": "3.4.17",
       },
+      "peerDependencies": {
+        "@better-auth/infra": "0.3.4",
+        "better-auth": "1.6.22",
+      },
+      "optionalPeers": [
+        "@better-auth/infra",
+        "better-auth",
+      ],
     },
   },
   "packages": {

@@ -43,12 +43,39 @@ export const createBetterAuthProvider = (options: BetterAuthProviderOptions): Au
   let _auth: any = null;
   let _authDb: any = undefined;
   let _authKey: string | null = null;
+  let warnedInsecureSecret = false;
 
   const getAuth = (env: any): any => {
     const db = options.database(env);
+    if (!db) {
+      // better-auth silently substitutes an in-memory adapter when `database`
+      // is falsy (see its getBaseAdapter): sign-up/sign-in would keep
+      // returning 200s and setting real-looking sessions, but every user,
+      // session, account and verification row would live only in that one
+      // process's memory and vanish on restart — no error, no signal. Fail
+      // loud here instead so a misresolved DB (missing DATABASE_URL, missing
+      // D1 binding, etc.) surfaces immediately instead of as silent data loss.
+      throw new Error(
+        "[elm-ssr] BetterAuth has no database configured — refusing to fall back to an in-memory " +
+          "store that would silently discard every sign-up/session on restart. Check the `database` " +
+          "resolver in Auth.ts: for local Bun dev this should resolve DATABASE_URL (or the default " +
+          "./app.db); for Cloudflare Workers, configure a D1 binding named \"DB\" in wrangler.toml."
+      );
+    }
     const baseURL = options.baseURL(env);
     const secret = options.secret(env);
     const apiKey = options.apiKey?.(env);
+    // The scaffold's fallback is a literal "change-me..." string, never a value
+    // anyone would set on purpose — fine for local dev, a real problem if it's
+    // still true wherever this happens to be running. Warn once per isolate
+    // instead of silently signing every session with a value in the source code.
+    if (!warnedInsecureSecret && secret.includes("change-me")) {
+      warnedInsecureSecret = true;
+      console.warn(
+        `[elm-ssr] BetterAuth is using a placeholder secret ("${secret}"). Fine for local dev — ` +
+          "set BETTER_AUTH_SECRET (or SESSION_SECRET) to a real 32+ byte random value before deploying."
+      );
+    }
     // db is an object (D1 binding / bun:sqlite handle) — keyed by reference
     // identity alongside the primitive config values.
     const key = JSON.stringify([baseURL, secret, apiKey]);
@@ -122,7 +149,12 @@ export const createBetterAuthProvider = (options: BetterAuthProviderOptions): Au
     routes: ["/api/auth/"],
     middleware: async (context, next) => {
       const env = context.env;
-      const auth = getAuth(env);
+      let auth: any;
+      try {
+        auth = getAuth(env);
+      } catch (err) {
+        return Response.json({ ok: false, message: (err as Error).message }, { status: 500 });
+      }
       const session = context.session;
       const { pathname } = context.url;
 

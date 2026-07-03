@@ -30,6 +30,7 @@ const findFlag = (args, name) => {
 
 const sqliteAdapter = (path) => {
   const db = new Database(path);
+  db.exec("PRAGMA journal_mode = WAL"); // lets the running app read this file concurrently
   return {
     adapter: {
       exec: async (sql) => {

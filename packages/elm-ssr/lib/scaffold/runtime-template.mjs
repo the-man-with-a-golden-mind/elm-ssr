@@ -32,26 +32,60 @@ export const runtimeTemplate = (appRoot, db = false, auth = undefined) => {
   let dbInit = '';
   if (db) {
     dbInit = `
+// Deliberately not wrapped in try/catch: a DB that fails to open must crash
+// the dev server immediately, not fall back to an undefined sqlHandler that
+// only reveals the problem the first time a request actually hits a query.
 let sqlHandler: any = undefined;
 if (typeof Bun !== "undefined") {
-  try {
-    const sqliteModule = "bun" + ":sqlite";
-    const { Database } = require(sqliteModule);
-    const db = new Database(import.meta.dir + "/app.db");
-    sqlHandler = (query: any) => {
-      const statement = db.query(query.sql);
-      if (query.mode === "all") {
-        return statement.all(...query.params);
-      }
-      if (query.mode === "first") {
-        return statement.get(...query.params) ?? null;
-      }
-      const info = statement.run(...query.params);
-      return { rowsAffected: info.changes };
-    };
-  } catch (err) {
-    console.error("Failed to initialize bun:sqlite:", err);
+  const sqliteModule = "bun" + ":sqlite";
+  const { Database } = require(sqliteModule);
+  // DATABASE_URL overrides the default local file — set it in .dev.vars / .env,
+  // e.g. DATABASE_URL=sqlite://./data/dev.db. Auth.ts's bunAuthDb follows the
+  // same convention so both stay pointed at the same file. Local Bun dev only
+  // opens sqlite directly (bun:sqlite can't speak Postgres/MySQL/etc) — a
+  // DATABASE_URL with another scheme is a real misconfiguration, so it fails
+  // loud here instead of silently trying to open it as a filename.
+  const rawDbUrl = process.env.DATABASE_URL || "";
+  if (rawDbUrl && !rawDbUrl.startsWith("sqlite://") && /^[a-z][a-z0-9+.-]*:\\/\\//i.test(rawDbUrl)) {
+    throw new Error(
+      "[elm-ssr] DATABASE_URL=\\"" + rawDbUrl + "\\" is not a local sqlite target. Local Bun dev " +
+      "(bun:sqlite) can't open Postgres/MySQL/etc URLs directly. Use DATABASE_URL=sqlite://./app.db " +
+      "(or unset it for the default ./app.db) for local dev; point 'elm-ssr migrate'/'elm-ssr query' " +
+      "and your production effects config at the real database separately."
+    );
   }
+  const dbPath = rawDbUrl.startsWith("sqlite://")
+    ? rawDbUrl.slice("sqlite://".length)
+    : rawDbUrl || (import.meta.dir + "/app.db");
+  const db = new Database(dbPath);
+  // WAL lets this connection and Auth.ts's separate bunAuthDb connection read/write
+  // the same file concurrently without "database is locked" under the default
+  // rollback-journal mode's single-writer restriction.
+  db.exec("PRAGMA journal_mode = WAL");
+  console.log("[elm-ssr] db: sqlite " + dbPath);
+  sqlHandler = (query: any) => {
+    const statement = db.query(query.sql);
+    if (query.mode === "all") {
+      return statement.all(...query.params);
+    }
+    if (query.mode === "first") {
+      return statement.get(...query.params) ?? null;
+    }
+    const info = statement.run(...query.params);
+    return { rowsAffected: info.changes };
+  };
+  // Best-effort, non-blocking: warns instead of failing silently the first
+  // time a query hits a table that migrations/*.sql never created.
+  import("elm-ssr/migrations").then(({ listMigrations }) =>
+    listMigrations(
+      { exec: async (sql: string) => { db.exec(sql); }, list: async (sql: string) => db.query(sql).all() },
+      { dir: import.meta.dir + "/migrations" }
+    )
+  ).then((status) => {
+    if (status.pending.length > 0) {
+      console.warn("[elm-ssr] " + status.pending.length + " pending migration(s) — run 'bun run migrate up': " + status.pending.join(", "));
+    }
+  }).catch(() => {});
 }
 `;
   }

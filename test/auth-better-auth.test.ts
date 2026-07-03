@@ -171,6 +171,48 @@ describe("createBetterAuthProvider", () => {
   });
 });
 
+// Regression test for a real bug: when `database` resolves to something falsy
+// (misresolved DATABASE_URL, missing D1 binding, etc.), better-auth silently
+// substitutes an in-memory adapter — sign-up/sign-in keep returning 200s and
+// setting real-looking sessions, but nothing is ever persisted. This must
+// surface as a loud, immediate failure instead.
+describe("createBetterAuthProvider missing database", () => {
+  it("returns 500 instead of silently falling back to an in-memory store", async () => {
+    const provider = createBetterAuthProvider({
+      baseURL: () => "http://localhost:8787",
+      secret: () => "test-secret-at-least-32-characters-long-for-better-auth",
+      database: () => undefined
+    });
+    const session = fakeSession();
+    const res = await provider.middleware(
+      contextFor(
+        new Request("https://example.com/api/auth/sign-up", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ email: "nodb@test.com", password: "password123", name: "No Db" })
+        }),
+        session
+      ),
+      next
+    );
+    expect(res.status).toBe(500);
+    const body = (await res.json()) as { ok: boolean; message: string };
+    expect(body.ok).toBe(false);
+    expect(body.message).toContain("no database configured");
+    expect(session.dirty).toBe(false);
+  });
+
+  it("also fails loud for non-/api/auth/ paths, since getAuth resolves eagerly on every request", async () => {
+    const provider = createBetterAuthProvider({
+      baseURL: () => "http://localhost:8787",
+      secret: () => "test-secret-at-least-32-characters-long-for-better-auth",
+      database: () => null
+    });
+    const res = await provider.middleware(contextFor(new Request("https://example.com/")), next);
+    expect(res.status).toBe(500);
+  });
+});
+
 // Regression test for a real bug: on Cloudflare Workers, env.DB is the same
 // object reference on every request to a warm isolate. The internal
 // betterAuth instance is cached for performance, but if the cache key were

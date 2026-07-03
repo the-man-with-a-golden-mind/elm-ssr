@@ -21,6 +21,35 @@ GREETING="Hello from your local environment!"
 SESSION_SECRET="change-me-to-a-secure-random-hmac-secret-key-that-is-at-least-32-chars"
 ```
 
+`elm-ssr dev` (see [CLI](cli.md)) runs the app directly under Bun and loads
+`.dev.vars` itself (values already set in the shell win), so both files are
+available locally regardless of which one you edit.
+
+---
+
+## `DATABASE_URL` (local SQLite target)
+
+For `--db`/`--auth` apps, `runtime.ts`'s `sqlHandler` and `Auth.ts`'s BetterAuth
+database both resolve the same way, so there is exactly one local DB file per
+app — never an accidental split between "what migrations ran against" and
+"what the server actually opened":
+
+```env
+# Optional — default is <app-root>/app.db
+DATABASE_URL=sqlite://./app.db
+```
+
+This is a **local Bun dev only** setting, and it only accepts a sqlite target
+(`sqlite://<path>` or a bare path). `bun:sqlite` cannot open a `postgres://` or
+other connection string, so setting `DATABASE_URL` to one is rejected
+immediately at startup with an explanation, rather than being silently handed
+to `bun:sqlite` as a garbage filename. Postgres (or any other backend) is real
+for `elm-ssr migrate` / `elm-ssr query` and for your own production effects
+wiring (see [Backends](backends.md)) — it is just not what the scaffolded
+local dev DB handler speaks. `elm-ssr dev` logs the resolved DB path and
+migration status on every start, and auto-applies any pending
+`migrations/*.sql` against it before serving.
+
 ---
 
 ## Reading Environment Variables in Elm

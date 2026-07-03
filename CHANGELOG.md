@@ -3,7 +3,23 @@
 All notable changes to the `elm-ssr` package. Dates are ISO; "Unreleased" lives
 at the top until a version is cut.
 
-## Unreleased / 1.0.8
+## 1.0.9 — 2026-07-03
+
+### Fixed
+
+- **`bun run dev` on a `--auth betterAuth` app silently discarded every sign-up/session — BetterAuth was running on an in-memory store, not the DB.** Root cause: `elm-ssr dev` always shelled out to `wrangler dev` (workerd), which has no `Bun` global and, absent a hand-configured D1 binding, no `env.DB` either — so the generated `database` resolver in `Auth.ts` evaluated to `undefined` on every request. Confirmed directly in the installed `better-auth` source: a falsy `database` makes it silently substitute an in-memory adapter (`getBaseAdapter`), so sign-up/sign-in kept returning `200`s and setting real-looking session cookies while every `user`/`session`/`account`/`verification` row lived only in that one process's memory and vanished on restart — no error, ever. Fixed with several changes, each independently verified against a live scaffolded app:
+  - `elm-ssr dev` now serves the app directly under Bun (`Bun.serve`) by default instead of always launching `wrangler dev` — this is what actually activates `bun:sqlite`. `--cf`, or a committed `wrangler.toml`/`.jsonc` (auto-detected), still runs the real `wrangler dev`/D1 path.
+  - `DATABASE_URL` is now a real, honored env var — one convention shared by `runtime.ts`'s `sqlHandler` and `Auth.ts`'s BetterAuth `bunAuthDb`, so there's exactly one DB file per environment. A non-sqlite scheme (`postgres://`, etc. — a very plausible mistake, since Postgres is genuinely supported by `elm-ssr migrate`/`elm-ssr query`) is rejected immediately at startup with an explanation, instead of being silently handed to `bun:sqlite` as a bogus filename.
+  - `elm-ssr dev` auto-applies pending `migrations/*.sql` against the resolved local sqlite file before serving, so a freshly scaffolded `--auth betterAuth` app works the moment `dev` starts — no separate manual `migrate up` step.
+  - `createBetterAuthProvider` now throws (surfaced as a `500` with a clear message) if `database` resolves to anything falsy, instead of letting better-auth quietly fall back to in-memory. The bun:sqlite init in generated `runtime.ts` is no longer wrapped in a swallowing try/catch either — a DB that fails to open crashes the dev server immediately instead of continuing with an `undefined` `sqlHandler` that only reveals the problem on the first real query.
+  - Two independent long-lived sqlite connections to the same file (`runtime.ts`'s `sqlHandler`, `Auth.ts`'s `bunAuthDb`) now open with `PRAGMA journal_mode = WAL`, avoiding "database is locked" under concurrent requests (also applied to the standalone `elm-ssr migrate` CLI's sqlite adapter).
+  - A one-time `console.warn` fires if the resolved BetterAuth secret is still the literal `"change-me-in-production"` scaffold placeholder — previously silent in every environment, including production.
+  - The dev-server child's exit is now watched by the parent CLI process: if the server dies after startup (bad config, unhandled exception, anything), the CLI exits with the same error instead of continuing to run with file watchers alive and nothing actually listening — caught by testing the DATABASE_URL-rejection path live and noticing the parent didn't notice.
+  - `/api/health` reports the real runtime (`"bun"` vs `"cloudflare-worker"`) instead of a hardcoded `"cloudflare-worker"` regardless of where it's actually running.
+  - Docs updated: `docs/cli.md`, `docs/ai/cli.md`, `docs/getting-started.md`, `docs/configuration.md`, `docs/ai/configuration.md`, `docs/ai/deployment.md`, and `docs/tutorials/building-a-real-app.md` (which also had a stale reference to a removed `getAuthEnv` function, and instructed `DATABASE_URL=postgres://... bun run dev` as if it worked — it now correctly refuses to).
+  - Auth0 is unaffected by the original bug (no local DB dependency — it's a real OAuth2 flow against Auth0 itself), but benefits from the `elm-ssr dev`/`DATABASE_URL`/migration-autoapply robustness for its own `--db` usage.
+
+## 1.0.8 — 2026-06-30
 
 ### Fixed
 

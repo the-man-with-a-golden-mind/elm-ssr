@@ -8,6 +8,7 @@
 ```sh
 bunx elm-ssr build                              # scan Routes/+Islands/, generate Main.elm + manifest, run elm make
 bunx elm-ssr compress                           # same as build + gzip generated bundles
+bunx elm-ssr dev [--port <n>] [--cf]             # build, then serve the first app under Bun (--cf = wrangler dev instead)
 bunx elm-ssr init <name> [--db] [--auth betterAuth|auth0] # scaffold single-app project in cwd
 bunx elm-ssr new <name> [--in <subdir>] [--db] [--auth betterAuth|auth0] # scaffold app under workspace
 bunx elm-ssr route <path> [opts]                # scaffold Elm page/API route, or TS WS/SSE endpoint
@@ -103,10 +104,27 @@ bunx elm-ssr query --output ./src/Db          # override generated modules outpu
 
 - **Behavior**: Scans the migrations folder (defaults to `<app_root>/migrations`) for `.sql` files (excluding `.down.sql`). Parses `CREATE TABLE` structures to automatically generate matching type-safe Elm Db modules exposing Elm records, decoders, and CRUD helper loaders/actions (e.g., `byId`, `insert`, `update`, `delete`, `all`).
 
+## `elm-ssr dev`
+
+Default runtime is Bun itself (`Bun.serve`), NOT `wrangler dev` — this is what
+activates `bun:sqlite`/`DATABASE_URL` for `--db`/`--auth` apps (`wrangler dev`
+runs in workerd: no `Bun` global, and no `env.DB` without a hand-configured D1
+binding, so those apps would silently have no working DB). On every start:
+loads `<app>/.dev.vars` into `process.env`; resolves the DB file from
+`DATABASE_URL` (must be `sqlite://...` or a bare path — a `postgres://` etc.
+scheme is rejected immediately, not silently mishandled) or the default
+`<app-root>/app.db`; auto-applies pending `migrations/*.sql` against it; logs
+app name, runtime, DB path, migration status. Any failure in that chain (bad
+DATABASE_URL, failed migration, DB won't open) exits immediately instead of
+starting a broken server, and if the server process dies later, the CLI exits
+too instead of continuing to run with nothing listening. `--cf` (or a
+committed `wrangler.toml`/`.jsonc`, auto-detected) switches to real
+`wrangler dev` / Cloudflare D1 instead. Rebuilds + restarts the server on
+`.elm`/`.css` changes.
+
 ## Patterns
 
-- **Watch + rebuild during dev**: use `bunx elm-ssr dev` for Cloudflare-like local dev. For other hosts, re-run `bunx elm-ssr build` in a watcher and start your own server/entrypoint.
-- **Multi-app workspace**: each `apps[]` entry builds independently; manifest paths are namespaced.
+- **Multi-app workspace**: each `apps[]` entry builds independently; manifest paths are namespaced. `elm-ssr dev`'s Bun-native path only serves `apps[0]` though — use `--cf` with a `wrangler.toml` that routes multiple workers if you need more than one served at once.
 - **CI**: `bunx elm-ssr build` + `bun test`. `--root` for scratch dirs.
 
 ## Footguns
@@ -116,3 +134,4 @@ bunx elm-ssr query --output ./src/Db          # override generated modules outpu
 - The build SYNCS the `ElmSsr.*` modules from the installed package into `.elm-ssr/src/`. Don't edit `.elm-ssr/src/ElmSsr/*` — changes lost next build.
 - Scaffold writes the workspace config — multiple parallel `new` calls would race. Run sequentially.
 - The CLI uses `process.cwd()` unless `--root` is passed. Run from the workspace root.
+- `DATABASE_URL` for local Bun dev only accepts `sqlite://<path>` (or unset, defaulting to `<app-root>/app.db`) — it is NOT a way to point `elm-ssr dev` at Postgres/etc. Postgres is real for `elm-ssr migrate`/`elm-ssr query`, and for your own production effects wiring, just not for the scaffolded local `sqlHandler`/BetterAuth `bunAuthDb`.

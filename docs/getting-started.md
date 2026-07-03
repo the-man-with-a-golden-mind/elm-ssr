@@ -76,8 +76,27 @@ from `elm-ssr.config.json`.
 
 ## Run locally
 
+```sh
+bunx elm-ssr dev
+```
+
+This builds the app, then serves it directly under Bun (`Bun.serve`) on
+`http://localhost:8787` — no Cloudflare/wrangler involved. This is what makes
+`--db`/`--auth` apps actually work locally: they auto-detect Bun and open
+`bun:sqlite` directly. Watch the terminal output; on every start it logs which
+DB file it opened, whether any migrations were applied automatically, and the
+listening URL. If something in that DB/migration chain is wrong, `dev` fails
+loudly right there instead of starting a broken server.
+
+Flags:
+- `--port <n>` — change the listening port (default `8787`).
+- `--cf` — dev against `wrangler dev` / real Cloudflare D1 instead (or commit
+  a `wrangler.toml`/`.jsonc` with your own bindings, which `dev` detects
+  automatically and switches to on its own).
+
 The generated `runtime.ts` exports a `worker` object with a
-`fetch(request, env?, executionCtx?)` method. For a plain Bun local server:
+`fetch(request, env?, executionCtx?)` method, so you can also wire your own
+entrypoint instead of `elm-ssr dev`:
 
 ```ts
 import { worker } from "./my-app/runtime";
@@ -88,14 +107,7 @@ Bun.serve({
 });
 ```
 
-If you specifically want a Cloudflare-like local environment, use:
-
-```sh
-bunx elm-ssr dev
-```
-
-That runs `build` then `wrangler dev`. Wrangler is only for this development
-path; the package runtime itself is provider-neutral.
+The package runtime itself is provider-neutral — see [Deployment](deployment.md).
 
 ## Deploy
 

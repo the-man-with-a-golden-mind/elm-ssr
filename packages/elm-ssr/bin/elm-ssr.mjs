@@ -86,7 +86,8 @@ const printHelp = () => {
 
   build         Generate wrapper modules and compile configured Elm SSR apps
   compress      Pre-compress island and app bundles using Gzip for faster edge delivery
-  dev           Build and start wrangler dev using the current workspace config
+  dev           Build and serve the app locally with Bun (use --cf to dev against
+                wrangler/D1 instead, or --port to change the listening port)
   init <name>   Create ./<name>/ and scaffold a self-contained single-app project inside it
                 (use --db to wire SQLite/migrations, --auth betterAuth|auth0 for auth guards, --tailwind for Tailwind CSS)
   new <name>    Create a new app at <workspace>/<name>/ and register it in elm-ssr.config.json
@@ -139,6 +140,26 @@ switch (command) {
       await build({ rootPath, config });
     }
 
+    let hasWranglerConfig = false;
+    try {
+      const tomlContent = await readFile(resolve(rootPath, "wrangler.toml"), "utf8");
+      if (tomlContent.trim().length > 0) hasWranglerConfig = true;
+    } catch {}
+    try {
+      const jsonContent = await readFile(resolve(rootPath, "wrangler.jsonc"), "utf8");
+      if (jsonContent.trim().length > 0) hasWranglerConfig = true;
+    } catch {}
+
+    // Default dev runtime is Bun itself, not wrangler — this is what actually
+    // activates the bun:sqlite / DATABASE_URL code paths generated for --db
+    // and --auth apps. wrangler dev runs in workerd, which has no `Bun`
+    // global and, without a hand-configured D1 binding, no `env.DB` either —
+    // so those apps were silently falling back to in-memory storage. Pass
+    // --cf, or commit a wrangler.toml/.jsonc, to dev against the real
+    // Cloudflare Workers + D1 runtime instead.
+    const useWrangler = args.includes("--cf") || hasWranglerConfig;
+
+    let restartServer = () => {};
     let buildTimeout = null;
     const triggerBuild = () => {
       if (buildTimeout) clearTimeout(buildTimeout);
@@ -147,6 +168,7 @@ switch (command) {
         try {
           await build({ rootPath, config });
           console.log("[elm-ssr] Rebuild successful.");
+          restartServer();
         } catch (err) {
           console.error("[elm-ssr] Rebuild failed:", err);
         }
@@ -171,42 +193,100 @@ switch (command) {
     const cleanup = () => {
       for (const w of watchers) w.close();
     };
-
-    process.on("SIGINT", cleanup);
     process.on("exit", cleanup);
 
-    let wranglerCmd = "./node_modules/.bin/wrangler";
-    let wranglerArgs = ["dev"];
-    try {
-      await readFile(resolve(rootPath, wranglerCmd));
-    } catch {
-      wranglerCmd = "bunx";
-      wranglerArgs = ["wrangler", "dev"];
-    }
+    if (useWrangler) {
+      process.on("SIGINT", cleanup);
 
-    let hasWranglerConfig = false;
-    try {
-      const tomlContent = await readFile(resolve(rootPath, "wrangler.toml"), "utf8");
-      if (tomlContent.trim().length > 0) hasWranglerConfig = true;
-    } catch {}
-    try {
-      const jsonContent = await readFile(resolve(rootPath, "wrangler.jsonc"), "utf8");
-      if (jsonContent.trim().length > 0) hasWranglerConfig = true;
-    } catch {}
-
-    if (!hasWranglerConfig) {
-      const app = config.apps[0];
-      if (app) {
-        wranglerArgs.push(`${app.root}/worker.ts`);
-        wranglerArgs.push("--compatibility-date", "2026-05-28");
-        wranglerArgs.push("--compatibility-flags", "nodejs_compat");
+      let wranglerCmd = "./node_modules/.bin/wrangler";
+      let wranglerArgs = ["dev"];
+      try {
+        await readFile(resolve(rootPath, wranglerCmd));
+      } catch {
+        wranglerCmd = "bunx";
+        wranglerArgs = ["wrangler", "dev"];
       }
-    }
 
-    try {
-      await run(wranglerCmd, wranglerArgs, rootPath);
-    } finally {
-      cleanup();
+      if (!hasWranglerConfig) {
+        const app = config.apps[0];
+        if (app) {
+          wranglerArgs.push(`${app.root}/worker.ts`);
+          wranglerArgs.push("--compatibility-date", "2026-05-28");
+          wranglerArgs.push("--compatibility-flags", "nodejs_compat");
+        }
+      }
+
+      try {
+        await run(wranglerCmd, wranglerArgs, rootPath);
+      } finally {
+        cleanup();
+      }
+    } else {
+      const app = config.apps[0];
+      if (!app) {
+        console.error("[elm-ssr] No apps configured in elm-ssr.config.json.");
+        process.exit(1);
+      }
+      if (config.apps.length > 1) {
+        console.warn(
+          `[elm-ssr] ${config.apps.length} apps configured; dev serves only "${app.name}" (the first). ` +
+            `Use --cf with a wrangler.toml routing multiple workers if you need them all.`
+        );
+      }
+
+      const appRootAbs = resolve(rootPath, app.root);
+      const devServerScript = new URL("../lib/dev-server.mjs", import.meta.url).pathname;
+      const port = findFlagValue("--port") ?? "8787";
+
+      let child = null;
+      const killChild = () => {
+        if (!child) return;
+        try {
+          child.kill();
+        } catch {}
+        child = null;
+      };
+      const spawnServer = () => {
+        const proc = Bun.spawn(["bun", devServerScript, appRootAbs, port], {
+          cwd: rootPath,
+          stdout: "inherit",
+          stderr: "inherit",
+          stdin: "inherit",
+          env: process.env
+        });
+        // If this exact process dies without us having replaced/killed it
+        // first (a real crash — bad DATABASE_URL, unhandled exception, the
+        // port already in use, ...) the CLI must not keep running as if dev
+        // were still up: silently surviving a dead server is exactly the
+        // kind of hidden failure this command exists to prevent.
+        proc.exited.then((code) => {
+          if (proc !== child) return; // superseded by restartServer() — expected
+          console.error(`[elm-ssr] dev server exited unexpectedly (code ${code}). Stopping.`);
+          cleanup();
+          process.exit(code ?? 1);
+        });
+        return proc;
+      };
+      restartServer = () => {
+        killChild();
+        child = spawnServer();
+      };
+      restartServer();
+
+      // Covers Ctrl+C (SIGINT), `kill`/process-manager stop (SIGTERM), and
+      // any other path that ends this process (`exit`) — a dev server child
+      // left running after the CLI exits holds the port and confuses the
+      // next `bun run dev` with a stale, unreachable "listening" log. This
+      // can't catch SIGKILL (nothing can); `pkill -f dev-server.mjs` is the
+      // manual escape hatch for that case.
+      const shutdown = () => {
+        cleanup();
+        killChild();
+        process.exit(0);
+      };
+      process.on("SIGINT", shutdown);
+      process.on("SIGTERM", shutdown);
+      process.on("exit", killChild);
     }
     break;
   }

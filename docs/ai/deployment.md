@@ -67,6 +67,6 @@ Cloudflare Queues.
 
 ## Footguns
 
-- `elm-ssr dev` runs `wrangler dev`; it is Cloudflare-oriented convenience, not the only local run path.
+- `elm-ssr dev` serves the app directly under Bun by default (activates `bun:sqlite`/`DATABASE_URL`); pass `--cf` (or commit a `wrangler.toml`/`.jsonc`) to run `wrangler dev` / real Cloudflare D1 instead. Neither is the only local run path — see [CLI](cli.md).
 - `cloudflareEffects` requires Cloudflare-style `env` bindings named `CACHE`/`DB` by default.
 - `withQueueProducer` is not a generic queue abstraction; it targets Cloudflare Queues.
