@@ -1,10 +1,20 @@
-import { describe, expect, it } from "bun:test";
-import { worker } from "../examples/crypto-dashboard/runtime";
+import { beforeAll, describe, expect, it } from "bun:test";
 
 // End-to-end coverage of the crypto-dashboard's market ticker.
 // /__elm-ssr/markets/stream pushes { coins, at } payloads every 2s with
 // nudged prices; the MarketOverview island consumes this via SSE instead of
 // the previous 15s HTTP poll.
+
+// Dynamic import (instead of a static one) so we can clear globalThis.Elm
+// first — Elm's _Platform_export merges into that shared global across the
+// whole `bun test` process, and crashes if an earlier test's dynamically
+// scaffolded app also registered a `Main` module there.
+let worker: { fetch: (request: Request) => Promise<Response> };
+
+beforeAll(async () => {
+  delete (globalThis as any).Elm;
+  ({ worker } = await import("../examples/crypto-dashboard/runtime"));
+});
 
 interface MarketCoin {
   id: string;

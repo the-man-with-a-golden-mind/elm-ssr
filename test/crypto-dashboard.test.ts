@@ -1,5 +1,15 @@
-import { describe, expect, it } from "bun:test";
-import { renderPath } from "../examples/crypto-dashboard/runtime";
+import { beforeAll, describe, expect, it } from "bun:test";
+
+// Dynamic import (instead of a static one) so we can clear globalThis.Elm
+// first — Elm's _Platform_export merges into that shared global across the
+// whole `bun test` process, and crashes if an earlier test's dynamically
+// scaffolded app also registered a `Main` module there.
+let renderPath: (path: string) => Promise<any>;
+
+beforeAll(async () => {
+  delete (globalThis as any).Elm;
+  ({ renderPath } = await import("../examples/crypto-dashboard/runtime"));
+});
 
 describe("Crypto Dashboard Interoperability", () => {
   it("renders the dashboard with MarketOverview and PriceChart islands", async () => {

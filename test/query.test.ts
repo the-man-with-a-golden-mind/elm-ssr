@@ -259,6 +259,10 @@ export const worker = createWorkerApp({
     expect(buildExitCode).toBe(0);
 
     // Dynamic import of the compiled worker to test E2E DSL rendering!
+    // Clear any Elm module registered by an earlier test's dynamic import first —
+    // Elm's _Platform_export merges into a shared globalThis.Elm across the whole
+    // `bun test` process, and crashes if two different apps both register `Main`.
+    delete (globalThis as any).Elm;
     const runtimePath = resolve(root, "db-app/runtime.ts");
     const { worker } = await import(runtimePath);
     
