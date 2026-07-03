@@ -37,7 +37,7 @@ describe("Type-Safe Data Layer & Schema Generation (elm query)", () => {
     // Scaffold a new app
     const scaffoldCmd = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "new", "db-app", "--root", root],
-      { cwd: "/Users/michalmajchrzak/Projects/elmssr" }
+      { cwd: process.cwd() }
     );
     expect(await scaffoldCmd.exited).toBe(0);
 
@@ -60,7 +60,7 @@ describe("Type-Safe Data Layer & Schema Generation (elm query)", () => {
     // Run the query generation command
     const queryCmd = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "query", "--root", root],
-      { cwd: "/Users/michalmajchrzak/Projects/elmssr" }
+      { cwd: process.cwd() }
     );
     expect(await queryCmd.exited).toBe(0);
 
@@ -249,7 +249,7 @@ export const worker = createWorkerApp({
     // Verify the project compiles cleanly with the new generated Db module!
     const buildCmd = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "build", "--root", root],
-      { cwd: "/Users/michalmajchrzak/Projects/elmssr" }
+      { cwd: process.cwd() }
     );
     const buildExitCode = await buildCmd.exited;
     if (buildExitCode !== 0) {

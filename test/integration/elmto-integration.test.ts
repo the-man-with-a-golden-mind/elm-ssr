@@ -48,7 +48,7 @@ integration("Elmto Integration (Real SQLite and PostgreSQL Repo)", () => {
     // 1. Scaffold new app
     const scaffoldCmd = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "new", "elmto-it-app", "--root", root],
-      { cwd: "/Users/michalmajchrzak/Projects/elmssr" }
+      { cwd: process.cwd() }
     );
     expect(await scaffoldCmd.exited).toBe(0);
 
@@ -1029,7 +1029,7 @@ export const createTestWorker = (config: { dialect: "sqlite" | "postgres", sqlit
     const buildCmd = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "build", "--root", root],
       {
-        cwd: "/Users/michalmajchrzak/Projects/elmssr",
+        cwd: process.cwd(),
         stdout: "pipe",
         stderr: "pipe"
       }

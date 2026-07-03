@@ -25,7 +25,7 @@ describe("Zero-Config Tailwind & CSS Styling Pipeline", () => {
     // Scaffold a new app
     const scaffoldCmd = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "new", "plain-app", "--root", root],
-      { cwd: "/Users/michalmajchrzak/Projects/elmssr" }
+      { cwd: process.cwd() }
     );
     expect(await scaffoldCmd.exited).toBe(0);
 
@@ -42,7 +42,7 @@ describe("Zero-Config Tailwind & CSS Styling Pipeline", () => {
     // Build the plain-app (tailwind is not set to true)
     const buildCmd = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "build", "--root", root],
-      { cwd: "/Users/michalmajchrzak/Projects/elmssr" }
+      { cwd: process.cwd() }
     );
     expect(await buildCmd.exited).toBe(0);
 
@@ -70,7 +70,7 @@ describe("Zero-Config Tailwind & CSS Styling Pipeline", () => {
     // Scaffold a new app
     const scaffoldCmd = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "new", "tailwind-app", "--root", root],
-      { cwd: "/Users/michalmajchrzak/Projects/elmssr" }
+      { cwd: process.cwd() }
     );
     expect(await scaffoldCmd.exited).toBe(0);
 
@@ -105,7 +105,7 @@ describe("Zero-Config Tailwind & CSS Styling Pipeline", () => {
     // Build the tailwind-app
     const buildCmd = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "build", "--root", root],
-      { cwd: "/Users/michalmajchrzak/Projects/elmssr" }
+      { cwd: process.cwd() }
     );
     expect(await buildCmd.exited).toBe(0);
 
@@ -136,7 +136,7 @@ describe("Zero-Config Tailwind & CSS Styling Pipeline", () => {
     // Scaffold a new app
     const scaffoldCmd = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "new", "border-app", "--root", root],
-      { cwd: "/Users/michalmajchrzak/Projects/elmssr" }
+      { cwd: process.cwd() }
     );
     expect(await scaffoldCmd.exited).toBe(0);
 
@@ -146,7 +146,7 @@ describe("Zero-Config Tailwind & CSS Styling Pipeline", () => {
 
     const buildCmd1 = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "build", "--root", root],
-      { cwd: "/Users/michalmajchrzak/Projects/elmssr" }
+      { cwd: process.cwd() }
     );
     expect(await buildCmd1.exited).toBe(0);
     let stylesExist = true;
@@ -161,7 +161,7 @@ describe("Zero-Config Tailwind & CSS Styling Pipeline", () => {
     await writeFile(resolve(root, "border-app/src/app.css"), "", "utf8");
     const buildCmd2 = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "build", "--root", root],
-      { cwd: "/Users/michalmajchrzak/Projects/elmssr" }
+      { cwd: process.cwd() }
     );
     expect(await buildCmd2.exited).toBe(0);
     const stylesContent2 = await readFile(stylesPath, "utf8");
@@ -176,7 +176,7 @@ describe("Zero-Config Tailwind & CSS Styling Pipeline", () => {
     await writeFile(resolve(root, "border-app/src/app.css"), trickyCss, "utf8");
     const buildCmd3 = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "build", "--root", root],
-      { cwd: "/Users/michalmajchrzak/Projects/elmssr" }
+      { cwd: process.cwd() }
     );
     expect(await buildCmd3.exited).toBe(0);
     const stylesContent3 = await readFile(stylesPath, "utf8");

@@ -34,7 +34,7 @@ describe("elm-ssr CLI", () => {
     const command = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "new", "hello-world", "--root", root],
       {
-        cwd: "/Users/michalmajchrzak/Projects/elmssr",
+        cwd: process.cwd(),
         stdout: "pipe",
         stderr: "pipe"
       }
@@ -82,7 +82,7 @@ describe("elm-ssr CLI", () => {
     const command = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "new", "billing", "--in", "apps", "--root", root],
       {
-        cwd: "/Users/michalmajchrzak/Projects/elmssr",
+        cwd: process.cwd(),
         stdout: "pipe",
         stderr: "pipe"
       }
@@ -110,7 +110,7 @@ describe("elm-ssr CLI", () => {
     const command = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "new", "my-app", "--root", root],
       {
-        cwd: "/Users/michalmajchrzak/Projects/elmssr",
+        cwd: process.cwd(),
         stdout: "pipe",
         stderr: "pipe"
       }
@@ -146,7 +146,7 @@ describe("elm-ssr CLI", () => {
     const command = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "build", "--root", root],
       {
-        cwd: "/Users/michalmajchrzak/Projects/elmssr",
+        cwd: process.cwd(),
         stdout: "pipe",
         stderr: "pipe"
       }
@@ -203,7 +203,7 @@ describe("elm-ssr CLI", () => {
     const command = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "init", "single-app", "--root", root],
       {
-        cwd: "/Users/michalmajchrzak/Projects/elmssr",
+        cwd: process.cwd(),
         stdout: "pipe",
         stderr: "pipe"
       }
@@ -253,7 +253,7 @@ describe("elm-ssr CLI", () => {
     const buildCommand = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "build", "--root", appDir],
       {
-        cwd: "/Users/michalmajchrzak/Projects/elmssr",
+        cwd: process.cwd(),
         stdout: "pipe",
         stderr: "pipe"
       }
@@ -357,7 +357,7 @@ describe("elm-ssr CLI", () => {
     const newCmd = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "new", "my-app", "--root", root],
       {
-        cwd: "/Users/michalmajchrzak/Projects/elmssr",
+        cwd: process.cwd(),
         stdout: "pipe",
         stderr: "pipe"
       }
@@ -370,7 +370,7 @@ describe("elm-ssr CLI", () => {
     const htmlCmd = Bun.spawn(
       ["bun", binPath, "route", "profile/settings", "--root", root],
       {
-        cwd: "/Users/michalmajchrzak/Projects/elmssr",
+        cwd: process.cwd(),
         stdout: "pipe",
         stderr: "pipe"
       }
@@ -382,7 +382,7 @@ describe("elm-ssr CLI", () => {
     const apiCmd = Bun.spawn(
       ["bun", binPath, "route", "api/users", "--api", "--root", root],
       {
-        cwd: "/Users/michalmajchrzak/Projects/elmssr",
+        cwd: process.cwd(),
         stdout: "pipe",
         stderr: "pipe"
       }
@@ -396,7 +396,7 @@ describe("elm-ssr CLI", () => {
     const sseCmd = Bun.spawn(
       ["bun", binPath, "route", "api/live-stream", "--sse", "--root", root],
       {
-        cwd: "/Users/michalmajchrzak/Projects/elmssr",
+        cwd: process.cwd(),
         stdout: "pipe",
         stderr: "pipe"
       }
@@ -410,7 +410,7 @@ describe("elm-ssr CLI", () => {
     const wsCmd = Bun.spawn(
       ["bun", binPath, "route", "chat", "--ws", "--root", root],
       {
-        cwd: "/Users/michalmajchrzak/Projects/elmssr",
+        cwd: process.cwd(),
         stdout: "pipe",
         stderr: "pipe"
       }
@@ -424,7 +424,7 @@ describe("elm-ssr CLI", () => {
     const resourceCmd = Bun.spawn(
       ["bun", binPath, "route", "todos", "--resource", "--root", root],
       {
-        cwd: "/Users/michalmajchrzak/Projects/elmssr",
+        cwd: process.cwd(),
         stdout: "pipe",
         stderr: "pipe"
       }
@@ -443,7 +443,7 @@ describe("elm-ssr CLI", () => {
     const buildCmd = Bun.spawn(
       ["bun", binPath, "build", "--root", root],
       {
-        cwd: "/Users/michalmajchrzak/Projects/elmssr",
+        cwd: process.cwd(),
         stdout: "pipe",
         stderr: "pipe"
       }
@@ -486,7 +486,7 @@ describe("elm-ssr CLI", () => {
     const badRoute = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "route", "foo", "--root", root],
       {
-        cwd: "/Users/michalmajchrzak/Projects/elmssr",
+        cwd: process.cwd(),
         stdout: "pipe",
         stderr: "pipe"
       }
@@ -512,7 +512,7 @@ describe("elm-ssr CLI", () => {
     const command = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "new", "db-app", "--db", "--root", root],
       {
-        cwd: "/Users/michalmajchrzak/Projects/elmssr",
+        cwd: process.cwd(),
         stdout: "pipe",
         stderr: "pipe"
       }
@@ -541,7 +541,7 @@ describe("elm-ssr CLI", () => {
     const buildCommand = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "build", "--root", root],
       {
-        cwd: "/Users/michalmajchrzak/Projects/elmssr",
+        cwd: process.cwd(),
         stdout: "pipe",
         stderr: "pipe"
       }
@@ -581,7 +581,7 @@ describe("elm-ssr CLI", () => {
 
     const command = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "new", "auth-app", "--auth", "betterAuth", "--root", root],
-      { cwd: "/Users/michalmajchrzak/Projects/elmssr", stdout: "pipe", stderr: "pipe" }
+      { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" }
     );
     expect(await command.exited).toBe(0);
 
@@ -656,7 +656,7 @@ describe("elm-ssr CLI", () => {
     // Elm build
     const buildCommand = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "build", "--root", root],
-      { cwd: "/Users/michalmajchrzak/Projects/elmssr", stdout: "pipe", stderr: "pipe" }
+      { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" }
     );
     const buildExitCode = await buildCommand.exited;
     if (buildExitCode !== 0) {
@@ -771,7 +771,7 @@ describe("elm-ssr CLI", () => {
     // Invalid auth provider
     const badCommand = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "new", "bad-app", "--auth", "invalid-auth-provider", "--root", root],
-      { cwd: "/Users/michalmajchrzak/Projects/elmssr", stdout: "pipe", stderr: "pipe" }
+      { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" }
     );
     expect(await badCommand.exited).toBe(1);
     const stderr = await new Response(badCommand.stderr).text();
@@ -785,7 +785,7 @@ describe("elm-ssr CLI", () => {
 
     const command = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "init", "single-auth", "--auth", "betterAuth", "--root", root],
-      { cwd: "/Users/michalmajchrzak/Projects/elmssr", stdout: "pipe", stderr: "pipe" }
+      { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" }
     );
     expect(await command.exited).toBe(0);
 
@@ -795,7 +795,7 @@ describe("elm-ssr CLI", () => {
 
     const buildCommand = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "build", "--root", appDir],
-      { cwd: "/Users/michalmajchrzak/Projects/elmssr", stdout: "pipe", stderr: "pipe" }
+      { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" }
     );
     const buildCode = await buildCommand.exited;
     if (buildCode !== 0) {
@@ -866,7 +866,7 @@ describe("elm-ssr CLI", () => {
 
     const command = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "new", "auth0-app", "--auth", "auth0", "--root", root],
-      { cwd: "/Users/michalmajchrzak/Projects/elmssr", stdout: "pipe", stderr: "pipe" }
+      { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" }
     );
     expect(await command.exited).toBe(0);
 
@@ -905,7 +905,7 @@ describe("elm-ssr CLI", () => {
     // Elm build
     const buildCommand = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "build", "--root", root],
-      { cwd: "/Users/michalmajchrzak/Projects/elmssr", stdout: "pipe", stderr: "pipe" }
+      { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" }
     );
     expect(await buildCommand.exited).toBe(0);
 
@@ -1119,7 +1119,7 @@ describe("elm-ssr CLI", () => {
     const command = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "new", "tailwind-app", "--tailwind", "--root", root],
       {
-        cwd: "/Users/michalmajchrzak/Projects/elmssr",
+        cwd: process.cwd(),
         stdout: "pipe",
         stderr: "pipe"
       }
@@ -1147,14 +1147,14 @@ describe("elm-ssr CLI", () => {
     // Scaffold a plain app with no auth
     const newCmd = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "new", "myapp", "--root", root],
-      { cwd: "/Users/michalmajchrzak/Projects/elmssr", stdout: "pipe", stderr: "pipe" }
+      { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" }
     );
     expect(await newCmd.exited).toBe(0);
 
     // auth list: no providers yet
     const listBefore = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "auth", "list", "--app", "myapp", "--root", root],
-      { cwd: "/Users/michalmajchrzak/Projects/elmssr", stdout: "pipe", stderr: "pipe" }
+      { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" }
     );
     expect(await listBefore.exited).toBe(0);
     expect(await new Response(listBefore.stdout).text()).toContain("no auth providers");
@@ -1162,7 +1162,7 @@ describe("elm-ssr CLI", () => {
     // auth add betterAuth
     const addCmd = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "auth", "add", "betterAuth", "--app", "myapp", "--root", root],
-      { cwd: "/Users/michalmajchrzak/Projects/elmssr", stdout: "pipe", stderr: "pipe" }
+      { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" }
     );
     expect(await addCmd.exited).toBe(0);
     expect(await new Response(addCmd.stdout).text()).toContain("Added betterAuth");
@@ -1170,7 +1170,7 @@ describe("elm-ssr CLI", () => {
     // auth list: now shows betterAuth
     const listAfter = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "auth", "list", "--app", "myapp", "--root", root],
-      { cwd: "/Users/michalmajchrzak/Projects/elmssr", stdout: "pipe", stderr: "pipe" }
+      { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" }
     );
     expect(await listAfter.exited).toBe(0);
     expect(await new Response(listAfter.stdout).text()).toContain("better-auth");
@@ -1212,7 +1212,7 @@ describe("elm-ssr CLI", () => {
 
     const newCmd = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "new", "myapp", "--root", root],
-      { cwd: "/Users/michalmajchrzak/Projects/elmssr", stdout: "pipe", stderr: "pipe" }
+      { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" }
     );
     expect(await newCmd.exited).toBe(0);
 
@@ -1220,7 +1220,7 @@ describe("elm-ssr CLI", () => {
     for (let i = 0; i < 2; i++) {
       const addCmd = Bun.spawn(
         ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "auth", "add", "betterAuth", "--app", "myapp", "--root", root],
-        { cwd: "/Users/michalmajchrzak/Projects/elmssr", stdout: "pipe", stderr: "pipe" }
+        { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" }
       );
       expect(await addCmd.exited).toBe(0);
     }
@@ -1239,13 +1239,13 @@ describe("elm-ssr CLI", () => {
 
     const newCmd = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "new", "myapp", "--auth", "auth0", "--root", root],
-      { cwd: "/Users/michalmajchrzak/Projects/elmssr", stdout: "pipe", stderr: "pipe" }
+      { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" }
     );
     expect(await newCmd.exited).toBe(0);
 
     const addCmd = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "auth", "add", "betterAuth", "--app", "myapp", "--root", root],
-      { cwd: "/Users/michalmajchrzak/Projects/elmssr", stdout: "pipe", stderr: "pipe" }
+      { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" }
     );
     expect(await addCmd.exited).toBe(0);
 
@@ -1262,7 +1262,7 @@ describe("elm-ssr CLI", () => {
 
     const buildCommand = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "build", "--root", root],
-      { cwd: "/Users/michalmajchrzak/Projects/elmssr", stdout: "pipe", stderr: "pipe" }
+      { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" }
     );
     const buildCode = await buildCommand.exited;
     if (buildCode !== 0) {
@@ -1281,13 +1281,13 @@ describe("elm-ssr CLI", () => {
 
     const newCmd = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "new", "myapp", "--auth", "betterAuth", "--root", root],
-      { cwd: "/Users/michalmajchrzak/Projects/elmssr", stdout: "pipe", stderr: "pipe" }
+      { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" }
     );
     expect(await newCmd.exited).toBe(0);
 
     const addCmd = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "auth", "add", "auth0", "--app", "myapp", "--root", root],
-      { cwd: "/Users/michalmajchrzak/Projects/elmssr", stdout: "pipe", stderr: "pipe" }
+      { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" }
     );
     expect(await addCmd.exited).toBe(0);
 
@@ -1303,7 +1303,7 @@ describe("elm-ssr CLI", () => {
 
     const buildCommand = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "build", "--root", root],
-      { cwd: "/Users/michalmajchrzak/Projects/elmssr", stdout: "pipe", stderr: "pipe" }
+      { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" }
     );
     const buildCode = await buildCommand.exited;
     if (buildCode !== 0) {
@@ -1318,7 +1318,7 @@ describe("elm-ssr CLI", () => {
 
     const newCmd = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "new", "myapp", "--root", root],
-      { cwd: "/Users/michalmajchrzak/Projects/elmssr", stdout: "pipe", stderr: "pipe" }
+      { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" }
     );
     expect(await newCmd.exited).toBe(0);
 
@@ -1331,7 +1331,7 @@ describe("elm-ssr CLI", () => {
     // auth add must NOT overwrite the existing file
     const addCmd = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "auth", "add", "betterAuth", "--app", "myapp", "--root", root],
-      { cwd: "/Users/michalmajchrzak/Projects/elmssr", stdout: "pipe", stderr: "pipe" }
+      { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" }
     );
     expect(await addCmd.exited).toBe(0);
 
@@ -1345,7 +1345,7 @@ describe("elm-ssr CLI", () => {
 
     const newCmd = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "new", "myapp", "--auth", "betterAuth", "--root", root],
-      { cwd: "/Users/michalmajchrzak/Projects/elmssr", stdout: "pipe", stderr: "pipe" }
+      { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" }
     );
     expect(await newCmd.exited).toBe(0);
 
@@ -1354,7 +1354,7 @@ describe("elm-ssr CLI", () => {
     // auth add on already-auth project must be a no-op
     const addCmd = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "auth", "add", "betterAuth", "--app", "myapp", "--root", root],
-      { cwd: "/Users/michalmajchrzak/Projects/elmssr", stdout: "pipe", stderr: "pipe" }
+      { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" }
     );
     expect(await addCmd.exited).toBe(0);
 

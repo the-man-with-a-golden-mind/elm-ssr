@@ -38,7 +38,7 @@ describe("Repo.loadHasMany and Repo.loadBelongsTo (E2E data grouping)", () => {
 
       const scaffoldCmd = Bun.spawn(
         ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "new", "assoc-app", "--root", root],
-        { cwd: "/Users/michalmajchrzak/Projects/elmssr" }
+        { cwd: process.cwd() }
       );
       expect(await scaffoldCmd.exited).toBe(0);
 
@@ -202,7 +202,7 @@ export const worker = createWorkerApp({
       // Build
       const buildCmd = Bun.spawn(
         ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "build", "--root", root],
-        { cwd: "/Users/michalmajchrzak/Projects/elmssr", stdout: "pipe", stderr: "pipe" }
+        { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" }
       );
       const exitCode = await buildCmd.exited;
       if (exitCode !== 0) {

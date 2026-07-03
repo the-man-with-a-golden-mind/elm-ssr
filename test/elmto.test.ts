@@ -37,7 +37,7 @@ describe("Elmto (Ecto-like SQL DSL for Elm)", () => {
     // 1. Scaffold new app
     const scaffoldCmd = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "new", "elmto-app", "--root", root],
-      { cwd: "/Users/michalmajchrzak/Projects/elmssr" }
+      { cwd: process.cwd() }
     );
     expect(await scaffoldCmd.exited).toBe(0);
 
@@ -694,7 +694,7 @@ action _ =
     const buildCmd = Bun.spawn(
       ["bun", "packages/elm-ssr/bin/elm-ssr.mjs", "build", "--root", root],
       {
-        cwd: "/Users/michalmajchrzak/Projects/elmssr",
+        cwd: process.cwd(),
         stdout: "pipe",
         stderr: "pipe"
       }
